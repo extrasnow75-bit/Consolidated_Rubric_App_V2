@@ -6,7 +6,17 @@ import { exportToWord } from '../services/wordExportService';
 import { Upload, Download, Loader2, Trash2, Image as ImageIcon } from 'lucide-react';
 
 export const ScreenshotConverter: React.FC = () => {
-  const { state, setCurrentStep, setRubric, setIsLoading, setError } = useSession();
+  const {
+    state,
+    setCurrentStep,
+    setRubric,
+    setIsLoading,
+    setError,
+    startProgress,
+    stopProgress,
+    setProgress,
+    getAbortSignal,
+  } = useSession();
 
   const [imageFile, setImageFile] = useState<{ data: string; mimeType: string } | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -74,13 +84,39 @@ export const ScreenshotConverter: React.FC = () => {
     setIsProcessing(true);
     setError(null);
 
+    startProgress(1, true);
+    setProgress({ currentStep: 'Analyzing screenshot...' });
+
     try {
+      const signal = getAbortSignal();
+
+      setProgress({ currentStep: 'Detecting rubric content...', percentage: 0.3 });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      if (signal.aborted) {
+        setError('Screenshot processing cancelled');
+        return;
+      }
+
+      setProgress({ currentStep: 'Extracting rubric data...', percentage: 0.6 });
+
       const rubric = await generateRubricFromScreenshot(imageFile, settings);
+
+      if (signal.aborted) {
+        setError('Screenshot processing cancelled');
+        return;
+      }
+
+      setProgress({ currentStep: 'Finalizing rubric...', percentage: 0.9 });
       setRubric(rubric);
+      setProgress({ percentage: 1, itemsProcessed: 1 });
     } catch (err: any) {
-      setError(`Failed to process screenshot: ${err.message}`);
+      if (!getAbortSignal().aborted) {
+        setError(`Failed to process screenshot: ${err.message}`);
+      }
     } finally {
       setIsProcessing(false);
+      stopProgress();
     }
   };
 

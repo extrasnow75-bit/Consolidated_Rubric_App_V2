@@ -9,7 +9,17 @@ import { Upload, Download, Loader2, Copy, Check } from 'lucide-react';
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
 
 export const Part2WordToCsv: React.FC = () => {
-  const { state, setCurrentStep, setCsvOutput, setIsLoading, setError } = useSession();
+  const {
+    state,
+    setCurrentStep,
+    setCsvOutput,
+    setIsLoading,
+    setError,
+    startProgress,
+    stopProgress,
+    setProgress,
+    getAbortSignal,
+  } = useSession();
 
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
@@ -119,11 +129,34 @@ export const Part2WordToCsv: React.FC = () => {
     setIsLoading(true);
     setError(null);
 
+    startProgress(1, true);
+    setProgress({ currentStep: 'Reading document...' });
+
     try {
+      const signal = getAbortSignal();
+
+      setProgress({ currentStep: 'Analyzing rubric structure...', percentage: 0.2 });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      if (signal.aborted) {
+        setError('CSV conversion cancelled');
+        return;
+      }
+
       const rubric = rubricOptions[selectedRubric];
       const prompt = `Extract the rubric named "${rubric.name}" from the attached document and convert it to a Canvas-compatible CSV format. The CSV MUST include:\n1. Header row with exact Canvas headers\n2. One row per criterion\n3. Ratings ordered from highest to lowest points\n4. All point values included\n\nReturn ONLY the CSV format, wrapped in a \`\`\`csv\n\`\`\` code block.`;
 
+      setProgress({
+        currentStep: 'Generating CSV format...',
+        percentage: 0.5,
+      });
+
       const response = await sendMessageToGemini(prompt, attachments);
+
+      if (signal.aborted) {
+        setError('CSV conversion cancelled');
+        return;
+      }
 
       // Extract CSV from code block if present
       let csvData = response;
@@ -132,12 +165,22 @@ export const Part2WordToCsv: React.FC = () => {
         csvData = codeBlockMatch[1];
       }
 
+      setProgress({
+        currentStep: 'Formatting CSV...',
+        percentage: 0.9,
+      });
+
       setCsvContent(csvData);
       setCsvOutput(csvData, `${rubric.name}.csv`);
+
+      setProgress({ percentage: 1, itemsProcessed: 1 });
     } catch (err: any) {
-      setError(`Failed to convert to CSV: ${err.message}`);
+      if (!getAbortSignal().aborted) {
+        setError(`Failed to convert to CSV: ${err.message}`);
+      }
     } finally {
       setIsLoading(false);
+      stopProgress();
     }
   };
 

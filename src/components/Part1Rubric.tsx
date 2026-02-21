@@ -6,7 +6,17 @@ import { exportToWord } from '../services/wordExportService';
 import { Loader2, Download, Trash2, Settings, FileText } from 'lucide-react';
 
 export const Part1Rubric: React.FC = () => {
-  const { state, setCurrentStep, setRubric, setIsLoading, setError } = useSession();
+  const {
+    state,
+    setCurrentStep,
+    setRubric,
+    setIsLoading,
+    setError,
+    startProgress,
+    stopProgress,
+    setProgress,
+    getAbortSignal,
+  } = useSession();
 
   const [assignmentDescription, setAssignmentDescription] = useState<string>('');
   const [settings, setSettings] = useState<GenerationSettings>({
@@ -58,20 +68,46 @@ export const Part1Rubric: React.FC = () => {
     setError(null);
     cancelRef.current = false;
 
+    startProgress(1, true);
+    setProgress({ currentStep: 'Analyzing assignment description...' });
+
     try {
+      // Simulate progress steps
+      setProgress({ currentStep: 'Generating rubric criteria...', percentage: 0.2 });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      const signal = getAbortSignal();
+      if (signal.aborted) {
+        setError('Rubric generation cancelled');
+        return;
+      }
+
+      setProgress({ currentStep: 'Creating evaluation scales...', percentage: 0.5 });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       const rubric = await generateRubricFromDescription(
         assignmentDescription,
         settings
       );
 
+      if (signal.aborted) {
+        setError('Rubric generation cancelled');
+        return;
+      }
+
       if (!cancelRef.current) {
+        setProgress({ currentStep: 'Finalizing rubric...', percentage: 0.9 });
         setRubric(rubric);
+        setProgress({ percentage: 1, itemsProcessed: 1 });
         setError(null);
       }
     } catch (err: any) {
-      setError(`Failed to generate rubric: ${err.message}`);
+      if (!getAbortSignal().aborted) {
+        setError(`Failed to generate rubric: ${err.message}`);
+      }
     } finally {
       setIsGenerating(false);
+      stopProgress();
     }
   };
 
