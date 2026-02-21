@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useRef } from 'react';
 import {
   SessionState,
   AppMode,
@@ -7,6 +7,7 @@ import {
   CanvasConfig,
   BatchItem,
   UploadHistoryItem,
+  ProgressState,
 } from '../types';
 
 // Create context
@@ -24,12 +25,21 @@ const SessionContext = createContext<{
   setError: (error: string | null) => void;
   setIsLoading: (loading: boolean) => void;
   setHelpOpen: (open: boolean) => void;
+  setProgress: (progress: Partial<ProgressState>) => void;
+  startProgress: (totalItems?: number, canCancel?: boolean) => void;
+  stopProgress: () => void;
+  requestCancel: () => void;
+  getAbortSignal: () => AbortSignal;
   clearSession: () => void;
   newBatch: () => void;
 } | undefined>(undefined);
 
 // Provider component
 export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const progressStartTimeRef = useRef<number>(0);
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   const [state, setState] = useState<SessionState>({
     currentStep: AppMode.DASHBOARD,
     rubric: null,
@@ -42,6 +52,18 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     isLoading: false,
     error: null,
     helpOpen: false,
+    progress: {
+      isProcessing: false,
+      percentage: 0,
+      currentStep: '',
+      timeElapsed: 0,
+      timeRemaining: 0,
+      bytesProcessed: 0,
+      totalBytes: 0,
+      itemsProcessed: 0,
+      totalItems: 0,
+      canCancel: false,
+    },
   });
 
   const setCurrentStep = useCallback((step: AppMode) => {
@@ -110,7 +132,97 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     setState((prev) => ({ ...prev, helpOpen: open }));
   }, []);
 
+  const setProgress = useCallback((progress: Partial<ProgressState>) => {
+    setState((prev) => ({
+      ...prev,
+      progress: { ...prev.progress, ...progress },
+    }));
+  }, []);
+
+  const startProgress = useCallback((totalItems: number = 1, canCancel: boolean = true) => {
+    abortControllerRef.current = new AbortController();
+    progressStartTimeRef.current = Date.now();
+
+    setState((prev) => ({
+      ...prev,
+      progress: {
+        isProcessing: true,
+        percentage: 0,
+        currentStep: 'Starting...',
+        timeElapsed: 0,
+        timeRemaining: 0,
+        bytesProcessed: 0,
+        totalBytes: 0,
+        itemsProcessed: 0,
+        totalItems,
+        canCancel,
+      },
+    }));
+
+    // Update elapsed time every 100ms
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+    }
+
+    progressIntervalRef.current = setInterval(() => {
+      setState((prev) => {
+        const elapsed = Date.now() - progressStartTimeRef.current;
+        const percentageDecimal = prev.progress.totalItems > 0
+          ? prev.progress.itemsProcessed / prev.progress.totalItems
+          : 0;
+        const estimatedTotal = percentageDecimal > 0 ? elapsed / percentageDecimal : 0;
+        const remaining = Math.max(0, estimatedTotal - elapsed);
+
+        return {
+          ...prev,
+          progress: {
+            ...prev.progress,
+            timeElapsed: elapsed,
+            timeRemaining: remaining,
+          },
+        };
+      });
+    }, 100);
+  }, []);
+
+  const stopProgress = useCallback(() => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+
+    setState((prev) => ({
+      ...prev,
+      progress: {
+        ...prev.progress,
+        isProcessing: false,
+      },
+    }));
+  }, []);
+
+  const requestCancel = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  }, []);
+
+  const getAbortSignal = useCallback((): AbortSignal => {
+    if (!abortControllerRef.current) {
+      abortControllerRef.current = new AbortController();
+    }
+    return abortControllerRef.current.signal;
+  }, []);
+
   const clearSession = useCallback(() => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
     setState({
       currentStep: AppMode.DASHBOARD,
       rubric: null,
@@ -123,6 +235,18 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       isLoading: false,
       error: null,
       helpOpen: false,
+      progress: {
+        isProcessing: false,
+        percentage: 0,
+        currentStep: '',
+        timeElapsed: 0,
+        timeRemaining: 0,
+        bytesProcessed: 0,
+        totalBytes: 0,
+        itemsProcessed: 0,
+        totalItems: 0,
+        canCancel: false,
+      },
     });
   }, []);
 
@@ -153,6 +277,11 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     setError,
     setIsLoading,
     setHelpOpen,
+    setProgress,
+    startProgress,
+    stopProgress,
+    requestCancel,
+    getAbortSignal,
     clearSession,
     newBatch,
   };

@@ -39,6 +39,23 @@ export enum AppModeForUpload {
 export type FileProcessingStatus = 'pending' | 'uploading' | 'success' | 'error';
 
 // =========================
+// INTERFACES - PROGRESS TRACKING
+// =========================
+
+export interface ProgressState {
+  isProcessing: boolean;
+  percentage: number;
+  currentStep: string;
+  timeElapsed: number; // milliseconds
+  timeRemaining: number; // milliseconds
+  bytesProcessed: number;
+  totalBytes: number;
+  itemsProcessed: number;
+  totalItems: number;
+  canCancel: boolean;
+}
+
+// =========================
 // INTERFACES - RUBRIC DATA
 // =========================
 
@@ -191,6 +208,9 @@ export interface SessionState {
   isLoading: boolean;
   error: string | null;
   helpOpen: boolean;
+
+  // Progress tracking
+  progress: ProgressState;
 }
 
 // =========================

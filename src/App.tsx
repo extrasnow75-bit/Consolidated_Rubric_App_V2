@@ -7,10 +7,11 @@ import { Part2WordToCsv } from './components/Part2WordToCsv';
 import { Part3Upload } from './components/Part3Upload';
 import { ScreenshotConverter } from './components/ScreenshotConverter';
 import HelpCenter from './components/HelpCenter';
+import ProgressDisplay from './components/ProgressDisplay';
 import { AppMode } from './types';
 
 const AppContent: React.FC = () => {
-  const { state, setHelpOpen } = useSession();
+  const { state, setHelpOpen, stopProgress } = useSession();
 
   const renderContent = () => {
     switch (state.currentStep) {
@@ -30,10 +31,13 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <Layout>
-      {renderContent()}
-      <HelpCenter isOpen={state.helpOpen} onClose={() => setHelpOpen(false)} />
-    </Layout>
+    <>
+      <Layout>
+        {renderContent()}
+        <HelpCenter isOpen={state.helpOpen} onClose={() => setHelpOpen(false)} />
+      </Layout>
+      <ProgressDisplay progress={state.progress} onStop={stopProgress} />
+    </>
   );
 };
 

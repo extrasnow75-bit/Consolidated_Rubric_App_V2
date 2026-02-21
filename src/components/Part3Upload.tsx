@@ -14,7 +14,18 @@ interface BatchFile {
 }
 
 export const Part3Upload: React.FC = () => {
-  const { state, setCsvOutput, setCanvasConfig, setError, setIsLoading, addToHistory } = useSession();
+  const {
+    state,
+    setCsvOutput,
+    setCanvasConfig,
+    setError,
+    setIsLoading,
+    addToHistory,
+    startProgress,
+    stopProgress,
+    setProgress,
+    getAbortSignal,
+  } = useSession();
 
   const [courseUrl, setCourseUrl] = useState('');
   const [accessToken, setAccessToken] = useState('');
@@ -108,30 +119,55 @@ export const Part3Upload: React.FC = () => {
     try {
       if (uploadMode === 'single') {
         // Single upload
-        const result = await pushRubricToCanvas(config, csvToUse);
-        setUploadStatus(result);
+        startProgress(1, true);
+        setProgress({ currentStep: 'Uploading rubric to Canvas...' });
 
-        if (result.success) {
-          setCanvasConfig(config);
-          addToHistory({
-            id: Date.now().toString(),
-            timestamp: Date.now(),
-            rubricName: 'Uploaded Rubric',
-            totalPoints: parseInt(state.rubricMetadata?.totalPoints || '0') || 100,
-            csvFileName: state.csvFileName || 'rubric.csv',
-            canvasUploadStatus: 'success',
-          });
+        try {
+          const result = await pushRubricToCanvas(config, csvToUse);
+          setUploadStatus(result);
+
+          if (result.success) {
+            setCanvasConfig(config);
+            addToHistory({
+              id: Date.now().toString(),
+              timestamp: Date.now(),
+              rubricName: 'Uploaded Rubric',
+              totalPoints: parseInt(state.rubricMetadata?.totalPoints || '0') || 100,
+              csvFileName: state.csvFileName || 'rubric.csv',
+              canvasUploadStatus: 'success',
+            });
+            setProgress({ percentage: 1, itemsProcessed: 1 });
+          }
+        } finally {
+          stopProgress();
         }
       } else {
-        // Batch upload
+        // Batch upload with progress tracking
+        startProgress(batchFiles.length, true);
+
         const updatedFiles = [...batchFiles];
         let successCount = 0;
         let errorCount = 0;
 
         for (let i = 0; i < updatedFiles.length; i++) {
+          // Check if cancelled
+          const signal = getAbortSignal();
+          if (signal.aborted) {
+            setError('Upload cancelled by user');
+            break;
+          }
+
           const file = updatedFiles[i];
           updatedFiles[i] = { ...file, status: 'uploading' };
           setBatchFiles([...updatedFiles]);
+
+          // Update progress
+          const percentage = i / updatedFiles.length;
+          setProgress({
+            currentStep: `Uploading: ${file.name}`,
+            percentage,
+            itemsProcessed: i,
+          });
 
           try {
             const result = await pushRubricToCanvas(config, file.content);
@@ -171,6 +207,10 @@ export const Part3Upload: React.FC = () => {
 
           setBatchFiles([...updatedFiles]);
         }
+
+        // Final progress update
+        setProgress({ percentage: 1, itemsProcessed: batchFiles.length });
+        stopProgress();
 
         setUploadStatus({
           success: errorCount === 0,
