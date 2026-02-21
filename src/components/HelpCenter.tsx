@@ -49,7 +49,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
                 rel="noopener noreferrer"
                 className="flex items-center justify-between p-4 bg-gray-50 hover:bg-blue-50 border border-gray-100 hover:border-blue-200 rounded-2xl transition-all group"
               >
-                <span className="text-sm font-bold text-gray-800 group-hover:text-blue-700">How to generate an Access Token in Canvas</span>
+                <span className="text-sm font-bold text-gray-800 group-hover:text-blue-700">How To Generate an Access Token in Canvas</span>
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400 group-hover:text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                 </svg>
