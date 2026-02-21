@@ -1,7 +1,7 @@
 import React from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode } from '../types';
-import { Lightbulb, FileText, Upload, Camera } from 'lucide-react';
+import { Lightbulb, FileText, Upload, Camera, ArrowRight } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
   const { state, setCurrentStep, clearSession } = useSession();
@@ -20,7 +20,7 @@ export const Dashboard: React.FC = () => {
 
         {/* Main Workflow Steps */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          {/* Part 1: Create Rubric */}
+          {/* Part 1: Create Draft Rubric */}
           <button
             onClick={() => handleStartPart(AppMode.PART_1)}
             className="w-full p-6 rounded-2xl border-2 border-gray-100 hover:border-blue-500 hover:bg-blue-50 transition-all shadow-lg bg-white flex flex-col items-start group text-left"
@@ -29,9 +29,13 @@ export const Dashboard: React.FC = () => {
               <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center group-hover:bg-amber-200 transition-all">
                 <Lightbulb className="w-6 h-6 text-amber-600" />
               </div>
+              <ArrowRight className="w-5 h-5 text-gray-400" />
+              <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-all">
+                <div className="text-blue-600 font-black text-sm">W</div>
+              </div>
             </div>
-            <h3 className="font-black text-lg text-gray-900">Create Rubric</h3>
-            <p className="text-sm text-gray-600 mt-1">Transform assignment descriptions into rubrics</p>
+            <h3 className="font-black text-lg text-gray-900">Create Draft Rubric</h3>
+            <p className="text-sm text-gray-600 mt-1">Create draft rubric from assignment description</p>
           </button>
 
           {/* Part 2: Convert Word to CSV */}

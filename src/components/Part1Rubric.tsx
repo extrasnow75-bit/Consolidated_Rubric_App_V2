@@ -103,9 +103,9 @@ export const Part1Rubric: React.FC = () => {
       <div className="bg-white p-10 rounded-3xl shadow-2xl border border-gray-100 max-w-2xl w-full">
         {!state.rubric ? (
           <>
-            <h2 className="text-2xl font-black text-gray-900 mb-2">Create Rubric</h2>
+            <h2 className="text-2xl font-black text-gray-900 mb-2">Create Draft Rubric</h2>
             <p className="text-gray-600 font-medium mb-8">
-              Paste or upload an assignment description to generate a rubric
+              Paste or upload an assignment description to create a draft rubric
             </p>
 
             {/* File Upload Area */}

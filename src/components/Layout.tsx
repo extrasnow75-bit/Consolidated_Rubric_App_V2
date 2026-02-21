@@ -34,12 +34,12 @@ const CSVIcon = () => (
 );
 
 const CanvasLogo = () => (
-  <div className="relative w-10 h-10 flex items-center justify-center bg-white rounded-xl shadow-sm border border-slate-100 p-1.5">
-    <div className="relative w-full h-full">
-      <svg viewBox="0 0 24 24" className="w-full h-full text-[#d82315]" fill="currentColor">
-        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
-      </svg>
-    </div>
+  <div className="relative w-10 h-10 flex items-center justify-center bg-white rounded-xl shadow-sm border border-slate-100">
+    <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
+      {/* Canvas LMS red circle with white C */}
+      <circle cx="12" cy="12" r="11" fill="#C1272D"/>
+      <path d="M7.5 10 Q 7 10 7 12 Q 7 14 7.5 14 L 14 14 L 14 13 L 8.5 13 Q 8 13 8 12 Q 8 11 8.5 11 L 14 11 L 14 10 Z" fill="white"/>
+    </svg>
   </div>
 );
 
@@ -74,7 +74,9 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         return (
           <div className={baseClasses}>
             <IconBox><LightbulbIcon /></IconBox>
-            <span className="text-sm font-black text-gray-700 uppercase tracking-widest">Step 1: Create Rubric</span>
+            <RightArrow />
+            <IconBox><WordIcon /></IconBox>
+            <span className="text-sm font-black text-gray-700 uppercase tracking-widest ml-2">Step 1: Create Draft Rubric</span>
           </div>
         );
       case AppMode.PART_2:

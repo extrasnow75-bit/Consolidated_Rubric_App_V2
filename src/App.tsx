@@ -6,7 +6,7 @@ import { Part1Rubric } from './components/Part1Rubric';
 import { Part2WordToCsv } from './components/Part2WordToCsv';
 import { Part3Upload } from './components/Part3Upload';
 import { ScreenshotConverter } from './components/ScreenshotConverter';
-import { HelpCenter } from './components/HelpCenter';
+import HelpCenter from './components/HelpCenter';
 import { AppMode } from './types';
 
 const AppContent: React.FC = () => {
