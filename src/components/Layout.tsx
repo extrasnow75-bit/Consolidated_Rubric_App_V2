@@ -35,10 +35,17 @@ const CSVIcon = () => (
 
 const CanvasLogo = () => (
   <div className="relative w-10 h-10 flex items-center justify-center bg-white rounded-xl shadow-sm border border-slate-100">
-    <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
-      {/* Canvas LMS red circle with white C */}
-      <circle cx="12" cy="12" r="11" fill="#C1272D"/>
-      <path d="M7.5 10 Q 7 10 7 12 Q 7 14 7.5 14 L 14 14 L 14 13 L 8.5 13 Q 8 13 8 12 Q 8 11 8.5 11 L 14 11 L 14 10 Z" fill="white"/>
+    <svg viewBox="0 0 100 100" className="w-6 h-6" xmlns="http://www.w3.org/2000/svg">
+      {/* Canvas LMS Logo - Improved design */}
+      <defs>
+        <radialGradient id="canvasGrad" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" style={{ stopColor: '#FF6B5B', stopOpacity: 1 }} />
+          <stop offset="100%" style={{ stopColor: '#E64C3C', stopOpacity: 1 }} />
+        </radialGradient>
+      </defs>
+      <circle cx="50" cy="50" r="48" fill="url(#canvasGrad)"/>
+      {/* White C letter with rounded corners */}
+      <path d="M 70 35 C 75 35 78 38 78 43 L 78 57 C 78 62 75 65 70 65 L 35 65 L 35 55 L 68 55 C 70 55 71 54 71 52 L 71 48 C 71 46 70 45 68 45 L 35 45 L 35 35 L 70 35 Z" fill="white"/>
     </svg>
   </div>
 );

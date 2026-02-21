@@ -32,7 +32,7 @@ const AppContent: React.FC = () => {
   return (
     <Layout>
       {renderContent()}
-      {state.helpOpen && <HelpCenter onClose={() => setHelpOpen(false)} />}
+      <HelpCenter isOpen={state.helpOpen} onClose={() => setHelpOpen(false)} />
     </Layout>
   );
 };
