@@ -151,7 +151,6 @@ export const Part3Upload: React.FC = () => {
           stopProgress();
         }
       } else {
-      } else {
         // Batch upload with progress tracking
         startProgress(batchFiles.length, true);
 
