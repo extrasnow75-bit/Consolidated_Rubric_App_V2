@@ -8,10 +8,19 @@ import { Part3Upload } from './components/Part3Upload';
 import { ScreenshotConverter } from './components/ScreenshotConverter';
 import HelpCenter from './components/HelpCenter';
 import ProgressDisplay from './components/ProgressDisplay';
+import TaskCompletionDialog from './components/TaskCompletionDialog';
 import { AppMode } from './types';
 
 const AppContent: React.FC = () => {
-  const { state, setHelpOpen, stopProgress } = useSession();
+  const {
+    state,
+    setHelpOpen,
+    setTaskCompletionOpen,
+    setCurrentStep,
+    newBatch,
+    clearSession,
+    stopProgress,
+  } = useSession();
 
   const renderContent = () => {
     switch (state.currentStep) {
@@ -30,6 +39,33 @@ const AppContent: React.FC = () => {
     }
   };
 
+  const handleTaskContinue = () => {
+    setTaskCompletionOpen(false);
+    if (state.currentStep === AppMode.PART_1) {
+      setCurrentStep(AppMode.PART_2);
+    } else if (state.currentStep === AppMode.PART_2) {
+      setCurrentStep(AppMode.PART_3);
+    }
+  };
+
+  const handleNewBatch = () => {
+    setTaskCompletionOpen(false);
+    newBatch();
+    if (state.currentStep === AppMode.PART_1 || state.currentStep === AppMode.SCREENSHOT) {
+      // Stay in Part 1 or Screenshot for new batch
+    } else if (state.currentStep === AppMode.PART_2) {
+      setCurrentStep(AppMode.PART_1);
+    } else if (state.currentStep === AppMode.PART_3) {
+      setCurrentStep(AppMode.PART_2);
+    }
+  };
+
+  const handleNewSession = () => {
+    setTaskCompletionOpen(false);
+    clearSession();
+    setCurrentStep(AppMode.DASHBOARD);
+  };
+
   return (
     <>
       <Layout>
@@ -37,6 +73,13 @@ const AppContent: React.FC = () => {
         <HelpCenter isOpen={state.helpOpen} onClose={() => setHelpOpen(false)} />
       </Layout>
       <ProgressDisplay progress={state.progress} onStop={stopProgress} />
+      <TaskCompletionDialog
+        isOpen={state.taskCompletionOpen}
+        currentStep={state.currentStep}
+        onContinue={handleTaskContinue}
+        onNewBatch={handleNewBatch}
+        onNewSession={handleNewSession}
+      />
     </>
   );
 };

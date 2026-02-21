@@ -208,6 +208,7 @@ export interface SessionState {
   isLoading: boolean;
   error: string | null;
   helpOpen: boolean;
+  taskCompletionOpen: boolean;
 
   // Progress tracking
   progress: ProgressState;

@@ -15,6 +15,7 @@ export const Part2WordToCsv: React.FC = () => {
     setCsvOutput,
     setIsLoading,
     setError,
+    setTaskCompletionOpen,
     startProgress,
     stopProgress,
     setProgress,
@@ -174,13 +175,19 @@ export const Part2WordToCsv: React.FC = () => {
       setCsvOutput(csvData, `${rubric.name}.csv`);
 
       setProgress({ percentage: 1, itemsProcessed: 1 });
+
+      // Show task completion dialog
+      setTimeout(() => {
+        stopProgress();
+        setTaskCompletionOpen(true);
+      }, 500);
     } catch (err: any) {
       if (!getAbortSignal().aborted) {
         setError(`Failed to convert to CSV: ${err.message}`);
       }
+      stopProgress();
     } finally {
       setIsLoading(false);
-      stopProgress();
     }
   };
 

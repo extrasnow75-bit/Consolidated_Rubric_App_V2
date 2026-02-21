@@ -25,6 +25,7 @@ const SessionContext = createContext<{
   setError: (error: string | null) => void;
   setIsLoading: (loading: boolean) => void;
   setHelpOpen: (open: boolean) => void;
+  setTaskCompletionOpen: (open: boolean) => void;
   setProgress: (progress: Partial<ProgressState>) => void;
   startProgress: (totalItems?: number, canCancel?: boolean) => void;
   stopProgress: () => void;
@@ -52,6 +53,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     isLoading: false,
     error: null,
     helpOpen: false,
+    taskCompletionOpen: false,
     progress: {
       isProcessing: false,
       percentage: 0,
@@ -130,6 +132,10 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const setHelpOpen = useCallback((open: boolean) => {
     setState((prev) => ({ ...prev, helpOpen: open }));
+  }, []);
+
+  const setTaskCompletionOpen = useCallback((open: boolean) => {
+    setState((prev) => ({ ...prev, taskCompletionOpen: open }));
   }, []);
 
   const setProgress = useCallback((progress: Partial<ProgressState>) => {
@@ -235,6 +241,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       isLoading: false,
       error: null,
       helpOpen: false,
+      taskCompletionOpen: false,
       progress: {
         isProcessing: false,
         percentage: 0,
@@ -277,6 +284,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     setError,
     setIsLoading,
     setHelpOpen,
+    setTaskCompletionOpen,
     setProgress,
     startProgress,
     stopProgress,

@@ -21,6 +21,7 @@ export const Part3Upload: React.FC = () => {
     setError,
     setIsLoading,
     addToHistory,
+    setTaskCompletionOpen,
     startProgress,
     stopProgress,
     setProgress,
@@ -137,10 +138,19 @@ export const Part3Upload: React.FC = () => {
               canvasUploadStatus: 'success',
             });
             setProgress({ percentage: 1, itemsProcessed: 1 });
+
+            // Show task completion dialog
+            setTimeout(() => {
+              stopProgress();
+              setTaskCompletionOpen(true);
+            }, 500);
+          } else {
+            stopProgress();
           }
-        } finally {
+        } catch {
           stopProgress();
         }
+      } else {
       } else {
         // Batch upload with progress tracking
         startProgress(batchFiles.length, true);
@@ -210,14 +220,25 @@ export const Part3Upload: React.FC = () => {
 
         // Final progress update
         setProgress({ percentage: 1, itemsProcessed: batchFiles.length });
-        stopProgress();
 
+        const uploadSuccess = errorCount === 0;
         setUploadStatus({
-          success: errorCount === 0,
+          success: uploadSuccess,
           message: `Batch upload complete: ${successCount} successful, ${errorCount} failed`,
         });
+
+        // Show task completion dialog if all uploads successful
+        if (uploadSuccess) {
+          setTimeout(() => {
+            stopProgress();
+            setTaskCompletionOpen(true);
+          }, 500);
+        } else {
+          stopProgress();
+        }
       }
     } catch (err: any) {
+      stopProgress();
       setUploadStatus({
         success: false,
         message: `Upload failed: ${err.message}`,

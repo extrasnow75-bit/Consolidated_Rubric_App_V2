@@ -12,6 +12,7 @@ export const Part1Rubric: React.FC = () => {
     setRubric,
     setIsLoading,
     setError,
+    setTaskCompletionOpen,
     startProgress,
     stopProgress,
     setProgress,
@@ -100,14 +101,19 @@ export const Part1Rubric: React.FC = () => {
         setRubric(rubric);
         setProgress({ percentage: 1, itemsProcessed: 1 });
         setError(null);
+        // Show task completion dialog
+        setTimeout(() => {
+          stopProgress();
+          setTaskCompletionOpen(true);
+        }, 500);
       }
     } catch (err: any) {
       if (!getAbortSignal().aborted) {
         setError(`Failed to generate rubric: ${err.message}`);
       }
+      stopProgress();
     } finally {
       setIsGenerating(false);
-      stopProgress();
     }
   };
 
