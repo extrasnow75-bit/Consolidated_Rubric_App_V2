@@ -18,14 +18,14 @@ export const Dashboard: React.FC = () => {
           <p className="text-gray-600 font-medium">Choose how you'd like to work with your rubrics</p>
         </div>
 
-        {/* Main Workflow Steps */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        {/* Main Workflow Steps - Vertical Layout */}
+        <div className="space-y-4 mb-6">
           {/* Part 1: Create Draft Rubric */}
           <button
             onClick={() => handleStartPart(AppMode.PART_1)}
-            className="w-full p-6 rounded-2xl border-2 border-gray-100 hover:border-blue-500 hover:bg-blue-50 transition-all shadow-lg bg-white flex flex-col items-start group text-left"
+            className="w-full p-6 rounded-2xl border-2 border-gray-100 hover:border-blue-500 hover:bg-blue-50 transition-all shadow-lg bg-white flex items-start gap-6 group text-left"
           >
-            <div className="flex items-center justify-center w-full gap-3 mb-4">
+            <div className="flex items-center gap-2 pt-1 flex-shrink-0">
               <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center group-hover:bg-amber-200 transition-all">
                 <Lightbulb className="w-6 h-6 text-amber-600" />
               </div>
@@ -34,50 +34,73 @@ export const Dashboard: React.FC = () => {
                 <div className="text-blue-600 font-black text-sm">W</div>
               </div>
             </div>
-            <h3 className="font-black text-lg text-gray-900">Create Draft Rubric</h3>
-            <p className="text-sm text-gray-600 mt-1">Create draft rubric from assignment description</p>
+            <div className="flex-1">
+              <h3 className="font-black text-lg text-gray-900">Create Draft Rubric</h3>
+              <p className="text-sm text-gray-600 mt-2">Create draft rubric from assignment description</p>
+            </div>
           </button>
 
-          {/* Part 2: Convert Word to CSV */}
+          {/* Part 2: Convert draft rubric to CSV */}
           <button
             onClick={() => handleStartPart(AppMode.PART_2)}
-            className="w-full p-6 rounded-2xl border-2 border-gray-100 hover:border-blue-500 hover:bg-blue-50 transition-all shadow-lg bg-white flex flex-col items-start group text-left"
+            className="w-full p-6 rounded-2xl border-2 border-gray-100 hover:border-blue-500 hover:bg-blue-50 transition-all shadow-lg bg-white flex items-start gap-6 group text-left"
           >
-            <div className="flex items-center justify-center w-full gap-3 mb-4">
+            <div className="flex items-center gap-2 pt-1 flex-shrink-0">
               <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-all">
-                <FileText className="w-6 h-6 text-blue-600" />
+                <div className="text-blue-600 font-black text-sm">W</div>
+              </div>
+              <ArrowRight className="w-5 h-5 text-gray-400" />
+              <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center group-hover:bg-green-200 transition-all">
+                <div className="text-green-600 font-black text-[10px]">CSV</div>
               </div>
             </div>
-            <h3 className="font-black text-lg text-gray-900">Convert to CSV</h3>
-            <p className="text-sm text-gray-600 mt-1">Transform Word files to Canvas-compatible CSV</p>
+            <div className="flex-1">
+              <h3 className="font-black text-lg text-gray-900">Convert draft rubric to CSV</h3>
+              <p className="text-sm text-gray-600 mt-2">Transform draft rubric in MS Word format to Canvas-compatible CSV rubric</p>
+            </div>
           </button>
 
           {/* Part 3: Upload to Canvas */}
           <button
             onClick={() => handleStartPart(AppMode.PART_3)}
-            className="w-full p-6 rounded-2xl border-2 border-gray-100 hover:border-blue-500 hover:bg-blue-50 transition-all shadow-lg bg-white flex flex-col items-start group text-left"
+            className="w-full p-6 rounded-2xl border-2 border-gray-100 hover:border-blue-500 hover:bg-blue-50 transition-all shadow-lg bg-white flex items-start gap-6 group text-left"
           >
-            <div className="flex items-center justify-center w-full gap-3 mb-4">
+            <div className="flex items-center gap-2 pt-1 flex-shrink-0">
               <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center group-hover:bg-green-200 transition-all">
-                <Upload className="w-6 h-6 text-green-600" />
+                <div className="text-green-600 font-black text-[10px]">CSV</div>
+              </div>
+              <ArrowRight className="w-5 h-5 text-gray-400" />
+              <div className="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center group-hover:bg-red-200 transition-all">
+                <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
+                  <circle cx="12" cy="12" r="11" fill="#C1272D"/>
+                  <path d="M7.5 10 Q 7 10 7 12 Q 7 14 7.5 14 L 14 14 L 14 13 L 8.5 13 Q 8 13 8 12 Q 8 11 8.5 11 L 14 11 L 14 10 Z" fill="white"/>
+                </svg>
               </div>
             </div>
-            <h3 className="font-black text-lg text-gray-900">Upload to Canvas</h3>
-            <p className="text-sm text-gray-600 mt-1">Push CSV rubrics directly to Canvas LMS</p>
+            <div className="flex-1">
+              <h3 className="font-black text-lg text-gray-900">Upload to Canvas</h3>
+              <p className="text-sm text-gray-600 mt-2">Push CSV rubrics directly to Canvas LMS</p>
+            </div>
           </button>
 
           {/* Screenshot Converter */}
           <button
             onClick={() => handleStartPart(AppMode.SCREENSHOT)}
-            className="w-full p-6 rounded-2xl border-2 border-gray-100 hover:border-blue-500 hover:bg-blue-50 transition-all shadow-lg bg-white flex flex-col items-start group text-left"
+            className="w-full p-6 rounded-2xl border-2 border-gray-100 hover:border-blue-500 hover:bg-blue-50 transition-all shadow-lg bg-white flex items-start gap-6 group text-left"
           >
-            <div className="flex items-center justify-center w-full gap-3 mb-4">
+            <div className="flex items-center gap-2 pt-1 flex-shrink-0">
               <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center group-hover:bg-purple-200 transition-all">
                 <Camera className="w-6 h-6 text-purple-600" />
               </div>
+              <ArrowRight className="w-5 h-5 text-gray-400" />
+              <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-all">
+                <div className="text-blue-600 font-black text-sm">W</div>
+              </div>
             </div>
-            <h3 className="font-black text-lg text-gray-900">Screenshot to Word</h3>
-            <p className="text-sm text-gray-600 mt-1">Convert Canvas rubric screenshots to Word</p>
+            <div className="flex-1">
+              <h3 className="font-black text-lg text-gray-900">Screenshot to Word Template</h3>
+              <p className="text-sm text-gray-600 mt-2">Convert Canvas rubric screenshots to MS Word rubric template</p>
+            </div>
           </button>
         </div>
 
