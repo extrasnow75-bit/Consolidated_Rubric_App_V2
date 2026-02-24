@@ -212,6 +212,11 @@ export interface SessionState {
 
   // Progress tracking
   progress: ProgressState;
+
+  // Caching & Throttling
+  metadataCache?: Map<string, CachedMetadata>; // Cache of extracted metadata by file hash
+  cacheTTL?: number; // Cache time-to-live in ms (default: 30 min)
+  throttlerMetrics?: ThrottlerMetrics; // Current throttler queue status
 }
 
 // =========================
@@ -233,4 +238,32 @@ export interface RubricConfig {
   courseId: string;
   useProxy: boolean;
   proxyService: string;
+}
+
+// =========================
+// INTERFACES - CACHING & THROTTLING
+// =========================
+
+/**
+ * Cached metadata for a document
+ * Used to avoid re-extracting rubric metadata from same document
+ */
+export interface CachedMetadata {
+  fileHash: string;
+  data: RubricMeta;
+  timestamp: number; // When cached
+  ttlMs: number; // Time-to-live in milliseconds
+}
+
+/**
+ * Throttler metrics for monitoring request queue
+ * Updated in real-time as requests are processed
+ */
+export interface ThrottlerMetrics {
+  queued: number; // Number of requests waiting in queue
+  processing: boolean; // Whether a request is currently processing
+  lastRequestTime?: number; // Timestamp of last completed request
+  totalRequests: number; // Total requests processed
+  failedRequests: number; // Total failed requests
+  averageWaitMs?: number; // Average wait time in queue (ms)
 }

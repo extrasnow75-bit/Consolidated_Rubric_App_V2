@@ -1,5 +1,6 @@
 import { GoogleGenAI, Chat, Type } from "@google/genai";
 import { GenerationSettings, PointStyle, RubricData, Attachment, RubricMeta } from "../types";
+import { throttleGeminiRequest } from "./throttlerService";
 
 let client: GoogleGenAI | null = null;
 let chatSession: Chat | null = null;
@@ -16,15 +17,24 @@ const getClient = (): GoogleGenAI => {
 };
 
 /**
- * Utility to retry a function with exponential backoff.
+ * Utility to retry a function with exponential backoff + jitter.
  * Primarily handles 429 RESOURCE_EXHAUSTED errors.
+ *
+ * Backoff sequence with jitter:
+ * - Attempt 1: 5s ± 20%
+ * - Attempt 2: 10s ± 20%
+ * - Attempt 3: 20s ± 20%
+ * - Attempt 4: 40s ± 20%
+ * - Attempt 5: 80s ± 20%
  */
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
-  maxRetries: number = 3,
-  initialDelay: number = 2000
+  maxRetries: number = 5,
+  initialDelay: number = 5000
 ): Promise<T> {
   let lastError: any;
+  const JITTER_RANGE = 0.2; // ±20% variance
+
   for (let i = 0; i < maxRetries; i++) {
     try {
       return await fn();
@@ -36,7 +46,13 @@ async function retryWithBackoff<T>(
         errorMessage.includes("RESOURCE_EXHAUSTED") ||
         errorMessage.includes("quota")
       ) {
-        const delay = initialDelay * Math.pow(2, i);
+        // Calculate base delay with exponential backoff
+        const baseDelay = initialDelay * Math.pow(2, i);
+
+        // Add jitter: ±20% variance
+        const jitterMultiplier = (0.8 + Math.random() * (JITTER_RANGE * 2));
+        const delay = Math.round(baseDelay * jitterMultiplier);
+
         console.warn(
           `Quota exceeded. Retrying in ${delay}ms... (Attempt ${i + 1}/${maxRetries})`
         );
@@ -106,60 +122,64 @@ You must produce CSV files that match the standard Canvas Rubric Import template
 export const extractRubricMetadata = async (
   attachments: Attachment[]
 ): Promise<RubricMeta[]> => {
-  return retryWithBackoff(async () => {
-    const ai = getClient();
+  return throttleGeminiRequest(
+    `metadata-${Date.now()}`,
+    () => retryWithBackoff(async () => {
+      const ai = getClient();
 
-    const parts: any[] = [
-      {
-        text: "Analyze the attached document and identify any structured assessment rubrics. Look for tables containing criteria, performance ratings, and points. If the document is purely a narrative memo or template with no evaluation criteria, return an empty array. If a grading structure is present, extract its Name, Total Points, and whether it uses Point Ranges or Fixed Points.",
-      },
-    ];
-
-    attachments.forEach((att) => {
-      parts.push({
-        inlineData: {
-          mimeType: att.mimeType,
-          data: att.data,
+      const parts: any[] = [
+        {
+          text: "Analyze the attached document and identify any structured assessment rubrics. Look for tables containing criteria, performance ratings, and points. If the document is purely a narrative memo or template with no evaluation criteria, return an empty array. If a grading structure is present, extract its Name, Total Points, and whether it uses Point Ranges or Fixed Points.",
         },
-      });
-    });
+      ];
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents: [{ parts }],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            rubrics: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  name: { type: Type.STRING },
-                  totalPoints: { type: Type.STRING },
-                  scoringMethod: {
-                    type: Type.STRING,
-                    description: "Must be exactly 'ranges' or 'fixed'",
+      attachments.forEach((att) => {
+        parts.push({
+          inlineData: {
+            mimeType: att.mimeType,
+            data: att.data,
+          },
+        });
+      });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: [{ parts }],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              rubrics: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING },
+                    totalPoints: { type: Type.STRING },
+                    scoringMethod: {
+                      type: Type.STRING,
+                      description: "Must be exactly 'ranges' or 'fixed'",
+                    },
                   },
+                  required: ["name", "totalPoints", "scoringMethod"],
                 },
-                required: ["name", "totalPoints", "scoringMethod"],
               },
             },
+            required: ["rubrics"],
           },
-          required: ["rubrics"],
         },
-      },
-    });
+      });
 
-    const result = JSON.parse(response.text || "{}");
-    return (result.rubrics || []).map((r: any) => ({
-      name: r.name || "",
-      totalPoints: r.totalPoints || "",
-      scoringMethod: r.scoringMethod === "fixed" ? "fixed" : "ranges",
-    }));
-  });
+      const result = JSON.parse(response.text || "{}");
+      return (result.rubrics || []).map((r: any) => ({
+        name: r.name || "",
+        totalPoints: r.totalPoints || "",
+        scoringMethod: r.scoringMethod === "fixed" ? "fixed" : "ranges",
+      }));
+    }),
+    { minDelayMs: 3500 }
+  );
 };
 
 /**
@@ -169,35 +189,39 @@ export const sendMessageToGemini = async (
   text: string,
   attachments: Attachment[] = []
 ): Promise<string> => {
-  return retryWithBackoff(async () => {
-    if (!chatSession) {
-      startNewChat();
-    }
+  return throttleGeminiRequest(
+    `message-${Date.now()}`,
+    () => retryWithBackoff(async () => {
+      if (!chatSession) {
+        startNewChat();
+      }
 
-    if (!chatSession) {
-      throw new Error("Failed to initialize chat session");
-    }
+      if (!chatSession) {
+        throw new Error("Failed to initialize chat session");
+      }
 
-    const parts: any[] = [];
+      const parts: any[] = [];
 
-    if (text) {
-      parts.push({ text });
-    }
+      if (text) {
+        parts.push({ text });
+      }
 
-    attachments.forEach((att) => {
-      parts.push({
-        inlineData: {
-          mimeType: att.mimeType,
-          data: att.data,
-        },
+      attachments.forEach((att) => {
+        parts.push({
+          inlineData: {
+            mimeType: att.mimeType,
+            data: att.data,
+          },
+        });
       });
-    });
 
-    const result = await chatSession.sendMessage({
-      message: parts,
-    });
-    return result.text || "";
-  });
+      const result = await chatSession.sendMessage({
+        message: parts,
+      });
+      return result.text || "";
+    }),
+    { minDelayMs: 3500 }
+  );
 };
 
 /**
@@ -207,8 +231,10 @@ export async function generateRubricFromDescription(
   assignmentDescription: string,
   settings: GenerationSettings
 ): Promise<RubricData> {
-  return retryWithBackoff(async () => {
-    const ai = getClient();
+  return throttleGeminiRequest(
+    `rubric-${Date.now()}`,
+    () => retryWithBackoff(async () => {
+      const ai = getClient();
 
     const prompt = `
     Act as an expert in instructional design and assessment.
@@ -299,12 +325,14 @@ export async function generateRubricFromDescription(
       },
     });
 
-    if (!response.text) {
-      throw new Error("Failed to generate rubric content.");
-    }
+      if (!response.text) {
+        throw new Error("Failed to generate rubric content.");
+      }
 
-    return JSON.parse(response.text.trim()) as RubricData;
-  });
+      return JSON.parse(response.text.trim()) as RubricData;
+    }),
+    { minDelayMs: 3500 }
+  );
 }
 
 /**
@@ -314,8 +342,10 @@ export async function generateRubricFromScreenshot(
   imageData: { data: string; mimeType: string },
   settings: GenerationSettings
 ): Promise<RubricData> {
-  return retryWithBackoff(async () => {
-    const ai = getClient();
+  return throttleGeminiRequest(
+    `screenshot-${Date.now()}`,
+    () => retryWithBackoff(async () => {
+      const ai = getClient();
 
     const textPrompt = `
     Act as an expert in instructional design and assessment digitization.
@@ -415,10 +445,12 @@ export async function generateRubricFromScreenshot(
       },
     });
 
-    if (!response.text) {
-      throw new Error("Failed to process rubric screenshot.");
-    }
+      if (!response.text) {
+        throw new Error("Failed to process rubric screenshot.");
+      }
 
-    return JSON.parse(response.text.trim()) as RubricData;
-  });
+      return JSON.parse(response.text.trim()) as RubricData;
+    }),
+    { minDelayMs: 3500 }
+  );
 }

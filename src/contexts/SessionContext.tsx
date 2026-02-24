@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode, useRef } from 'react';
 import {
   SessionState,
   AppMode,
@@ -8,7 +8,10 @@ import {
   BatchItem,
   UploadHistoryItem,
   ProgressState,
+  CachedMetadata,
+  ThrottlerMetrics,
 } from '../types';
+import { onThrottlerMetrics } from '../services/throttlerService';
 
 // Create context
 const SessionContext = createContext<{
@@ -33,6 +36,7 @@ const SessionContext = createContext<{
   getAbortSignal: () => AbortSignal;
   clearSession: () => void;
   newBatch: () => void;
+  addToMetadataCache: (fileHash: string, metadata: RubricMeta) => void;
 } | undefined>(undefined);
 
 // Provider component
@@ -66,7 +70,56 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       totalItems: 0,
       canCancel: false,
     },
+    metadataCache: new Map<string, CachedMetadata>(),
+    cacheTTL: 1800000, // 30 minutes
+    throttlerMetrics: {
+      queued: 0,
+      processing: false,
+      totalRequests: 0,
+      failedRequests: 0,
+    },
   });
+
+  // Register throttler metrics callback to update UI in real-time
+  useEffect(() => {
+    const unsubscribe = onThrottlerMetrics((metrics: ThrottlerMetrics) => {
+      setState((prev) => ({ ...prev, throttlerMetrics: metrics }));
+    });
+    // Cleanup is implicit since onThrottlerMetrics returns void
+  }, []);
+
+  // Periodic cache cleanup: remove expired entries every 60 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setState((prev) => {
+        if (!prev.metadataCache || prev.metadataCache.size === 0) {
+          return prev;
+        }
+
+        const now = Date.now();
+        const cacheTTL = prev.cacheTTL || 1800000;
+        const expiredKeys: string[] = [];
+
+        prev.metadataCache.forEach((cached, key) => {
+          if (now - cached.timestamp > cacheTTL) {
+            expiredKeys.push(key);
+          }
+        });
+
+        if (expiredKeys.length === 0) {
+          return prev;
+        }
+
+        const newCache = new Map(prev.metadataCache);
+        expiredKeys.forEach((key) => newCache.delete(key));
+        console.log(`[Cache] Removed ${expiredKeys.length} expired entries`);
+
+        return { ...prev, metadataCache: newCache };
+      });
+    }, 60000); // Check every 60 seconds
+
+    return () => clearInterval(interval);
+  }, []);
 
   const setCurrentStep = useCallback((step: AppMode) => {
     setState((prev) => ({ ...prev, currentStep: step }));
@@ -270,6 +323,22 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     }));
   }, []);
 
+  const addToMetadataCache = useCallback((fileHash: string, metadata: RubricMeta) => {
+    setState((prev) => {
+      if (!prev.metadataCache) {
+        return prev;
+      }
+      const newCache = new Map(prev.metadataCache);
+      newCache.set(fileHash, {
+        fileHash,
+        data: metadata,
+        timestamp: Date.now(),
+        ttlMs: prev.cacheTTL || 1800000,
+      });
+      return { ...prev, metadataCache: newCache };
+    });
+  }, []);
+
   const value = {
     state,
     setCurrentStep,
@@ -292,6 +361,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     getAbortSignal,
     clearSession,
     newBatch,
+    addToMetadataCache,
   };
 
   return (

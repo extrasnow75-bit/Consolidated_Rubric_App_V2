@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode, Attachment, RubricMeta } from '../types';
 import { extractRubricMetadata, sendMessageToGemini } from '../services/geminiService';
+import { hashFile, shortHashFingerprint } from '../utils/fileHashUtil';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
 import { Upload, Download, Loader2, Copy, Check } from 'lucide-react';
@@ -20,6 +21,7 @@ export const Part2WordToCsv: React.FC = () => {
     stopProgress,
     setProgress,
     getAbortSignal,
+    addToMetadataCache,
   } = useSession();
 
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -86,15 +88,53 @@ export const Part2WordToCsv: React.FC = () => {
 
           setAttachments([attachment]);
 
-          // Analyze for rubrics
+          // Analyze for rubrics (check cache first)
           setAnalyzing(true);
-          const rubrics = await extractRubricMetadata([attachment]);
-          setRubricOptions(rubrics);
 
-          if (rubrics.length === 0) {
-            setError('No rubric found in the file. Please ensure it contains a rubric table.');
-          } else if (rubrics.length === 1) {
-            setSelectedRubric(0);
+          try {
+            // Hash file content for cache key
+            const fileHash = await hashFile(base64Data);
+            const now = Date.now();
+            const cacheTTL = state.cacheTTL || 1800000; // Default 30 min
+
+            // Check if metadata is in cache and not expired
+            let rubrics: RubricMeta[] = [];
+            let cacheHit = false;
+
+            if (state.metadataCache) {
+              const cached = state.metadataCache.get(fileHash);
+              if (cached && (now - cached.timestamp < cacheTTL)) {
+                rubrics = [cached.data];
+                cacheHit = true;
+                console.log(
+                  `[Part2] Cache HIT for file ${shortHashFingerprint(fileHash)}: ${cached.data.name}`
+                );
+              }
+            }
+
+            // If not in cache, extract metadata from API
+            if (!cacheHit) {
+              console.log(
+                `[Part2] Cache MISS for file ${shortHashFingerprint(fileHash)}, calling Gemini...`
+              );
+              rubrics = await extractRubricMetadata([attachment]);
+
+              // Store results in cache for future use
+              rubrics.forEach((rubric) => {
+                addToMetadataCache(fileHash, rubric);
+              });
+            }
+
+            setRubricOptions(rubrics);
+
+            if (rubrics.length === 0) {
+              setError('No rubric found in the file. Please ensure it contains a rubric table.');
+            } else if (rubrics.length === 1) {
+              setSelectedRubric(0);
+            }
+          } catch (cacheErr: any) {
+            console.error('[Part2] Metadata extraction error:', cacheErr);
+            setError(`Error analyzing file: ${cacheErr.message}`);
           }
         } catch (err: any) {
           setError(`Error processing file: ${err.message}`);
