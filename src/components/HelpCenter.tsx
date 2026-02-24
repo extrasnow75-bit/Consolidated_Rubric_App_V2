@@ -1,12 +1,25 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 
 interface HelpCenterProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+const GEMINI_API_KEY_PROMPT =
+  'How do I generate a free Gemini API key in Google AI Studio at aistudio.google.com? Walk me through every step.';
+
 const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
+  const [promptCopied, setPromptCopied] = useState(false);
+
+  const handleAskGeminiAboutApiKey = () => {
+    window.open('https://gemini.google.com/app', '_blank', 'noopener,noreferrer');
+    navigator.clipboard.writeText(GEMINI_API_KEY_PROMPT).then(() => {
+      setPromptCopied(true);
+      setTimeout(() => setPromptCopied(false), 4000);
+    });
+  };
+
   return (
     <>
       {/* Backdrop */}
@@ -39,6 +52,34 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
         </div>
 
         <div className="p-6 space-y-8">
+
+          {/* AI Setup Section */}
+          <section>
+            <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">AI Setup</h3>
+            <button
+              onClick={handleAskGeminiAboutApiKey}
+              className="w-full flex items-start justify-between p-4 bg-blue-50 hover:bg-blue-100 border border-blue-200 hover:border-blue-300 rounded-2xl transition-all group text-left"
+            >
+              <div className="flex-1 pr-3">
+                <span className="text-sm font-bold text-blue-900 group-hover:text-blue-700 block">
+                  How To Get a Gemini API Key
+                </span>
+                {promptCopied ? (
+                  <span className="text-xs text-green-600 font-semibold mt-0.5 block">
+                    ✓ Question copied! Just paste it into the Gemini tab.
+                  </span>
+                ) : (
+                  <span className="text-xs text-blue-600 mt-0.5 block">
+                    Opens Gemini AI in a new tab and copies the question to your clipboard
+                  </span>
+                )}
+              </div>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-400 group-hover:text-blue-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </button>
+          </section>
+
           {/* Documentation Section */}
           <section>
             <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Resources & Training</h3>

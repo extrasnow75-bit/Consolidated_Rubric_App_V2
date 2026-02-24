@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { SessionProvider, useSession } from './contexts/SessionContext';
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
@@ -9,6 +9,7 @@ import { ScreenshotConverter } from './components/ScreenshotConverter';
 import HelpCenter from './components/HelpCenter';
 import ProgressDisplay from './components/ProgressDisplay';
 import TaskCompletionDialog from './components/TaskCompletionDialog';
+import GoogleAuthCallback from './components/GoogleAuthCallback';
 import { AppMode } from './types';
 
 const AppContent: React.FC = () => {
@@ -21,6 +22,25 @@ const AppContent: React.FC = () => {
     clearSession,
     stopProgress,
   } = useSession();
+
+  // Check if this is an OAuth callback
+  const [isOAuthCallback, setIsOAuthCallback] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    const error = params.get('error');
+
+    if (code || state || error) {
+      setIsOAuthCallback(true);
+    }
+  }, []);
+
+  // If this is an OAuth callback, show the callback component
+  if (isOAuthCallback) {
+    return <GoogleAuthCallback />;
+  }
 
   const renderContent = () => {
     switch (state.currentStep) {

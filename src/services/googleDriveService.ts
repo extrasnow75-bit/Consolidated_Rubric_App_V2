@@ -1,0 +1,469 @@
+import { sha256 } from 'js-sha256';
+
+// Types for Google OAuth
+export interface GoogleAuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+}
+
+export interface GoogleUser {
+  id: string;
+  email: string;
+  name: string;
+  picture?: string;
+}
+
+interface PKCEPair {
+  codeChallenge: string;
+  codeVerifier: string;
+  state: string;
+  createdAt: number;
+}
+
+// OAuth configuration keys for sessionStorage
+const PKCE_KEY = 'google_oauth_pkce';
+const TOKEN_KEY = 'google_oauth_tokens';
+const USER_KEY = 'google_oauth_user';
+
+// OAuth endpoints
+const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
+const GOOGLE_USERINFO_ENDPOINT = 'https://openidconnect.googleapis.com/v1/userinfo';
+
+// Google Drive API endpoints
+const GOOGLE_DRIVE_API = 'https://www.googleapis.com/drive/v3/files';
+const GOOGLE_EXPORT_API = 'https://www.googleapis.com/drive/v3/files';
+
+class GoogleDriveService {
+  private clientId: string;
+  private clientSecret: string;
+  private redirectUri: string;
+  private scopes: string[];
+
+  constructor() {
+    this.clientId = import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID || '';
+    this.clientSecret = import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_SECRET || '';
+    this.redirectUri = import.meta.env.VITE_GOOGLE_OAUTH_REDIRECT_URI || '';
+    this.scopes = (import.meta.env.VITE_GOOGLE_OAUTH_SCOPES || '').split(' ');
+
+    if (!this.clientId || !this.redirectUri) {
+      console.warn('Google OAuth configuration missing. Check VITE_GOOGLE_OAUTH_CLIENT_ID and VITE_GOOGLE_OAUTH_REDIRECT_URI');
+    }
+  }
+
+  /**
+   * Generate PKCE code pair
+   */
+  private generatePKCE(): { codeChallenge: string; codeVerifier: string } {
+    // Generate random 128-character string for code_verifier
+    const codeVerifier = this.generateRandomString(128);
+
+    // Create code_challenge by SHA256 hashing the verifier and base64url encoding
+    const hash = sha256.array(codeVerifier);
+    const codeChallenge = this.base64UrlEncode(new Uint8Array(hash));
+
+    return { codeChallenge, codeVerifier };
+  }
+
+  /**
+   * Generate random string of specified length
+   */
+  private generateRandomString(length: number): string {
+    const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+    let result = '';
+    const values = new Uint8Array(length);
+    crypto.getRandomValues(values);
+    for (let i = 0; i < length; i++) {
+      result += charset[values[i] % charset.length];
+    }
+    return result;
+  }
+
+  /**
+   * Base64url encode
+   */
+  private base64UrlEncode(buffer: Buffer | Uint8Array): string {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  }
+
+  /**
+   * Initiate OAuth flow
+   */
+  startOAuthFlow(): void {
+    if (!this.clientId || !this.redirectUri) {
+      throw new Error('Google OAuth not configured. Check environment variables.');
+    }
+
+    // Generate PKCE pair
+    const { codeChallenge, codeVerifier } = this.generatePKCE();
+    const state = this.generateRandomString(32);
+
+    // Store PKCE and state in sessionStorage (will be validated on callback)
+    const pkceData: PKCEPair = {
+      codeChallenge,
+      codeVerifier,
+      state,
+      createdAt: Date.now(),
+    };
+    sessionStorage.setItem(PKCE_KEY, JSON.stringify(pkceData));
+
+    // Build authorization URL
+    const params = new URLSearchParams({
+      client_id: this.clientId,
+      redirect_uri: this.redirectUri,
+      response_type: 'code',
+      scope: this.scopes.join(' '),
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      state,
+      access_type: 'offline', // Request refresh token
+      prompt: 'consent', // Force consent screen to ensure refresh token
+    });
+
+    const authUrl = `${GOOGLE_AUTH_ENDPOINT}?${params.toString()}`;
+    window.location.href = authUrl;
+  }
+
+  /**
+   * Handle OAuth callback (extract code from URL)
+   */
+  async handleOAuthCallback(code: string, state: string): Promise<{ tokens: GoogleAuthTokens; user: GoogleUser }> {
+    // Validate state (CSRF protection)
+    const pkceData = sessionStorage.getItem(PKCE_KEY);
+    if (!pkceData) {
+      throw new Error('OAuth session not found. Please sign in again.');
+    }
+
+    const pkce = JSON.parse(pkceData) as PKCEPair;
+
+    // Check state matches
+    if (pkce.state !== state) {
+      throw new Error('OAuth state mismatch. Request may have been intercepted.');
+    }
+
+    // Check PKCE not expired (10 minute limit)
+    if (Date.now() - pkce.createdAt > 10 * 60 * 1000) {
+      sessionStorage.removeItem(PKCE_KEY);
+      throw new Error('OAuth session expired. Please sign in again.');
+    }
+
+    // Exchange code for tokens
+    try {
+      const tokens = await this.exchangeCodeForTokens(code, pkce.codeVerifier);
+
+      // Fetch user info
+      const user = await this.fetchUserInfo(tokens.accessToken);
+
+      // Store tokens and user info
+      sessionStorage.setItem(TOKEN_KEY, JSON.stringify(tokens));
+      sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+
+      // Clean up PKCE data
+      sessionStorage.removeItem(PKCE_KEY);
+
+      return { tokens, user };
+    } catch (error) {
+      sessionStorage.removeItem(PKCE_KEY);
+      throw error;
+    }
+  }
+
+  /**
+   * Exchange authorization code for tokens
+   */
+  private async exchangeCodeForTokens(code: string, codeVerifier: string): Promise<GoogleAuthTokens> {
+    const response = await fetch(GOOGLE_TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: this.clientId,
+        client_secret: this.clientSecret,
+        code,
+        code_verifier: codeVerifier,
+        redirect_uri: this.redirectUri,
+        grant_type: 'authorization_code',
+      }).toString(),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`Token exchange failed: ${error.error_description || error.error}`);
+    }
+
+    const data = await response.json();
+
+    return {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token || '',
+      expiresAt: Date.now() + (data.expires_in * 1000),
+    };
+  }
+
+  /**
+   * Fetch user info using access token
+   */
+  private async fetchUserInfo(accessToken: string): Promise<GoogleUser> {
+    const response = await fetch(GOOGLE_USERINFO_ENDPOINT, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch user info');
+    }
+
+    const data = await response.json();
+
+    return {
+      id: data.sub,
+      email: data.email,
+      name: data.name,
+      picture: data.picture,
+    };
+  }
+
+  /**
+   * Refresh access token using refresh token
+   */
+  async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; expiresAt: number }> {
+    const response = await fetch(GOOGLE_TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: this.clientId,
+        client_secret: this.clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }).toString(),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`Token refresh failed: ${error.error_description || error.error}`);
+    }
+
+    const data = await response.json();
+
+    return {
+      accessToken: data.access_token,
+      expiresAt: Date.now() + (data.expires_in * 1000),
+    };
+  }
+
+  /**
+   * Check if access token is expired (with 5-minute buffer)
+   */
+  isTokenExpired(expiresAt: number): boolean {
+    const bufferMs = 5 * 60 * 1000; // 5 minutes
+    return Date.now() > expiresAt - bufferMs;
+  }
+
+  /**
+   * Sign out and revoke tokens
+   */
+  async signOut(): Promise<void> {
+    // Clear local storage
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(USER_KEY);
+    sessionStorage.removeItem(PKCE_KEY);
+
+    // Best effort token revocation (may fail due to CORS)
+    const tokensJson = sessionStorage.getItem(TOKEN_KEY);
+    if (tokensJson) {
+      try {
+        const tokens = JSON.parse(tokensJson) as GoogleAuthTokens;
+        // Note: Direct revocation may fail due to CORS, but token will expire naturally
+        await fetch(`https://oauth2.googleapis.com/revoke`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            token: tokens.accessToken,
+          }).toString(),
+        }).catch(() => {
+          // Ignore CORS errors, token will expire anyway
+        });
+      } catch (e) {
+        // Ignore parsing errors
+      }
+    }
+  }
+
+  /**
+   * Extract file ID from Google Docs/Sheets URL
+   */
+  extractFileIdFromUrl(url: string): string {
+    // Try to match /d/{fileId} pattern
+    const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) {
+      return match[1];
+    }
+
+    // Try to match as standalone file ID
+    if (/^[a-zA-Z0-9-_]+$/.test(url)) {
+      return url;
+    }
+
+    throw new Error(
+      'Invalid Google Docs/Sheets URL format. Please use a shareable link (docs.google.com/document/d/... or docs.google.com/spreadsheets/d/...)'
+    );
+  }
+
+  /**
+   * Get Google Docs content as plain text
+   */
+  async getGoogleDocContent(fileId: string, accessToken: string): Promise<string> {
+    try {
+      // Export document as plain text
+      const response = await fetch(
+        `${GOOGLE_EXPORT_API}/${fileId}/export?mimeType=text/plain`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      if (response.status === 404) {
+        throw new Error('Document not found. Please check the link and try again.');
+      }
+
+      if (response.status === 403) {
+        throw new Error('You do not have access to this document. Please ensure it is shared with you.');
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch document (HTTP ${response.status})`);
+      }
+
+      return await response.text();
+    } catch (error: any) {
+      if (error.message.includes('Document not found') || error.message.includes('You do not have access')) {
+        throw error;
+      }
+      throw new Error(`Failed to fetch Google Doc: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get Google Sheets content as CSV
+   */
+  async getGoogleSheetContent(fileId: string, accessToken: string): Promise<string> {
+    try {
+      // Export sheet as CSV
+      const response = await fetch(
+        `${GOOGLE_EXPORT_API}/${fileId}/export?mimeType=text/csv`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      if (response.status === 404) {
+        throw new Error('Sheet not found. Please check the link and try again.');
+      }
+
+      if (response.status === 403) {
+        throw new Error('You do not have access to this sheet. Please ensure it is shared with you.');
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch sheet (HTTP ${response.status})`);
+      }
+
+      return await response.text();
+    } catch (error: any) {
+      if (error.message.includes('Sheet not found') || error.message.includes('You do not have access')) {
+        throw error;
+      }
+      throw new Error(`Failed to fetch Google Sheet: ${error.message}`);
+    }
+  }
+
+  /**
+   * Verify file access and get metadata
+   */
+  async verifyFileAccess(
+    fileId: string,
+    accessToken: string
+  ): Promise<{ name: string; mimeType: string }> {
+    try {
+      const response = await fetch(
+        `${GOOGLE_DRIVE_API}/${fileId}?fields=name,mimeType`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      if (response.status === 404) {
+        throw new Error('File not found.');
+      }
+
+      if (response.status === 403) {
+        throw new Error('You do not have access to this file.');
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to verify access (HTTP ${response.status})`);
+      }
+
+      return await response.json();
+    } catch (error: any) {
+      throw new Error(`Access verification failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get stored tokens from sessionStorage
+   */
+  getStoredTokens(): GoogleAuthTokens | null {
+    const json = sessionStorage.getItem(TOKEN_KEY);
+    if (!json) return null;
+    try {
+      return JSON.parse(json) as GoogleAuthTokens;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get stored user info from sessionStorage
+   */
+  getStoredUser(): GoogleUser | null {
+    const json = sessionStorage.getItem(USER_KEY);
+    if (!json) return null;
+    try {
+      return JSON.parse(json) as GoogleUser;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Update stored tokens
+   */
+  updateStoredTokens(tokens: GoogleAuthTokens): void {
+    sessionStorage.setItem(TOKEN_KEY, JSON.stringify(tokens));
+  }
+}
+
+// Export singleton instance
+export const googleDriveService = new GoogleDriveService();

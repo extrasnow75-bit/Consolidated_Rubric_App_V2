@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
-import { AppMode, PointStyle, GenerationSettings } from '../types';
+import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
 import { generateRubricFromScreenshot } from '../services/geminiService';
 import { exportToWord } from '../services/wordExportService';
 import { Upload, Download, Loader2, Trash2, Image as ImageIcon } from 'lucide-react';
+import ErrorDisplay from './ErrorDisplay';
 
 export const ScreenshotConverter: React.FC = () => {
   const {
@@ -25,6 +26,7 @@ export const ScreenshotConverter: React.FC = () => {
   const [settings] = useState<GenerationSettings>({
     totalPoints: 100,
     pointStyle: PointStyle.RANGE,
+    processingType: ProcessingType.SINGLE,
   });
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -219,9 +221,7 @@ export const ScreenshotConverter: React.FC = () => {
 
             {/* Error Display */}
             {state.error && (
-              <div className="p-4 bg-red-50 border border-red-200 rounded-2xl mt-6">
-                <p className="text-sm text-red-700 font-bold">{state.error}</p>
-              </div>
+              <ErrorDisplay error={state.error} className="mt-6" />
             )}
           </>
         ) : (

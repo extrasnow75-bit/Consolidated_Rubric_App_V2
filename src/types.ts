@@ -19,6 +19,11 @@ export enum PointStyle {
   SINGLE = 'SINGLE'
 }
 
+export enum ProcessingType {
+  SINGLE = 'SINGLE',
+  MULTIPLE = 'MULTIPLE'
+}
+
 export enum Role {
   USER = 'user',
   MODEL = 'model'
@@ -180,6 +185,23 @@ export interface UploadHistoryItem {
 }
 
 // =========================
+// INTERFACES - GOOGLE AUTH
+// =========================
+
+export interface GoogleUser {
+  id: string;
+  email: string;
+  name: string;
+  picture?: string;
+}
+
+export interface GoogleAuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+}
+
+// =========================
 // INTERFACES - SESSION STATE
 // =========================
 
@@ -212,6 +234,18 @@ export interface SessionState {
 
   // Progress tracking
   progress: ProgressState;
+
+  // Gemini API Key (user-provided)
+  geminiApiKey: string | null;
+
+  // Google Authentication
+  isGoogleAuthenticated: boolean;
+  googleUser: GoogleUser | null;
+  googleAccessToken: string | null;
+  googleRefreshToken: string | null;
+  googleTokenExpiresAt: number | null;
+  googleAuthError: string | null;
+  isAuthenticating: boolean;
 }
 
 // =========================
@@ -221,6 +255,7 @@ export interface SessionState {
 export interface GenerationSettings {
   totalPoints: number;
   pointStyle: PointStyle;
+  processingType: ProcessingType;
 }
 
 // =========================

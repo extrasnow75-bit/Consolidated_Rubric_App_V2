@@ -72,7 +72,12 @@ export const pushRubricToCanvas = async (
     instanceUrl = urlMatch[1];
     courseId = urlMatch[2];
 
-    const endpoint = `${instanceUrl}/api/v1/courses/${courseId}/rubrics`;
+    // In development the Vite dev server proxies /canvas-proxy/* to the
+    // Canvas instance (set via x-canvas-base header), bypassing browser CORS.
+    const isDev = import.meta.env.DEV;
+    const endpoint = isDev
+      ? `/canvas-proxy/api/v1/courses/${courseId}/rubrics`
+      : `${instanceUrl}/api/v1/courses/${courseId}/rubrics`;
 
     const data = parseCSV(csvContent);
     const dataRows = data.filter(
@@ -142,13 +147,16 @@ export const pushRubricToCanvas = async (
       params.append(`rubric[criteria][${cIdx}][points]`, maxPoints.toString());
     });
 
+    const fetchHeaders: Record<string, string> = {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    };
+    if (isDev) fetchHeaders["x-canvas-base"] = instanceUrl;
+
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json",
-      },
+      headers: fetchHeaders,
       body: params,
     });
 
@@ -220,16 +228,22 @@ export const wrapUrl = (targetUrl: string, config: RubricConfig) => {
 export const testCanvasToken = async (
   config: RubricConfig
 ): Promise<CanvasUser> => {
-  const targetUrl = `${getBaseUrl(config.canvasUrl)}/api/v1/users/self/profile`;
-  const fetchUrl = wrapUrl(targetUrl, config);
+  const base = getBaseUrl(config.canvasUrl);
+  const isDev = import.meta.env.DEV;
+  const fetchUrl = isDev
+    ? `/canvas-proxy/api/v1/users/self/profile`
+    : wrapUrl(`${base}/api/v1/users/self/profile`, config);
+
+  const fetchHeaders: Record<string, string> = {
+    Authorization: `Bearer ${getCleanToken(config.token)}`,
+    Accept: "application/json",
+    "X-Requested-With": "XMLHttpRequest",
+  };
+  if (isDev) fetchHeaders["x-canvas-base"] = base;
 
   const response = await fetch(fetchUrl, {
     method: "GET",
-    headers: {
-      Authorization: `Bearer ${getCleanToken(config.token)}`,
-      Accept: "application/json",
-      "X-Requested-With": "XMLHttpRequest",
-    },
+    headers: fetchHeaders,
   });
 
   const text = await response.text();
