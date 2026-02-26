@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode, useRef } from 'react';
 import {
   SessionState,
   AppMode,
@@ -8,9 +8,12 @@ import {
   BatchItem,
   UploadHistoryItem,
   ProgressState,
+  CachedMetadata,
+  ThrottlerMetrics,
   GoogleUser,
   GoogleAuthTokens,
 } from '../types';
+import { onThrottlerMetrics } from '../services/throttlerService';
 import { googleDriveService } from '../services/googleDriveService';
 import { setGeminiApiKey as geminiServiceSetApiKey } from '../services/geminiService';
 
@@ -37,6 +40,7 @@ const SessionContext = createContext<{
   getAbortSignal: () => AbortSignal;
   clearSession: () => void;
   newBatch: () => void;
+  addToMetadataCache: (fileHash: string, metadata: RubricMeta) => void;
   // Gemini API Key
   setUserGeminiApiKey: (key: string | null) => void;
   // Google Auth methods
@@ -79,6 +83,14 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       totalItems: 0,
       canCancel: false,
     },
+    metadataCache: new Map<string, CachedMetadata>(),
+    cacheTTL: 1800000, // 30 minutes
+    throttlerMetrics: {
+      queued: 0,
+      processing: false,
+      totalRequests: 0,
+      failedRequests: 0,
+    },
     // Gemini API Key
     geminiApiKey: null,
     // Google Authentication
@@ -90,6 +102,47 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     googleAuthError: null,
     isAuthenticating: false,
   });
+
+  // Register throttler metrics callback to update UI in real-time
+  useEffect(() => {
+    const unsubscribe = onThrottlerMetrics((metrics: ThrottlerMetrics) => {
+      setState((prev) => ({ ...prev, throttlerMetrics: metrics }));
+    });
+    // Cleanup is implicit since onThrottlerMetrics returns void
+  }, []);
+
+  // Periodic cache cleanup: remove expired entries every 60 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setState((prev) => {
+        if (!prev.metadataCache || prev.metadataCache.size === 0) {
+          return prev;
+        }
+
+        const now = Date.now();
+        const cacheTTL = prev.cacheTTL || 1800000;
+        const expiredKeys: string[] = [];
+
+        prev.metadataCache.forEach((cached, key) => {
+          if (now - cached.timestamp > cacheTTL) {
+            expiredKeys.push(key);
+          }
+        });
+
+        if (expiredKeys.length === 0) {
+          return prev;
+        }
+
+        const newCache = new Map(prev.metadataCache);
+        expiredKeys.forEach((key) => newCache.delete(key));
+        console.log(`[Cache] Removed ${expiredKeys.length} expired entries`);
+
+        return { ...prev, metadataCache: newCache };
+      });
+    }, 60000); // Check every 60 seconds
+
+    return () => clearInterval(interval);
+  }, []);
 
   const setCurrentStep = useCallback((step: AppMode) => {
     setState((prev) => ({ ...prev, currentStep: step }));
@@ -302,6 +355,22 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     }));
   }, []);
 
+  const addToMetadataCache = useCallback((fileHash: string, metadata: RubricMeta) => {
+    setState((prev) => {
+      if (!prev.metadataCache) {
+        return prev;
+      }
+      const newCache = new Map(prev.metadataCache);
+      newCache.set(fileHash, {
+        fileHash,
+        data: metadata,
+        timestamp: Date.now(),
+        ttlMs: prev.cacheTTL || 1800000,
+      });
+      return { ...prev, metadataCache: newCache };
+    });
+  }, []);
+
   // Gemini API Key management
   const setUserGeminiApiKey = useCallback((key: string | null) => {
     setState((prev) => ({ ...prev, geminiApiKey: key }));
@@ -365,7 +434,6 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       }));
     } catch (err: any) {
       console.error('Sign out error:', err);
-      // Still clear auth state even if revocation fails
       setState((prev) => ({
         ...prev,
         isGoogleAuthenticated: false,
@@ -381,11 +449,11 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     try {
       const tokens = googleDriveService.getStoredTokens();
       if (!tokens || !tokens.refreshToken) {
-        return; // No tokens to refresh
+        return;
       }
 
       if (!googleDriveService.isTokenExpired(tokens.expiresAt)) {
-        return; // Token still valid
+        return;
       }
 
       const { accessToken, expiresAt } = await googleDriveService.refreshAccessToken(tokens.refreshToken);
@@ -401,7 +469,6 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
         googleTokenExpiresAt: expiresAt,
       }));
     } catch (err: any) {
-      // If refresh fails, clear auth
       await signOutGoogle();
     }
   }, [signOutGoogle]);
@@ -411,14 +478,8 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
         throw new Error('Please sign in with Google first');
       }
-
-      try {
-        const fileId = googleDriveService.extractFileIdFromUrl(docUrl);
-        const text = await googleDriveService.getGoogleDocContent(fileId, state.googleAccessToken);
-        return text;
-      } catch (err: any) {
-        throw err;
-      }
+      const fileId = googleDriveService.extractFileIdFromUrl(docUrl);
+      return googleDriveService.getGoogleDocContent(fileId, state.googleAccessToken);
     },
     [state.isGoogleAuthenticated, state.googleAccessToken]
   );
@@ -428,21 +489,14 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
         throw new Error('Please sign in with Google first');
       }
-
-      try {
-        const fileId = googleDriveService.extractFileIdFromUrl(sheetUrl);
-        const csv = await googleDriveService.getGoogleSheetContent(fileId, state.googleAccessToken);
-        return csv;
-      } catch (err: any) {
-        throw err;
-      }
+      const fileId = googleDriveService.extractFileIdFromUrl(sheetUrl);
+      return googleDriveService.getGoogleSheetContent(fileId, state.googleAccessToken);
     },
     [state.isGoogleAuthenticated, state.googleAccessToken]
   );
 
   // Initialize on app load
   useEffect(() => {
-    // Restore saved Gemini API key from localStorage
     const savedApiKey = localStorage.getItem('gemini_api_key');
     if (savedApiKey) {
       setState((prev) => ({ ...prev, geminiApiKey: savedApiKey }));
@@ -454,9 +508,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       const storedUser = googleDriveService.getStoredUser();
 
       if (storedTokens && storedUser) {
-        // Check if tokens are expired
         if (googleDriveService.isTokenExpired(storedTokens.expiresAt)) {
-          // Try to refresh
           try {
             const { accessToken, expiresAt } = await googleDriveService.refreshAccessToken(
               storedTokens.refreshToken
@@ -466,7 +518,6 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
               refreshToken: storedTokens.refreshToken,
               expiresAt,
             });
-
             setState((prev) => ({
               ...prev,
               isGoogleAuthenticated: true,
@@ -476,11 +527,9 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
               googleTokenExpiresAt: expiresAt,
             }));
           } catch (err) {
-            // Refresh failed, clear auth
             await googleDriveService.signOut();
           }
         } else {
-          // Tokens still valid
           setState((prev) => ({
             ...prev,
             isGoogleAuthenticated: true,
@@ -518,6 +567,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     getAbortSignal,
     clearSession,
     newBatch,
+    addToMetadataCache,
     // Gemini API Key
     setUserGeminiApiKey,
     // Google Auth
