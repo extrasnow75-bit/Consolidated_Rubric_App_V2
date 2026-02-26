@@ -2,8 +2,8 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode, Attachment, RubricMeta, ProcessingType } from '../types';
 import {
-  extractRubricMetadata,
   generateCsvForRubric,
+  generateAllCsvsFromDoc,
 } from '../services/geminiService';
 import { friendlyError } from './ErrorDisplay';
 import {
@@ -76,7 +76,6 @@ export const Part2WordToCsv: React.FC = () => {
 
   // ── File / attachment state ──────────────────────────────────────────
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [analyzing, setAnalyzing] = useState(false);
   const [rubricOptions, setRubricOptions] = useState<RubricMeta[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -187,17 +186,16 @@ export const Part2WordToCsv: React.FC = () => {
 
   const handleFileSelect = async (file: File) => {
     resetForNewFile();
-    setIsLoading(true);
+
+    const isDocxFile = file.name.endsWith('.docx') || file.name.endsWith('.doc');
+    const isPdf = file.name.endsWith('.pdf');
+
+    if (!isDocxFile && !isPdf) {
+      setError('Please upload a Word (.docx) or PDF file');
+      return;
+    }
 
     try {
-      const isDocx = file.name.endsWith('.docx') || file.name.endsWith('.doc');
-      const isPdf = file.name.endsWith('.pdf');
-
-      if (!isDocx && !isPdf) {
-        setError('Please upload a Word (.docx) or PDF file');
-        return;
-      }
-
       const arrayBuffer = await file.arrayBuffer();
       const base64Data = btoa(
         String.fromCharCode(...new Uint8Array(arrayBuffer)),
@@ -208,30 +206,10 @@ export const Part2WordToCsv: React.FC = () => {
 
       const attachment: Attachment = { name: file.name, mimeType, data: base64Data };
       setAttachments([attachment]);
-
-      setAnalyzing(true);
-      const rubrics = await extractRubricMetadata([attachment]);
-      setRubricOptions(rubrics);
-
-      if (rubrics.length === 0) {
-        setError('No rubric found in the file. Please ensure it contains a rubric table.');
-      } else {
-        // Pre-populate editable fields from the first rubric
-        setEditableRubricName(rubrics[0].name);
-        setEditableTotalPoints(rubrics[0].totalPoints);
-        setEditableScoringMethod(rubrics[0].scoringMethod);
-        // Default to multiple mode when >1 rubric detected
-        const defaultMode =
-          rubrics.length > 1 ? ProcessingType.MULTIPLE : ProcessingType.SINGLE;
-        setProcessingType(defaultMode);
-        // Initialise result cards
-        setRubricResults(rubrics.map((r) => ({ rubric: r, status: 'pending' })));
-      }
+      // No Gemini call on upload — batch generation happens when the user
+      // clicks "Generate All CSVs" (MULTIPLE mode) or "Generate Canvas CSV" (SINGLE mode).
     } catch (err: any) {
-      setError(`Error processing file: ${err.message}`);
-    } finally {
-      setAnalyzing(false);
-      setIsLoading(false);
+      setError(`Error reading file: ${err.message}`);
     }
   };
 
@@ -281,49 +259,44 @@ export const Part2WordToCsv: React.FC = () => {
     }
   };
 
-  // ── Multi-rubric parallel generation ─────────────────────────────────
+  // ── Multi-rubric batch generation ────────────────────────────────────
 
   const handleGenerateAll = async () => {
-    if (attachments.length === 0 || rubricOptions.length === 0) return;
+    if (attachments.length === 0) return;
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     setIsGeneratingAll(true);
     setError(null);
+    // Show a single "generating" placeholder card while the batch call runs
+    setRubricResults([{ rubric: { name: 'All rubrics', totalPoints: '', scoringMethod: 'fixed' }, status: 'generating' }]);
 
-    // Mark every rubric as "generating" — the queue-based throttle in
-    // geminiService serialises the actual API calls one at a time.
-    setRubricResults(rubricOptions.map((r) => ({ rubric: r, status: 'generating' })));
+    try {
+      const batchResults = await generateAllCsvsFromDoc(attachments[0], controller.signal);
 
-    await Promise.allSettled(
-      rubricOptions.map((rubric, i) =>
-        generateCsvForRubric(
-          rubric.name,
-          rubric.totalPoints,
-          rubric.scoringMethod,
-          attachments[0],
-          controller.signal,
-        )
-          .then((csv) => {
-            setRubricResults((prev) => {
-              const next = [...prev];
-              next[i] = { rubric, status: 'done', csvContent: csv };
-              return next;
-            });
-          })
-          .catch((err) => {
-            const errorMsg = controller.signal.aborted
-              ? 'Generation stopped'
-              : err.message;
-            setRubricResults((prev) => {
-              const next = [...prev];
-              next[i] = { rubric, status: 'error', error: errorMsg };
-              return next;
-            });
-          }),
-      ),
-    );
+      if (controller.signal.aborted) return;
+
+      // Populate rubricOptions so SINGLE mode and retry can reference them
+      const metas = batchResults.map((r) => ({
+        name: r.title,
+        totalPoints: '',
+        scoringMethod: 'fixed' as const,
+      }));
+      setRubricOptions(metas);
+      setRubricResults(
+        batchResults.map((r, i) => ({
+          rubric: metas[i],
+          status: 'done',
+          csvContent: r.csv,
+        })),
+      );
+    } catch (err: any) {
+      if (!controller.signal.aborted) {
+        setError(`Batch generation failed: ${err.message}`);
+        setRubricResults([]);
+      }
+    }
 
     setIsGeneratingAll(false);
     abortRef.current = null;
@@ -446,17 +419,11 @@ export const Part2WordToCsv: React.FC = () => {
   const totalCount = rubricResults.length;
   const completedCount = doneCount + errorCount;
 
-  // Static upper-bound estimate (10 s throttle gap + ~15 s avg API response)
-  const PER_ITEM_ESTIMATE_S = 25;
-  const staticEstimateSecs = rubricOptions.length * PER_ITEM_ESTIMATE_S;
+  // Batch call: single Gemini request for the whole document (~60 s typical)
+  const staticEstimateSecs = 60;
 
-  // Dynamic average: seconds elapsed divided by items completed
-  const avgSecsPerItem =
-    completedCount > 0 ? elapsedSeconds / completedCount : PER_ITEM_ESTIMATE_S;
-
-  // Items still in flight (generating or pending)
-  const remainingItems = totalCount - completedCount;
-  const dynamicRemainingS = Math.round(remainingItems * avgSecsPerItem);
+  // For batch mode, estimate remaining time relative to the 60 s budget
+  const dynamicRemainingS = Math.max(0, staticEstimateSecs - elapsedSeconds);
 
   /** Format seconds as "Xm Ys" or just "Xs" */
   const fmtSeconds = (s: number) => {
@@ -607,23 +574,8 @@ export const Part2WordToCsv: React.FC = () => {
                       </p>
                     </div>
 
-                    {/* Analysing spinner */}
-                    {analyzing && (
-                      <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-2xl mb-6">
-                        <Loader2 className="w-4 h-4 animate-spin text-blue-600 flex-shrink-0" />
-                        <div>
-                          <p className="text-sm font-semibold text-blue-800">
-                            Scanning document for rubric details…
-                          </p>
-                          <p className="text-xs text-blue-500 mt-0.5">
-                            This usually takes 5–15 seconds
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
                     {/* Rubric Details section ──────────────────────────── */}
-                    {rubricOptions.length > 0 && !analyzing && (
+                    {attachments.length > 0 && (
                       <>
                         <div className="mt-8 mb-4 border-t border-gray-100 pt-6">
                           <h3 className="text-lg font-black text-gray-900">
@@ -782,10 +734,8 @@ export const Part2WordToCsv: React.FC = () => {
                             <button
                               onClick={state.isLoading ? handleStop : handleGenerateSingle}
                               disabled={
-                                analyzing ||
-                                (!state.isLoading &&
-                                  (!editableRubricName.trim() ||
-                                    attachments.length === 0))
+                                !state.isLoading &&
+                                (!editableRubricName.trim() || attachments.length === 0)
                               }
                               className={`w-full py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2 ${
                                 state.isLoading
@@ -799,16 +749,11 @@ export const Part2WordToCsv: React.FC = () => {
                                   Stop Generation
                                 </>
                               ) : (
-                                <>
-                                  {analyzing && (
-                                    <Loader2 className="w-5 h-5 animate-spin" />
-                                  )}
-                                  {analyzing ? 'Scanning Document…' : 'Generate Canvas CSV'}
-                                </>
+                                'Generate Canvas CSV'
                               )}
                             </button>
 
-                            {state.isLoading && !analyzing && (
+                            {state.isLoading && (
                               <p className="text-xs text-center text-gray-500 mt-3 animate-pulse">
                                 ⏱ Generating your CSV — this usually takes 15–30 seconds
                               </p>
@@ -822,9 +767,9 @@ export const Part2WordToCsv: React.FC = () => {
                                 Step 2: Generate All CSVs
                               </p>
                               <p className="text-xs text-gray-500">
-                                {rubricOptions.length} rubric
-                                {rubricOptions.length !== 1 ? 's' : ''} detected — each
-                                will be converted to a separate Canvas CSV file.
+                                {rubricResults.length > 0 && !isGeneratingAll
+                                  ? `${rubricResults.length} rubric${rubricResults.length !== 1 ? 's' : ''} extracted — download individually or as a ZIP.`
+                                  : 'All rubric tables in the document will be sent to Gemini in a single request and split into separate Canvas CSV files.'}
                               </p>
                             </div>
 
@@ -943,7 +888,7 @@ export const Part2WordToCsv: React.FC = () => {
                                 {/* Time row */}
                                 <div className="flex items-center justify-between text-xs text-blue-600">
                                   <span>⏱ Elapsed: {fmtSeconds(elapsedSeconds)}</span>
-                                  {remainingItems > 0 ? (
+                                  {dynamicRemainingS > 0 ? (
                                     <span>
                                       ~{fmtSeconds(dynamicRemainingS)} remaining
                                     </span>
@@ -953,7 +898,7 @@ export const Part2WordToCsv: React.FC = () => {
                                 </div>
 
                                 <p className="text-xs text-blue-500">
-                                  Requests are spaced 10 s apart to respect API rate limits
+                                  Sending all rubrics in one request — this may take up to 60 s
                                 </p>
                               </div>
                             )}
@@ -976,27 +921,32 @@ export const Part2WordToCsv: React.FC = () => {
                               <ErrorDisplay error={state.error} className="mb-5" />
                             )}
 
-                            {/* Generate All / Stop button
-                                Grey out once every rubric has been attempted
-                                (all are either done or error — nothing left to run). */}
+                            {/* Primary CTA: Continue to Phase 3 when all done */}
+                            {doneCount > 0 && !isGeneratingAll && errorCount === 0 && doneCount === totalCount && (
+                              <button
+                                onClick={() => setCurrentStep(AppMode.PART_3)}
+                                className="w-full py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center gap-2"
+                              >
+                                Continue to Phase 3 →
+                              </button>
+                            )}
+
+                            {/* Generate All / Stop button */}
                             {(() => {
-                              const allAttempted =
-                                totalCount > 0 &&
+                              const allDone =
+                                doneCount > 0 &&
                                 !isGeneratingAll &&
-                                doneCount + errorCount === totalCount;
+                                errorCount === 0 &&
+                                doneCount === totalCount;
                               return (
                                 <button
                                   onClick={isGeneratingAll ? handleStop : handleGenerateAll}
-                                  disabled={
-                                    analyzing ||
-                                    allAttempted ||
-                                    (!isGeneratingAll && rubricOptions.length === 0)
-                                  }
+                                  disabled={!isGeneratingAll && attachments.length === 0}
                                   className={`w-full py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2 ${
                                     isGeneratingAll
                                       ? 'bg-red-500 text-white hover:bg-red-600'
-                                      : allAttempted
-                                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                      : allDone
+                                      ? 'bg-gray-100 text-gray-600 hover:bg-gray-200 shadow-none'
                                       : 'bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400'
                                   }`}
                                 >
@@ -1005,10 +955,10 @@ export const Part2WordToCsv: React.FC = () => {
                                       <StopCircle className="w-5 h-5" />
                                       Stop Generation
                                     </>
+                                  ) : allDone ? (
+                                    `Re-generate All ${doneCount} CSVs`
                                   ) : (
-                                    rubricOptions.length > 1
-                                      ? `Generate All ${rubricOptions.length} CSVs`
-                                      : 'Generate Canvas CSV'
+                                    'Generate All CSVs'
                                   )}
                                 </button>
                               );

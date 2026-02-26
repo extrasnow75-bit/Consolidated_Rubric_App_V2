@@ -57,7 +57,7 @@ export const setGeminiApiKey = (apiKey: string): void => {
  *   queued caller can proceed without waiting.
  */
 let pendingThrottle: Promise<void> = Promise.resolve();
-const MIN_REQUEST_INTERVAL_MS = 10000; // 10 s — extra headroom on free-tier quota (increased from 7 s)
+const MIN_REQUEST_INTERVAL_MS = 15000; // 15 s — governor for batch-then-split architecture
 
 async function throttle(signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) throw new Error('Request cancelled');
@@ -106,17 +106,17 @@ function isTemporaryRateLimit(error: any): boolean {
 
 /**
  * Retry `fn` up to `maxRetries` times on temporary 429s using
- * exponential back-off with ±20 % jitter (5 s → 10 s → 20 s → 40 s → 80 s).
+ * exponential back-off with ±20 % jitter (60 s → 120 s → 240 s).
  * Hard "limit: 0" errors and non-quota errors surface immediately.
  *
- * Jitter prevents multiple concurrent retries from all firing at the same
- * instant after a burst of 429 responses.
+ * Defaults are tuned for batch-then-split: 3 retries starting at 60 s
+ * gives Gemini free-tier quota a full minute to reset between attempts.
  */
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   signal?: AbortSignal,
-  maxRetries = 5,
-  initialDelayMs = 5000,
+  maxRetries = 3,
+  initialDelayMs = 60000,
 ): Promise<T> {
   const JITTER = 0.2; // ±20 %
   let lastError: any;
@@ -716,5 +716,97 @@ DATA RULES:
     // Strip markdown code fences if the model includes them despite instructions
     const fenceMatch = text.match(/```(?:csv)?\n?([\s\S]*?)\n?```/);
     return fenceMatch ? fenceMatch[1].trim() : text.trim();
+  }, signal);
+}
+
+// ─── Phase 2: Batch rubric generation ───────────────────────────────
+
+export interface BatchRubricResult {
+  title: string;
+  csv: string;
+}
+
+/**
+ * Send ALL rubric tables in a single document to Gemini in ONE call and
+ * return a structured array of {title, csv} pairs.
+ *
+ * This "batch-then-split" model avoids the N×throttle cost of calling
+ * generateCsvForRubric once per rubric — the 15-second governor fires
+ * once for the whole document, not per rubric.
+ *
+ * Retries use a 60-second initial cooldown (vs 5 s for per-rubric calls)
+ * to give the free-tier quota time to fully reset before re-attempting a
+ * large, token-heavy request.
+ */
+export async function generateAllCsvsFromDoc(
+  attachment: Attachment,
+  signal?: AbortSignal,
+): Promise<BatchRubricResult[]> {
+  await throttle(signal);
+
+  return retryWithBackoff(async () => {
+    if (signal?.aborted) throw new Error('Request cancelled');
+    const ai = getClient();
+
+    const prompt = `Extract ALL rubric tables from this document and convert each one to a Canvas-compatible CSV string.
+
+REQUIRED CSV HEADER ROW (copy verbatim as the first line of every csv value):
+Rubric Name,Criteria Name,Criteria Description,Criteria Enable Range,Rating Name,Rating Description,Rating Points,Rating Name,Rating Description,Rating Points,Rating Name,Rating Description,Rating Points,Rating Name,Rating Description,Rating Points
+
+DATA RULES:
+1. One row per criterion.
+2. "Rubric Name" column: populate ONLY on the first data row of each CSV; leave blank on all subsequent rows.
+3. Ratings must be ordered HIGHEST to LOWEST points.
+4. Rating Points must be plain numbers only (e.g., 10, 8, 5) — never ranges.
+5. Set "Criteria Enable Range" to FALSE for all criteria.
+6. Wrap any field containing a comma in double quotes.
+7. No markdown fences, no prose — only raw CSV content in each csv field.
+
+Return a JSON object with a "rubrics" array. Each element must have:
+- "title": the rubric name exactly as it appears in the document
+- "csv": the complete CSV string including the header row`;
+
+    const parts: any[] = [{ text: prompt }];
+
+    if (isDocx(attachment)) {
+      const extracted = await extractDocxText(attachment);
+      parts.push({ text: `\n\n[Document content from "${attachment.name}"]:\n${extracted}` });
+    } else {
+      parts.push({ inlineData: { mimeType: attachment.mimeType, data: attachment.data } });
+    }
+
+    const response = await ai.models.generateContent({
+      model: PRIMARY_MODEL,
+      contents: [{ parts }],
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION,
+        temperature: 0.4,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            rubrics: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  title: { type: Type.STRING },
+                  csv:   { type: Type.STRING },
+                },
+                required: ['title', 'csv'],
+              },
+            },
+          },
+          required: ['rubrics'],
+        },
+      },
+    });
+
+    if (!response.text) throw new Error('No response from Gemini batch call');
+    const parsed = JSON.parse(response.text.trim()) as { rubrics: BatchRubricResult[] };
+    if (!Array.isArray(parsed.rubrics) || parsed.rubrics.length === 0) {
+      throw new Error('No rubrics found in document — check that the file contains rubric tables');
+    }
+    return parsed.rubrics;
   }, signal);
 }
