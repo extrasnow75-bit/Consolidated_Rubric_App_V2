@@ -10,8 +10,12 @@ import {
   ProgressState,
   CachedMetadata,
   ThrottlerMetrics,
+  GoogleUser,
+  GoogleAuthTokens,
 } from '../types';
 import { onThrottlerMetrics } from '../services/throttlerService';
+import { googleDriveService } from '../services/googleDriveService';
+import { setGeminiApiKey as geminiServiceSetApiKey } from '../services/geminiService';
 
 // Create context
 const SessionContext = createContext<{
@@ -37,6 +41,15 @@ const SessionContext = createContext<{
   clearSession: () => void;
   newBatch: () => void;
   addToMetadataCache: (fileHash: string, metadata: RubricMeta) => void;
+  // Gemini API Key
+  setUserGeminiApiKey: (key: string | null) => void;
+  // Google Auth methods
+  startGoogleAuth: () => void;
+  completeGoogleAuth: (code: string, state: string) => Promise<void>;
+  signOutGoogle: () => Promise<void>;
+  refreshGoogleToken: () => Promise<void>;
+  extractGoogleDocText: (docUrl: string) => Promise<string>;
+  extractGoogleSheetCsv: (sheetUrl: string) => Promise<string>;
 } | undefined>(undefined);
 
 // Provider component
@@ -78,6 +91,16 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       totalRequests: 0,
       failedRequests: 0,
     },
+    // Gemini API Key
+    geminiApiKey: null,
+    // Google Authentication
+    isGoogleAuthenticated: false,
+    googleUser: null,
+    googleAccessToken: null,
+    googleRefreshToken: null,
+    googleTokenExpiresAt: null,
+    googleAuthError: null,
+    isAuthenticating: false,
   });
 
   // Register throttler metrics callback to update UI in real-time
@@ -282,7 +305,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       abortControllerRef.current = null;
     }
 
-    setState({
+    setState((prev) => ({
       currentStep: AppMode.DASHBOARD,
       rubric: null,
       rubricMetadata: null,
@@ -307,7 +330,16 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
         totalItems: 0,
         canCancel: false,
       },
-    });
+      // Preserve Gemini API key and Google auth across session clears
+      geminiApiKey: prev.geminiApiKey,
+      isGoogleAuthenticated: prev.isGoogleAuthenticated,
+      googleUser: prev.googleUser,
+      googleAccessToken: prev.googleAccessToken,
+      googleRefreshToken: prev.googleRefreshToken,
+      googleTokenExpiresAt: prev.googleTokenExpiresAt,
+      googleAuthError: null,
+      isAuthenticating: false,
+    }));
   }, []);
 
   const newBatch = useCallback(() => {
@@ -339,6 +371,180 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
   }, []);
 
+  // Gemini API Key management
+  const setUserGeminiApiKey = useCallback((key: string | null) => {
+    setState((prev) => ({ ...prev, geminiApiKey: key }));
+    if (key) {
+      localStorage.setItem('gemini_api_key', key);
+      geminiServiceSetApiKey(key);
+    } else {
+      localStorage.removeItem('gemini_api_key');
+      geminiServiceSetApiKey('');
+    }
+  }, []);
+
+  // Google Auth callbacks
+  const startGoogleAuth = useCallback(() => {
+    setState((prev) => ({ ...prev, isAuthenticating: true }));
+    try {
+      googleDriveService.startOAuthFlow();
+    } catch (err: any) {
+      setState((prev) => ({
+        ...prev,
+        isAuthenticating: false,
+        googleAuthError: err.message,
+      }));
+    }
+  }, []);
+
+  const completeGoogleAuth = useCallback(async (code: string, state: string) => {
+    try {
+      const { tokens, user } = await googleDriveService.handleOAuthCallback(code, state);
+      setState((prev) => ({
+        ...prev,
+        isGoogleAuthenticated: true,
+        googleUser: user,
+        googleAccessToken: tokens.accessToken,
+        googleRefreshToken: tokens.refreshToken,
+        googleTokenExpiresAt: tokens.expiresAt,
+        googleAuthError: null,
+        isAuthenticating: false,
+      }));
+    } catch (err: any) {
+      setState((prev) => ({
+        ...prev,
+        isAuthenticating: false,
+        googleAuthError: err.message,
+      }));
+      throw err;
+    }
+  }, []);
+
+  const signOutGoogle = useCallback(async () => {
+    try {
+      await googleDriveService.signOut();
+      setState((prev) => ({
+        ...prev,
+        isGoogleAuthenticated: false,
+        googleUser: null,
+        googleAccessToken: null,
+        googleRefreshToken: null,
+        googleTokenExpiresAt: null,
+        googleAuthError: null,
+      }));
+    } catch (err: any) {
+      console.error('Sign out error:', err);
+      setState((prev) => ({
+        ...prev,
+        isGoogleAuthenticated: false,
+        googleUser: null,
+        googleAccessToken: null,
+        googleRefreshToken: null,
+        googleTokenExpiresAt: null,
+      }));
+    }
+  }, []);
+
+  const refreshGoogleToken = useCallback(async () => {
+    try {
+      const tokens = googleDriveService.getStoredTokens();
+      if (!tokens || !tokens.refreshToken) {
+        return;
+      }
+
+      if (!googleDriveService.isTokenExpired(tokens.expiresAt)) {
+        return;
+      }
+
+      const { accessToken, expiresAt } = await googleDriveService.refreshAccessToken(tokens.refreshToken);
+      googleDriveService.updateStoredTokens({
+        accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt,
+      });
+
+      setState((prev) => ({
+        ...prev,
+        googleAccessToken: accessToken,
+        googleTokenExpiresAt: expiresAt,
+      }));
+    } catch (err: any) {
+      await signOutGoogle();
+    }
+  }, [signOutGoogle]);
+
+  const extractGoogleDocText = useCallback(
+    async (docUrl: string): Promise<string> => {
+      if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+        throw new Error('Please sign in with Google first');
+      }
+      const fileId = googleDriveService.extractFileIdFromUrl(docUrl);
+      return googleDriveService.getGoogleDocContent(fileId, state.googleAccessToken);
+    },
+    [state.isGoogleAuthenticated, state.googleAccessToken]
+  );
+
+  const extractGoogleSheetCsv = useCallback(
+    async (sheetUrl: string): Promise<string> => {
+      if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+        throw new Error('Please sign in with Google first');
+      }
+      const fileId = googleDriveService.extractFileIdFromUrl(sheetUrl);
+      return googleDriveService.getGoogleSheetContent(fileId, state.googleAccessToken);
+    },
+    [state.isGoogleAuthenticated, state.googleAccessToken]
+  );
+
+  // Initialize on app load
+  useEffect(() => {
+    const savedApiKey = localStorage.getItem('gemini_api_key');
+    if (savedApiKey) {
+      setState((prev) => ({ ...prev, geminiApiKey: savedApiKey }));
+      geminiServiceSetApiKey(savedApiKey);
+    }
+
+    const initializeAuth = async () => {
+      const storedTokens = googleDriveService.getStoredTokens();
+      const storedUser = googleDriveService.getStoredUser();
+
+      if (storedTokens && storedUser) {
+        if (googleDriveService.isTokenExpired(storedTokens.expiresAt)) {
+          try {
+            const { accessToken, expiresAt } = await googleDriveService.refreshAccessToken(
+              storedTokens.refreshToken
+            );
+            googleDriveService.updateStoredTokens({
+              accessToken,
+              refreshToken: storedTokens.refreshToken,
+              expiresAt,
+            });
+            setState((prev) => ({
+              ...prev,
+              isGoogleAuthenticated: true,
+              googleUser: storedUser,
+              googleAccessToken: accessToken,
+              googleRefreshToken: storedTokens.refreshToken,
+              googleTokenExpiresAt: expiresAt,
+            }));
+          } catch (err) {
+            await googleDriveService.signOut();
+          }
+        } else {
+          setState((prev) => ({
+            ...prev,
+            isGoogleAuthenticated: true,
+            googleUser: storedUser,
+            googleAccessToken: storedTokens.accessToken,
+            googleRefreshToken: storedTokens.refreshToken,
+            googleTokenExpiresAt: storedTokens.expiresAt,
+          }));
+        }
+      }
+    };
+
+    initializeAuth();
+  }, []);
+
   const value = {
     state,
     setCurrentStep,
@@ -362,6 +568,15 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     clearSession,
     newBatch,
     addToMetadataCache,
+    // Gemini API Key
+    setUserGeminiApiKey,
+    // Google Auth
+    startGoogleAuth,
+    completeGoogleAuth,
+    signOutGoogle,
+    refreshGoogleToken,
+    extractGoogleDocText,
+    extractGoogleSheetCsv,
   };
 
   return (

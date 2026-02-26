@@ -19,6 +19,11 @@ export enum PointStyle {
   SINGLE = 'SINGLE'
 }
 
+export enum ProcessingType {
+  SINGLE = 'SINGLE',
+  MULTIPLE = 'MULTIPLE'
+}
+
 export enum Role {
   USER = 'user',
   MODEL = 'model'
@@ -180,6 +185,23 @@ export interface UploadHistoryItem {
 }
 
 // =========================
+// INTERFACES - GOOGLE AUTH
+// =========================
+
+export interface GoogleUser {
+  id: string;
+  email: string;
+  name: string;
+  picture?: string;
+}
+
+export interface GoogleAuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+}
+
+// =========================
 // INTERFACES - SESSION STATE
 // =========================
 
@@ -213,10 +235,17 @@ export interface SessionState {
   // Progress tracking
   progress: ProgressState;
 
-  // Caching & Throttling
-  metadataCache?: Map<string, CachedMetadata>; // Cache of extracted metadata by file hash
-  cacheTTL?: number; // Cache time-to-live in ms (default: 30 min)
-  throttlerMetrics?: ThrottlerMetrics; // Current throttler queue status
+  // Gemini API Key (user-provided)
+  geminiApiKey: string | null;
+
+  // Google Authentication
+  isGoogleAuthenticated: boolean;
+  googleUser: GoogleUser | null;
+  googleAccessToken: string | null;
+  googleRefreshToken: string | null;
+  googleTokenExpiresAt: number | null;
+  googleAuthError: string | null;
+  isAuthenticating: boolean;
 }
 
 // =========================
@@ -226,6 +255,7 @@ export interface SessionState {
 export interface GenerationSettings {
   totalPoints: number;
   pointStyle: PointStyle;
+  processingType: ProcessingType;
 }
 
 // =========================
@@ -238,32 +268,4 @@ export interface RubricConfig {
   courseId: string;
   useProxy: boolean;
   proxyService: string;
-}
-
-// =========================
-// INTERFACES - CACHING & THROTTLING
-// =========================
-
-/**
- * Cached metadata for a document
- * Used to avoid re-extracting rubric metadata from same document
- */
-export interface CachedMetadata {
-  fileHash: string;
-  data: RubricMeta;
-  timestamp: number; // When cached
-  ttlMs: number; // Time-to-live in milliseconds
-}
-
-/**
- * Throttler metrics for monitoring request queue
- * Updated in real-time as requests are processed
- */
-export interface ThrottlerMetrics {
-  queued: number; // Number of requests waiting in queue
-  processing: boolean; // Whether a request is currently processing
-  lastRequestTime?: number; // Timestamp of last completed request
-  totalRequests: number; // Total requests processed
-  failedRequests: number; // Total failed requests
-  averageWaitMs?: number; // Average wait time in queue (ms)
 }

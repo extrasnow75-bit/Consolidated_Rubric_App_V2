@@ -1,13 +1,64 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useSession } from '../contexts/SessionContext';
-import { AppMode, Attachment, RubricMeta } from '../types';
-import { extractRubricMetadata, sendMessageToGemini } from '../services/geminiService';
-import { hashFile, shortHashFingerprint } from '../utils/fileHashUtil';
-import mammoth from 'mammoth';
-import * as pdfjsLib from 'pdfjs-dist';
-import { Upload, Download, Loader2, Copy, Check } from 'lucide-react';
+import { AppMode, Attachment, RubricMeta, ProcessingType } from '../types';
+import {
+  generateCsvForRubric,
+  generateAllCsvsFromDoc,
+} from '../services/geminiService';
+import { friendlyError } from './ErrorDisplay';
+import {
+  Upload,
+  Download,
+  Loader2,
+  Copy,
+  Check,
+  Link as LinkIcon,
+  StopCircle,
+  CheckCircle,
+  XCircle,
+  Clock,
+  RotateCcw,
+  PackageOpen,
+} from 'lucide-react';
+import ErrorDisplay from './ErrorDisplay';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
+
+// ─── Types ────────────────────────────────────────────────────────────
+
+interface RubricResult {
+  rubric: RubricMeta;
+  status: 'pending' | 'generating' | 'done' | 'error';
+  csvContent?: string;
+  error?: string;
+}
+
+/**
+ * Compact inline error for rubric result cards.
+ * Shows a short plain-English message with a toggleable full-error section.
+ */
+const RubricErrorLine: React.FC<{ error: string }> = ({ error }) => {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <>
+      <p className="text-xs text-red-600 mt-0.5 leading-tight">
+        {friendlyError(error, true)}
+      </p>
+      <button
+        onClick={(e) => { e.stopPropagation(); setExpanded((p) => !p); }}
+        className="text-[10px] text-red-400 hover:text-red-600 mt-0.5 underline underline-offset-2"
+      >
+        {expanded ? 'hide details' : 'view full error'}
+      </button>
+      {expanded && (
+        <pre className="mt-1.5 text-[10px] text-red-500 bg-red-50 border border-red-200 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap break-all">
+          {error}
+        </pre>
+      )}
+    </>
+  );
+};
+
+// ─── Component ────────────────────────────────────────────────────────
 
 export const Part2WordToCsv: React.FC = () => {
   const {
@@ -20,364 +71,395 @@ export const Part2WordToCsv: React.FC = () => {
     startProgress,
     stopProgress,
     setProgress,
-    getAbortSignal,
-    addToMetadataCache,
+    extractGoogleSheetCsv,
   } = useSession();
 
+  // ── File / attachment state ──────────────────────────────────────────
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [analyzing, setAnalyzing] = useState(false);
   const [rubricOptions, setRubricOptions] = useState<RubricMeta[]>([]);
-  const [selectedRubric, setSelectedRubric] = useState<number | null>(null);
-  const [csvContent, setCsvContent] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Input mode (file upload vs Google Sheets) ────────────────────────
+  const [inputMode, setInputMode] = useState<'file' | 'google-sheet'>('file');
+  const [googleSheetUrl, setGoogleSheetUrl] = useState('');
+  const [fetchingGoogleSheet, setFetchingGoogleSheet] = useState(false);
+
+  // ── Single-rubric editable fields ────────────────────────────────────
+  const [processingType, setProcessingType] = useState<ProcessingType>(
+    ProcessingType.SINGLE,
+  );
+  const [editableRubricName, setEditableRubricName] = useState('');
+  const [editableTotalPoints, setEditableTotalPoints] = useState('');
+  const [editableScoringMethod, setEditableScoringMethod] = useState<
+    'ranges' | 'fixed'
+  >('ranges');
+  const [singleCsvContent, setSingleCsvContent] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // ── Multi-rubric parallel generation ────────────────────────────────
+  const [rubricResults, setRubricResults] = useState<RubricResult[]>([]);
+  const [isGeneratingAll, setIsGeneratingAll] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // ── Live timer for estimated time to completion ──────────────────────
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const generationStartRef = useRef<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Start/stop the elapsed-time ticker whenever batch generation starts/stops
+  useEffect(() => {
+    if (isGeneratingAll) {
+      generationStartRef.current = Date.now();
+      setElapsedSeconds(0);
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds(
+          Math.floor((Date.now() - (generationStartRef.current ?? Date.now())) / 1000),
+        );
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isGeneratingAll]);
+
+  // ── Helpers ───────────────────────────────────────────────────────────
+
+  /** Core download utility — appends anchor to DOM, clicks, then revokes after delay. */
+  const downloadBlob = useCallback((blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, []);
+
+  /** Download a CSV string as a .csv file. */
+  const downloadCsv = useCallback(
+    (content: string, filename: string) => {
+      const safeFilename = filename.endsWith('.csv') ? filename : `${filename}.csv`;
+      downloadBlob(new Blob([content], { type: 'text/csv;charset=utf-8;' }), safeFilename);
+    },
+    [downloadBlob],
+  );
+
+  const resetForNewFile = () => {
+    setAttachments([]);
+    setRubricOptions([]);
+    setRubricResults([]);
+    setSingleCsvContent(null);
+    setEditableRubricName('');
+    setEditableTotalPoints('');
+    setEditableScoringMethod('ranges');
+    setProcessingType(ProcessingType.SINGLE);
+    setError(null);
+    // Cancel any in-flight generation
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setIsGeneratingAll(false);
+    setIsLoading(false);
+    stopProgress();
+  };
+
+  // ── File handling ─────────────────────────────────────────────────────
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
   };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
+  const handleDragLeave = () => setIsDragging(false);
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files.length > 0) {
-      handleFileSelect(e.dataTransfer.files[0]);
-    }
+    if (e.dataTransfer.files.length > 0) handleFileSelect(e.dataTransfer.files[0]);
   };
 
   const handleFileSelect = async (file: File) => {
-    setError(null);
-    setIsLoading(true);
+    resetForNewFile();
+
+    const isDocxFile = file.name.endsWith('.docx') || file.name.endsWith('.doc');
+    const isPdf = file.name.endsWith('.pdf');
+
+    if (!isDocxFile && !isPdf) {
+      setError('Please upload a Word (.docx) or PDF file');
+      return;
+    }
 
     try {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        try {
-          const fileData = event.target?.result;
-          if (!fileData) throw new Error('Failed to read file');
+      const arrayBuffer = await file.arrayBuffer();
+      const base64Data = btoa(
+        String.fromCharCode(...new Uint8Array(arrayBuffer)),
+      );
+      const mimeType = isPdf
+        ? 'application/pdf'
+        : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
-          let mimeType = 'application/octet-stream';
-          let base64Data = '';
-
-          if (file.name.endsWith('.pdf')) {
-            mimeType = 'application/pdf';
-            const arrayBuffer = fileData as ArrayBuffer;
-            base64Data = btoa(
-              String.fromCharCode.apply(null, Array.from(new Uint8Array(arrayBuffer)))
-            );
-          } else if (file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
-            mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-            const arrayBuffer = fileData as ArrayBuffer;
-            base64Data = btoa(
-              String.fromCharCode.apply(null, Array.from(new Uint8Array(arrayBuffer)))
-            );
-          } else {
-            throw new Error('Please upload a Word (.docx) or PDF file');
-          }
-
-          const attachment: Attachment = {
-            name: file.name,
-            mimeType,
-            data: base64Data,
-          };
-
-          setAttachments([attachment]);
-
-          // Analyze for rubrics (check cache first)
-          setAnalyzing(true);
-
-          try {
-            // Hash file content for cache key
-            const fileHash = await hashFile(base64Data);
-            const now = Date.now();
-            const cacheTTL = state.cacheTTL || 1800000; // Default 30 min
-
-            // Check if metadata is in cache and not expired
-            let rubrics: RubricMeta[] = [];
-            let cacheHit = false;
-
-            if (state.metadataCache) {
-              const cached = state.metadataCache.get(fileHash);
-              if (cached && (now - cached.timestamp < cacheTTL)) {
-                rubrics = [cached.data];
-                cacheHit = true;
-                console.log(
-                  `[Part2] Cache HIT for file ${shortHashFingerprint(fileHash)}: ${cached.data.name}`
-                );
-              }
-            }
-
-            // If not in cache, extract metadata from API
-            if (!cacheHit) {
-              console.log(
-                `[Part2] Cache MISS for file ${shortHashFingerprint(fileHash)}, calling Gemini...`
-              );
-              rubrics = await extractRubricMetadata([attachment]);
-
-              // Store results in cache for future use
-              rubrics.forEach((rubric) => {
-                addToMetadataCache(fileHash, rubric);
-              });
-            }
-
-            setRubricOptions(rubrics);
-
-            if (rubrics.length === 0) {
-              setError('No rubric found in the file. Please ensure it contains a rubric table.');
-            } else if (rubrics.length === 1) {
-              setSelectedRubric(0);
-            }
-          } catch (cacheErr: any) {
-            console.error('[Part2] Metadata extraction error:', cacheErr);
-            setError(`Error analyzing file: ${cacheErr.message}`);
-          }
-        } catch (err: any) {
-          setError(`Error processing file: ${err.message}`);
-        } finally {
-          setAnalyzing(false);
-          setIsLoading(false);
-        }
-      };
-
-      if (file.name.endsWith('.pdf') || file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
-        reader.readAsArrayBuffer(file);
-      } else {
-        setError('Unsupported file type');
-        setIsLoading(false);
-      }
+      const attachment: Attachment = { name: file.name, mimeType, data: base64Data };
+      setAttachments([attachment]);
+      // No Gemini call on upload — batch generation happens when the user
+      // clicks "Generate All CSVs" (MULTIPLE mode) or "Generate Canvas CSV" (SINGLE mode).
     } catch (err: any) {
-      setError(`Failed to process file: ${err.message}`);
-      setIsLoading(false);
+      setError(`Error reading file: ${err.message}`);
     }
   };
 
-  const handleGenerateCsv = async () => {
-    if (selectedRubric === null) {
-      setError('Please select a rubric');
+  // ── Single-rubric generation ──────────────────────────────────────────
+
+  const handleGenerateSingle = async () => {
+    if (attachments.length === 0) return;
+    if (!editableRubricName.trim()) {
+      setError('Please enter a rubric name');
       return;
     }
 
-    if (attachments.length === 0) {
-      setError('No file selected');
-      return;
-    }
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     setIsLoading(true);
     setError(null);
-
     startProgress(1, true);
-    setProgress({ currentStep: 'Reading document...' });
+    setProgress({ currentStep: 'Generating Canvas CSV…' });
 
     try {
-      const signal = getAbortSignal();
+      const csv = await generateCsvForRubric(
+        editableRubricName,
+        editableTotalPoints,
+        editableScoringMethod,
+        attachments[0],
+        controller.signal,
+      );
 
-      setProgress({ currentStep: 'Analyzing rubric structure...', percentage: 0.2 });
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      if (controller.signal.aborted) return;
 
-      if (signal.aborted) {
-        setError('CSV conversion cancelled');
-        return;
-      }
-
-      const rubric = rubricOptions[selectedRubric];
-      const prompt = `Extract the rubric named "${rubric.name}" from the attached document and convert it to a Canvas-compatible CSV format. The CSV MUST include:\n1. Header row with exact Canvas headers\n2. One row per criterion\n3. Ratings ordered from highest to lowest points\n4. All point values included\n\nReturn ONLY the CSV format, wrapped in a \`\`\`csv\n\`\`\` code block.`;
-
-      setProgress({
-        currentStep: 'Generating CSV format...',
-        percentage: 0.5,
-      });
-
-      const response = await sendMessageToGemini(prompt, attachments);
-
-      if (signal.aborted) {
-        setError('CSV conversion cancelled');
-        return;
-      }
-
-      // Extract CSV from code block if present
-      let csvData = response;
-      const codeBlockMatch = response.match(/```csv\n([\s\S]*?)\n```/);
-      if (codeBlockMatch) {
-        csvData = codeBlockMatch[1];
-      }
-
-      setProgress({
-        currentStep: 'Formatting CSV...',
-        percentage: 0.9,
-      });
-
-      setCsvContent(csvData);
-      setCsvOutput(csvData, `${rubric.name}.csv`);
-
+      setSingleCsvContent(csv);
+      setCsvOutput(csv, `${editableRubricName}.csv`);
       setProgress({ percentage: 1, itemsProcessed: 1 });
-
-      // Show task completion dialog
       setTimeout(() => {
         stopProgress();
         setTaskCompletionOpen(true);
       }, 500);
     } catch (err: any) {
-      if (!getAbortSignal().aborted) {
-        setError(`Failed to convert to CSV: ${err.message}`);
+      if (!controller.signal.aborted) {
+        setError(`Failed to generate CSV: ${err.message}`);
       }
       stopProgress();
     } finally {
       setIsLoading(false);
+      abortRef.current = null;
     }
   };
 
+  // ── Multi-rubric batch generation ────────────────────────────────────
+
+  const handleGenerateAll = async () => {
+    if (attachments.length === 0) return;
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setIsGeneratingAll(true);
+    setError(null);
+    // Show a single "generating" placeholder card while the batch call runs
+    setRubricResults([{ rubric: { name: 'All rubrics', totalPoints: '', scoringMethod: 'fixed' }, status: 'generating' }]);
+
+    try {
+      const batchResults = await generateAllCsvsFromDoc(attachments[0], controller.signal);
+
+      if (controller.signal.aborted) return;
+
+      // Populate rubricOptions so SINGLE mode and retry can reference them
+      const metas = batchResults.map((r) => ({
+        name: r.title,
+        totalPoints: '',
+        scoringMethod: 'fixed' as const,
+      }));
+      setRubricOptions(metas);
+      setRubricResults(
+        batchResults.map((r, i) => ({
+          rubric: metas[i],
+          status: 'done',
+          csvContent: r.csv,
+        })),
+      );
+    } catch (err: any) {
+      if (!controller.signal.aborted) {
+        setError(`Batch generation failed: ${err.message}`);
+        setRubricResults([]);
+      }
+    }
+
+    setIsGeneratingAll(false);
+    abortRef.current = null;
+  };
+
+  const handleStop = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setIsGeneratingAll(false);
+    setIsLoading(false);
+    stopProgress();
+  };
+
+  /** Retry a single failed rubric without re-running the whole batch. */
+  const handleRetryRubric = async (index: number) => {
+    const rubric = rubricOptions[index];
+    if (!rubric || attachments.length === 0) return;
+
+    // Mark just this one rubric as generating again
+    setRubricResults((prev) => {
+      const next = [...prev];
+      next[index] = { rubric, status: 'generating' };
+      return next;
+    });
+
+    try {
+      // No shared abort controller — individual retries run independently.
+      // The queue-based throttle serialises them with any ongoing batch.
+      const csv = await generateCsvForRubric(
+        rubric.name,
+        rubric.totalPoints,
+        rubric.scoringMethod,
+        attachments[0],
+      );
+      setRubricResults((prev) => {
+        const next = [...prev];
+        next[index] = { rubric, status: 'done', csvContent: csv };
+        return next;
+      });
+    } catch (err: any) {
+      setRubricResults((prev) => {
+        const next = [...prev];
+        next[index] = { rubric, status: 'error', error: err.message };
+        return next;
+      });
+    }
+  };
+
+  /** Zip all successfully generated CSVs and trigger a single download. */
+  const handleDownloadAllZip = async () => {
+    const completed = rubricResults.filter(
+      (r) => r.status === 'done' && r.csvContent,
+    );
+    if (completed.length === 0) return;
+
+    const { default: JSZip } = await import('jszip');
+    const zip = new JSZip();
+
+    for (const result of completed) {
+      // Sanitise name — remove characters that are illegal in filenames
+      const safeName = result.rubric.name
+        .replace(/[/\\?%*:|"<>]/g, '_')
+        .trim();
+      zip.file(`${safeName}.csv`, result.csvContent!);
+    }
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    downloadBlob(blob, 'all-rubrics.zip');
+  };
+
+  // ── Other handlers ────────────────────────────────────────────────────
+
   const handleCopyToClipboard = () => {
-    if (csvContent) {
-      navigator.clipboard.writeText(csvContent);
+    if (singleCsvContent) {
+      navigator.clipboard.writeText(singleCsvContent);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
   };
 
-  const handleDownloadCsv = () => {
-    if (csvContent) {
-      const blob = new Blob([csvContent], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `rubric-${Date.now()}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-  };
-
   const handleContinuePart3 = () => {
-    if (!csvContent) {
-      setError('Please generate CSV first');
+    if (!singleCsvContent) {
+      setError('Please generate a CSV first');
       return;
     }
     setCurrentStep(AppMode.PART_3);
   };
 
+  const handleFetchGoogleSheet = async () => {
+    if (!state.isGoogleAuthenticated) {
+      setError('Please sign in with Google first');
+      return;
+    }
+    if (!googleSheetUrl.trim()) {
+      setError('Please enter a Google Sheets URL');
+      return;
+    }
+
+    setFetchingGoogleSheet(true);
+    setError(null);
+
+    try {
+      const csvData = await extractGoogleSheetCsv(googleSheetUrl);
+      setSingleCsvContent(csvData);
+      setCsvOutput(csvData, 'imported-sheet.csv');
+      setProcessingType(ProcessingType.SINGLE); // ensure result view shows
+      setGoogleSheetUrl('');
+      setInputMode('file');
+    } catch (err: any) {
+      setError(`Failed to fetch Google Sheet: ${err.message}`);
+    } finally {
+      setFetchingGoogleSheet(false);
+    }
+  };
+
+  // ── Derived values ────────────────────────────────────────────────────
+
+  const doneCount = rubricResults.filter((r) => r.status === 'done').length;
+  const errorCount = rubricResults.filter((r) => r.status === 'error').length;
+  const totalCount = rubricResults.length;
+  const completedCount = doneCount + errorCount;
+
+  // Batch call: single Gemini request for the whole document (~60 s typical)
+  const staticEstimateSecs = 60;
+
+  // For batch mode, estimate remaining time relative to the 60 s budget
+  const dynamicRemainingS = Math.max(0, staticEstimateSecs - elapsedSeconds);
+
+  /** Format seconds as "Xm Ys" or just "Xs" */
+  const fmtSeconds = (s: number) => {
+    if (s < 0) return '0s';
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+  };
+
+  const progressPct =
+    totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+  // ── Render ────────────────────────────────────────────────────────────
+
   return (
     <div className="flex flex-col items-center justify-center py-8">
       <div className="bg-white p-10 rounded-3xl shadow-2xl border border-gray-100 max-w-2xl w-full">
-        <h2 className="text-2xl font-black text-gray-900 mb-2">Convert to CSV</h2>
-        <p className="text-gray-600 font-medium mb-8">
-          Upload a Word or PDF file with your rubric
+        <h2 className="text-2xl font-black text-gray-900 mb-1">Rubric Setup</h2>
+        <p className="text-gray-500 text-sm mb-8">
+          Please provide the details for your rubric.
         </p>
 
-        {!csvContent ? (
+        {/* ══ SINGLE-RUBRIC RESULT VIEW ══════════════════════════════════ */}
+        {singleCsvContent && processingType === ProcessingType.SINGLE ? (
           <>
-            {/* File Upload */}
-            {attachments.length === 0 ? (
-              <>
-                <div
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`relative w-full p-8 border-2 border-dashed rounded-3xl flex flex-col items-center justify-center gap-4 cursor-pointer transition-all ${
-                    isDragging
-                      ? 'bg-blue-50 border-blue-400'
-                      : 'bg-gray-50 border-gray-200 hover:border-blue-300'
-                  }`}
-                >
-                  <Upload className="w-8 h-8 text-gray-400" />
-                  <p className="text-sm font-bold text-gray-700">
-                    Drop Word or PDF file here
-                  </p>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.docx,.doc"
-                    onChange={(e) => {
-                      if (e.target.files?.[0]) {
-                        handleFileSelect(e.target.files[0]);
-                      }
-                    }}
-                    className="hidden"
-                  />
-                </div>
-              </>
-            ) : (
-              <>
-                {/* File Selected */}
-                <div className="p-4 bg-green-50 border border-green-200 rounded-2xl mb-6">
-                  <p className="text-sm font-bold text-green-900">
-                    ✓ {attachments[0].name}
-                  </p>
-                </div>
-
-                {/* Rubric Selection */}
-                {rubricOptions.length > 0 && (
-                  <div className="mb-6">
-                    <label className="block text-sm font-bold text-gray-700 mb-3">
-                      Select Rubric to Convert
-                    </label>
-                    <div className="space-y-2">
-                      {rubricOptions.map((rubric, i) => (
-                        <label key={i} className="flex items-center p-3 border rounded-xl cursor-pointer hover:bg-blue-50">
-                          <input
-                            type="radio"
-                            checked={selectedRubric === i}
-                            onChange={() => setSelectedRubric(i)}
-                            className="w-4 h-4"
-                          />
-                          <span className="ml-3 font-bold text-gray-900">{rubric.name}</span>
-                          <span className="ml-auto text-xs text-gray-600">{rubric.totalPoints} points</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {state.error && (
-                  <div className="p-4 bg-red-50 border border-red-200 rounded-2xl mb-6">
-                    <p className="text-sm text-red-700 font-bold">{state.error}</p>
-                  </div>
-                )}
-
-                {/* Generate CSV Button */}
-                <button
-                  onClick={handleGenerateCsv}
-                  disabled={analyzing || selectedRubric === null}
-                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"
-                >
-                  {analyzing && <Loader2 className="w-5 h-5 animate-spin" />}
-                  {analyzing ? 'Converting...' : 'Generate CSV'}
-                </button>
-
-                {/* Clear Button */}
-                <button
-                  onClick={() => {
-                    setAttachments([]);
-                    setRubricOptions([]);
-                    setSelectedRubric(null);
-                    setError(null);
-                  }}
-                  className="w-full mt-3 py-2 text-gray-700 rounded-xl font-bold hover:bg-gray-100 transition-all"
-                >
-                  Choose Different File
-                </button>
-              </>
-            )}
-          </>
-        ) : (
-          <>
-            {/* Display CSV */}
             <div className="mb-6">
               <label className="block text-sm font-bold text-gray-700 mb-2">
                 Generated CSV
               </label>
               <div className="p-4 bg-gray-50 border rounded-2xl max-h-48 overflow-auto">
                 <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words font-mono">
-                  {csvContent}
+                  {singleCsvContent}
                 </pre>
               </div>
             </div>
 
-            {/* Action Buttons */}
             <div className="flex gap-3">
               <button
                 onClick={handleCopyToClipboard}
@@ -387,7 +469,9 @@ export const Part2WordToCsv: React.FC = () => {
                 {copied ? 'Copied!' : 'Copy'}
               </button>
               <button
-                onClick={handleDownloadCsv}
+                onClick={() =>
+                  downloadCsv(singleCsvContent, editableRubricName || 'rubric')
+                }
                 className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2"
               >
                 <Download className="w-5 h-5" />
@@ -402,19 +486,560 @@ export const Part2WordToCsv: React.FC = () => {
             </div>
 
             <button
-              onClick={() => {
-                setCsvContent(null);
-                setAttachments([]);
-                setRubricOptions([]);
-                setSelectedRubric(null);
-              }}
+              onClick={resetForNewFile}
               className="w-full mt-3 py-2 text-gray-700 rounded-xl font-bold hover:bg-gray-100 transition-all"
             >
               Convert Another File
             </button>
+          </>
+        ) : (
+          /* ══ UPLOAD / GENERATION FORM ══════════════════════════════════ */
+          <>
+            {/* Tab bar ──────────────────────────────────────────────────── */}
+            <div className="flex gap-3 mb-6 border-b border-gray-200">
+              <button
+                onClick={() => {
+                  setInputMode('file');
+                  setGoogleSheetUrl('');
+                  setError(null);
+                }}
+                className={`px-4 py-3 font-bold border-b-2 transition-all flex items-center gap-2 ${
+                  inputMode === 'file'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Upload className="w-4 h-4" />
+                Upload File
+              </button>
+              <button
+                onClick={() => {
+                  setInputMode('google-sheet');
+                  setError(null);
+                }}
+                className={`px-4 py-3 font-bold border-b-2 transition-all flex items-center gap-2 ${
+                  inputMode === 'google-sheet'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <LinkIcon className="w-4 h-4" />
+                Google Sheets URL
+              </button>
+            </div>
+
+            {inputMode === 'file' ? (
+              <>
+                {/* Step 1 label */}
+                <p className="text-xs font-bold text-[#1d6f42] uppercase tracking-wider mb-3">
+                  Step 1: Upload Draft Rubric (Word/PDF)
+                </p>
+
+                {attachments.length === 0 ? (
+                  /* ── Drop zone ─────────────────────────────────────── */
+                  <div
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`relative w-full p-8 border-2 border-dashed rounded-3xl flex flex-col items-center justify-center gap-4 cursor-pointer transition-all ${
+                      isDragging
+                        ? 'bg-blue-50 border-blue-400'
+                        : 'bg-gray-50 border-gray-200 hover:border-blue-300'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                      <Upload className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <p className="text-sm font-bold text-gray-700">
+                      Drop file here or click to browse
+                    </p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.docx,.doc"
+                      onChange={(e) => {
+                        if (e.target.files?.[0]) handleFileSelect(e.target.files[0]);
+                      }}
+                      className="hidden"
+                    />
+                  </div>
+                ) : (
+                  /* ── File selected ─────────────────────────────────── */
+                  <>
+                    {/* File indicator */}
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-2xl mb-4">
+                      <p className="text-sm font-bold text-green-900">
+                        ✓ {attachments[0].name}
+                      </p>
+                    </div>
+
+                    {/* Rubric Details section ──────────────────────────── */}
+                    {attachments.length > 0 && (
+                      <>
+                        <div className="mt-8 mb-4 border-t border-gray-100 pt-6">
+                          <h3 className="text-lg font-black text-gray-900">
+                            Rubric Details
+                          </h3>
+                        </div>
+
+                        {/* Document Contains radio */}
+                        <div className="mb-6">
+                          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
+                            Document Contains
+                          </p>
+                          <div className="flex gap-3">
+                            <label
+                              className={`flex items-center gap-2 cursor-pointer px-4 py-3 rounded-xl border-2 flex-1 transition-all ${
+                                processingType === ProcessingType.SINGLE
+                                  ? 'border-blue-500 bg-blue-50'
+                                  : 'border-gray-200 bg-white hover:border-gray-300'
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                checked={processingType === ProcessingType.SINGLE}
+                                onChange={() => setProcessingType(ProcessingType.SINGLE)}
+                                className="w-4 h-4 accent-blue-600"
+                              />
+                              <span className="text-sm font-bold text-gray-800">
+                                Single Rubric
+                              </span>
+                            </label>
+                            <label
+                              className={`flex items-center gap-2 cursor-pointer px-4 py-3 rounded-xl border-2 flex-1 transition-all ${
+                                processingType === ProcessingType.MULTIPLE
+                                  ? 'border-blue-500 bg-blue-50'
+                                  : 'border-gray-200 bg-white hover:border-gray-300'
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                checked={processingType === ProcessingType.MULTIPLE}
+                                onChange={() =>
+                                  setProcessingType(ProcessingType.MULTIPLE)
+                                }
+                                className="w-4 h-4 accent-blue-600"
+                              />
+                              <span className="text-sm font-bold text-gray-800">
+                                Multiple Rubrics
+                              </span>
+                            </label>
+                          </div>
+                        </div>
+
+                        {processingType === ProcessingType.SINGLE ? (
+                          /* ── Single rubric editable form ─────────────── */
+                          <>
+                            <div className="border-t border-gray-100 pt-6 mb-4">
+                              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">
+                                Step 2: Confirm Details
+                              </p>
+                            </div>
+
+                            {/* Rubric selector (only when multiple rubrics found) */}
+                            {rubricOptions.length > 1 && (
+                              <div className="mb-4">
+                                <label className="block text-sm font-bold text-gray-700 mb-3">
+                                  Select rubric:
+                                </label>
+                                <div className="space-y-2">
+                                  {rubricOptions.map((rubric, i) => (
+                                    <label
+                                      key={i}
+                                      className="flex items-center p-3 border rounded-xl cursor-pointer hover:bg-blue-50"
+                                    >
+                                      <input
+                                        type="radio"
+                                        checked={editableRubricName === rubric.name}
+                                        onChange={() => {
+                                          setEditableRubricName(rubric.name);
+                                          setEditableTotalPoints(rubric.totalPoints);
+                                          setEditableScoringMethod(rubric.scoringMethod);
+                                        }}
+                                        className="w-4 h-4 accent-blue-600"
+                                      />
+                                      <span className="ml-3 font-bold text-gray-900">
+                                        {rubric.name}
+                                      </span>
+                                      <span className="ml-auto text-xs text-gray-500">
+                                        {rubric.totalPoints} pts
+                                      </span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Editable fields */}
+                            <div className="mb-4">
+                              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
+                                Rubric Name
+                              </label>
+                              <input
+                                type="text"
+                                value={editableRubricName}
+                                onChange={(e) => setEditableRubricName(e.target.value)}
+                                placeholder="Suggested Name"
+                                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-gray-50 focus:bg-white transition-colors"
+                              />
+                            </div>
+                            <div className="mb-4">
+                              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
+                                Total Points
+                              </label>
+                              <input
+                                type="text"
+                                value={editableTotalPoints}
+                                onChange={(e) => setEditableTotalPoints(e.target.value)}
+                                placeholder="Suggested Points"
+                                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-gray-50 focus:bg-white transition-colors"
+                              />
+                            </div>
+                            <div className="mb-6">
+                              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
+                                Scoring Method
+                              </label>
+                              <div className="flex gap-6">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    checked={editableScoringMethod === 'ranges'}
+                                    onChange={() => setEditableScoringMethod('ranges')}
+                                    className="w-4 h-4 accent-blue-600"
+                                  />
+                                  <span className="text-sm font-bold text-gray-700">
+                                    Ranges
+                                  </span>
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    checked={editableScoringMethod === 'fixed'}
+                                    onChange={() => setEditableScoringMethod('fixed')}
+                                    className="w-4 h-4 accent-blue-600"
+                                  />
+                                  <span className="text-sm font-bold text-gray-700">
+                                    Fixed
+                                  </span>
+                                </label>
+                              </div>
+                            </div>
+
+                            {state.error && (
+                              <ErrorDisplay error={state.error} className="mb-6" />
+                            )}
+
+                            {/* Generate / Stop button */}
+                            <button
+                              onClick={state.isLoading ? handleStop : handleGenerateSingle}
+                              disabled={
+                                !state.isLoading &&
+                                (!editableRubricName.trim() || attachments.length === 0)
+                              }
+                              className={`w-full py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2 ${
+                                state.isLoading
+                                  ? 'bg-red-500 text-white hover:bg-red-600'
+                                  : 'bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400'
+                              }`}
+                            >
+                              {state.isLoading ? (
+                                <>
+                                  <StopCircle className="w-5 h-5" />
+                                  Stop Generation
+                                </>
+                              ) : (
+                                'Generate Canvas CSV'
+                              )}
+                            </button>
+
+                            {state.isLoading && (
+                              <p className="text-xs text-center text-gray-500 mt-3 animate-pulse">
+                                ⏱ Generating your CSV — this usually takes 15–30 seconds
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          /* ── Multiple rubrics flow ───────────────────── */
+                          <>
+                            <div className="border-t border-gray-100 pt-6 mb-4">
+                              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">
+                                Step 2: Generate All CSVs
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {rubricResults.length > 0 && !isGeneratingAll
+                                  ? `${rubricResults.length} rubric${rubricResults.length !== 1 ? 's' : ''} extracted — download individually or as a ZIP.`
+                                  : 'All rubric tables in the document will be sent to Gemini in a single request and split into separate Canvas CSV files.'}
+                              </p>
+                            </div>
+
+                            {/* Download All ZIP — sits above the cards once at least one is done */}
+                            {doneCount > 0 && (
+                              <button
+                                onClick={handleDownloadAllZip}
+                                className="w-full mb-4 py-3 bg-green-600 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-green-700 transition-all active:scale-95 flex items-center justify-center gap-2"
+                              >
+                                <PackageOpen className="w-5 h-5" />
+                                Download All {doneCount} CSV{doneCount !== 1 ? 's' : ''} as ZIP
+                              </button>
+                            )}
+
+                            {/* Per-rubric result cards */}
+                            {rubricResults.length > 0 && (
+                              <div className="space-y-2 mb-5">
+                                {rubricResults.map((result, i) => (
+                                  <div
+                                    key={i}
+                                    className={`p-3 rounded-xl border flex items-start gap-3 transition-colors ${
+                                      result.status === 'done'
+                                        ? 'bg-green-50 border-green-200'
+                                        : result.status === 'error'
+                                        ? 'bg-red-50 border-red-200'
+                                        : result.status === 'generating'
+                                        ? 'bg-blue-50 border-blue-200'
+                                        : 'bg-gray-50 border-gray-200'
+                                    }`}
+                                  >
+                                    {/* Status icon */}
+                                    {result.status === 'done' && (
+                                      <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
+                                    )}
+                                    {result.status === 'error' && (
+                                      <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                                    )}
+                                    {result.status === 'generating' && (
+                                      <Loader2 className="w-4 h-4 animate-spin text-blue-600 flex-shrink-0" />
+                                    )}
+                                    {result.status === 'pending' && (
+                                      <Clock className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                                    )}
+
+                                    {/* Labels */}
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-bold text-gray-900 truncate">
+                                        {result.rubric.name}
+                                      </p>
+                                      {result.status === 'generating' && (
+                                        <p className="text-xs text-blue-600 mt-0.5">
+                                          Generating…
+                                        </p>
+                                      )}
+                                      {result.status === 'error' && result.error && (
+                                        <RubricErrorLine error={result.error} />
+                                      )}
+                                    </div>
+
+                                    <span className="text-xs text-gray-500 flex-shrink-0">
+                                      {result.rubric.totalPoints} pts
+                                    </span>
+
+                                    {/* Per-rubric action buttons */}
+                                    {result.status === 'done' && result.csvContent && (
+                                      <button
+                                        onClick={() =>
+                                          downloadCsv(result.csvContent!, result.rubric.name)
+                                        }
+                                        className="flex-shrink-0 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 transition-all flex items-center gap-1.5"
+                                      >
+                                        <Download className="w-3.5 h-3.5" />
+                                        Download
+                                      </button>
+                                    )}
+                                    {result.status === 'error' && (
+                                      <button
+                                        onClick={() => handleRetryRubric(i)}
+                                        className="flex-shrink-0 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600 transition-all flex items-center gap-1.5"
+                                      >
+                                        <RotateCcw className="w-3.5 h-3.5" />
+                                        Retry
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Progress summary + live ETA (shown while generating) */}
+                            {isGeneratingAll && (
+                              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
+                                {/* Counts row */}
+                                <div className="flex items-center justify-between">
+                                  <p className="text-sm text-blue-800 font-semibold">
+                                    {completedCount} of {totalCount} completed
+                                    {errorCount > 0 && (
+                                      <span className="text-red-600 ml-1">
+                                        · {errorCount} error{errorCount !== 1 ? 's' : ''}
+                                      </span>
+                                    )}
+                                  </p>
+                                  <span className="text-xs font-bold text-blue-700">
+                                    {progressPct}%
+                                  </span>
+                                </div>
+
+                                {/* Progress bar */}
+                                <div className="w-full bg-blue-200 rounded-full h-1.5">
+                                  <div
+                                    className="bg-blue-600 h-1.5 rounded-full transition-all duration-700"
+                                    style={{ width: `${progressPct}%` }}
+                                  />
+                                </div>
+
+                                {/* Time row */}
+                                <div className="flex items-center justify-between text-xs text-blue-600">
+                                  <span>⏱ Elapsed: {fmtSeconds(elapsedSeconds)}</span>
+                                  {dynamicRemainingS > 0 ? (
+                                    <span>
+                                      ~{fmtSeconds(dynamicRemainingS)} remaining
+                                    </span>
+                                  ) : (
+                                    <span className="text-green-600 font-semibold">Wrapping up…</span>
+                                  )}
+                                </div>
+
+                                <p className="text-xs text-blue-500">
+                                  Sending all rubrics in one request — this may take up to 60 s
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Post-generation summary (after batch finishes) */}
+                            {!isGeneratingAll && totalCount > 0 && completedCount === totalCount && (
+                              <div className={`mb-4 p-3 rounded-xl border ${errorCount > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+                                <p className={`text-sm font-semibold ${errorCount > 0 ? 'text-amber-800' : 'text-green-800'}`}>
+                                  {doneCount} of {totalCount} succeeded
+                                  {errorCount > 0 && ` · ${errorCount} failed — use Retry on individual items`}
+                                </p>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                  Total time: {fmtSeconds(elapsedSeconds)}
+                                  {doneCount > 0 && ` · avg ${(elapsedSeconds / doneCount).toFixed(1)}s per rubric`}
+                                </p>
+                              </div>
+                            )}
+
+                            {state.error && (
+                              <ErrorDisplay error={state.error} className="mb-5" />
+                            )}
+
+                            {/* Primary CTA: Continue to Phase 3 when all done */}
+                            {doneCount > 0 && !isGeneratingAll && errorCount === 0 && doneCount === totalCount && (
+                              <button
+                                onClick={() => setCurrentStep(AppMode.PART_3)}
+                                className="w-full py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center gap-2"
+                              >
+                                Continue to Phase 3 →
+                              </button>
+                            )}
+
+                            {/* Generate All / Stop button */}
+                            {(() => {
+                              const allDone =
+                                doneCount > 0 &&
+                                !isGeneratingAll &&
+                                errorCount === 0 &&
+                                doneCount === totalCount;
+                              return (
+                                <button
+                                  onClick={isGeneratingAll ? handleStop : handleGenerateAll}
+                                  disabled={!isGeneratingAll && attachments.length === 0}
+                                  className={`w-full py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2 ${
+                                    isGeneratingAll
+                                      ? 'bg-red-500 text-white hover:bg-red-600'
+                                      : allDone
+                                      ? 'bg-gray-100 text-gray-600 hover:bg-gray-200 shadow-none'
+                                      : 'bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400'
+                                  }`}
+                                >
+                                  {isGeneratingAll ? (
+                                    <>
+                                      <StopCircle className="w-5 h-5" />
+                                      Stop Generation
+                                    </>
+                                  ) : allDone ? (
+                                    `Re-generate All ${doneCount} CSVs`
+                                  ) : (
+                                    'Generate All CSVs'
+                                  )}
+                                </button>
+                              );
+                            })()}
+
+                            {/* Pre-generation estimate (before clicking Generate) */}
+                            {!isGeneratingAll && completedCount < totalCount && totalCount > 0 && (
+                              <p className="text-xs text-center text-gray-400 mt-3">
+                                ⏱ Estimated time: ~{fmtSeconds(staticEstimateSecs)}–{fmtSeconds(Math.round(staticEstimateSecs * 1.4))}
+                              </p>
+                            )}
+                          </>
+                        )}
+
+                        {/* Choose different file */}
+                        <button
+                          onClick={resetForNewFile}
+                          className="w-full mt-3 py-2 text-gray-500 rounded-xl font-bold hover:bg-gray-100 transition-all text-sm"
+                        >
+                          Choose Different File
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
+              </>
+            ) : (
+              /* ── Google Sheets input ────────────────────────────────── */
+              <>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Google Sheets URL
+                  </label>
+                  <input
+                    type="url"
+                    value={googleSheetUrl}
+                    onChange={(e) => setGoogleSheetUrl(e.target.value)}
+                    placeholder="Paste your shared Google Sheets link (docs.google.com/spreadsheets/d/...)"
+                    className="w-full px-4 py-3 border rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none mb-3"
+                  />
+                  <p className="text-xs text-gray-500 mb-4">
+                    The sheet must be shared with your Google account.
+                  </p>
+                  <button
+                    onClick={handleFetchGoogleSheet}
+                    disabled={
+                      !googleSheetUrl.trim() ||
+                      fetchingGoogleSheet ||
+                      !state.isGoogleAuthenticated
+                    }
+                    className="w-full py-3 px-4 bg-blue-100 text-blue-700 rounded-xl font-bold hover:bg-blue-200 disabled:bg-gray-100 disabled:text-gray-400 transition-all text-sm flex items-center justify-center gap-2"
+                  >
+                    {fetchingGoogleSheet && (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    )}
+                    {fetchingGoogleSheet ? 'Fetching Sheet…' : 'Fetch Sheet'}
+                  </button>
+
+                  {fetchingGoogleSheet && (
+                    <p className="text-xs text-center text-gray-500 mt-2 animate-pulse">
+                      ⏱ Fetching sheet data — this usually takes 5–10 seconds
+                    </p>
+                  )}
+
+                  {!state.isGoogleAuthenticated && (
+                    <p className="text-xs text-red-600 mt-3 font-bold">
+                      Please sign in with Google on the Dashboard first to use this
+                      feature.
+                    </p>
+                  )}
+                </div>
+
+                {state.error && (
+                  <ErrorDisplay error={state.error} className="mt-6" />
+                )}
+              </>
+            )}
           </>
         )}
       </div>
     </div>
   );
 };
+

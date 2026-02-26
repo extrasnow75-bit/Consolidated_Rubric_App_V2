@@ -1,7 +1,7 @@
 import React from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode } from '../types';
-import { HelpCircle, ChevronRight } from 'lucide-react';
+import { HelpCircle, ChevronLeft } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -84,7 +84,9 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             <IconBox><LightbulbIcon /></IconBox>
             <RightArrow />
             <IconBox><WordIcon /></IconBox>
-            <span className="text-sm font-black text-gray-700 uppercase tracking-widest ml-2">Step 1: Create Draft Rubric</span>
+            <span className="text-sm font-black uppercase tracking-widest ml-2">
+              <span className="text-[#2B579A]">Phase 1: </span><span className="text-gray-900">Create Draft Rubric</span>
+            </span>
           </div>
         );
       case AppMode.PART_2:
@@ -93,21 +95,27 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             <IconBox><WordIcon /></IconBox>
             <RightArrow />
             <IconBox><CSVIcon /></IconBox>
-            <span className="text-sm font-black text-gray-700 uppercase tracking-widest ml-2">Step 2: Convert to CSV</span>
+            <span className="text-sm font-black uppercase tracking-widest ml-2">
+              <span className="text-[#1d6f42]">Phase 2: </span><span className="text-gray-900">Convert to CSV</span>
+            </span>
           </div>
         );
       case AppMode.PART_3:
         return (
           <div className={baseClasses}>
             <IconBox><CanvasLogo /></IconBox>
-            <span className="text-sm font-black text-gray-700 uppercase tracking-widest ml-2">Step 3: Upload to Canvas</span>
+            <span className="text-sm font-black uppercase tracking-widest ml-2">
+              <span className="text-[#E64C3C]">Phase 3: </span><span className="text-gray-900">Upload to Canvas</span>
+            </span>
           </div>
         );
       case AppMode.SCREENSHOT:
         return (
           <div className={baseClasses}>
             <IconBox><CameraIcon /></IconBox>
-            <span className="text-sm font-black text-gray-700 uppercase tracking-widest ml-2">Convert Screenshot</span>
+            <span className="text-sm font-black uppercase tracking-widest ml-2">
+              <span className="text-[#2B579A]">Phase 1: </span><span className="text-gray-900">Convert Screenshot</span>
+            </span>
           </div>
         );
       default:
@@ -129,7 +137,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             </svg>
           </div>
           <div>
-            <h1 className="text-xl font-black">Canvas Rubric Creator</h1>
+            <h1 className="text-xl font-black">eCampus Center Rubric Creator</h1>
             <p className="text-xs text-blue-100">All-in-one rubric workflow</p>
           </div>
         </div>
@@ -157,7 +165,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
               onClick={() => setCurrentStep(AppMode.DASHBOARD)}
               className="px-4 py-2 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all flex items-center gap-2"
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronLeft className="w-4 h-4" />
               Dashboard
             </button>
           )}
