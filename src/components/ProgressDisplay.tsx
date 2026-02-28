@@ -56,11 +56,13 @@ const ProgressDisplay: React.FC<ProgressDisplayProps> = ({ progress, onStop }) =
               <Clock className="w-4 h-4 flex-shrink-0" />
               <span>Elapsed: {formatTime(progress.timeElapsed)}</span>
             </div>
-            {progress.timeRemaining > 0 && (
+            {progress.timeRemaining > 0 ? (
               <div className="flex items-center gap-1 text-blue-700 font-bold bg-blue-100 px-2 py-1 rounded">
                 <Zap className="w-4 h-4 flex-shrink-0" />
                 <span>Est. total: {formatTime(progress.timeElapsed + progress.timeRemaining)}</span>
               </div>
+            ) : (
+              <span className="text-xs text-gray-500 italic">This usually takes under a minute</span>
             )}
           </div>
 

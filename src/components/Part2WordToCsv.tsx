@@ -21,6 +21,8 @@ import {
   RotateCcw,
   PackageOpen,
   Zap,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 
@@ -177,6 +179,8 @@ export const Part2WordToCsv: React.FC = () => {
 
   /** True when the user arrived here via "Continue to Part 2" from Phase 1. */
   const fromPhase1 = Boolean(state.rubric);
+  /** When fromPhase1 is true, file-upload section starts hidden; toggle via "or use a different file". */
+  const [showAlternativeInput, setShowAlternativeInput] = useState(!fromPhase1);
 
   /** Infer scoring method from Phase 1 point strings (e.g. "40-50" = ranges). */
   const inferScoringMethod = (): 'ranges' | 'fixed' => {
@@ -586,16 +590,23 @@ export const Part2WordToCsv: React.FC = () => {
                   </button>
                 </div>
 
-                {/* Divider to file upload escape hatch */}
-                <div className="flex items-center gap-3 mt-6 mb-2">
-                  <div className="flex-1 h-px bg-gray-200" />
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">or use a different file</span>
-                  <div className="flex-1 h-px bg-gray-200" />
-                </div>
+                {/* Collapsible toggle to file upload escape hatch */}
+                <button
+                  onClick={() => setShowAlternativeInput((v) => !v)}
+                  className="flex items-center gap-3 mt-6 mb-2 w-full group"
+                >
+                  <div className="flex-1 h-px bg-gray-200 group-hover:bg-gray-300 transition-colors" />
+                  <span className="text-xs font-bold text-gray-400 group-hover:text-gray-600 uppercase tracking-wider transition-colors flex items-center gap-1">
+                    or use a different file
+                    {showAlternativeInput ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </span>
+                  <div className="flex-1 h-px bg-gray-200 group-hover:bg-gray-300 transition-colors" />
+                </button>
               </div>
             )}
 
             {/* Tab bar ──────────────────────────────────────────────────── */}
+            {(!fromPhase1 || showAlternativeInput) && (<>
             <div className="flex gap-3 mb-6 border-b border-gray-200">
               <button
                 onClick={() => {
@@ -603,28 +614,26 @@ export const Part2WordToCsv: React.FC = () => {
                   setGoogleSheetUrl('');
                   setError(null);
                 }}
-                className={`px-4 py-3 font-bold border-b-2 transition-all flex items-center gap-2 ${
+                className={`px-4 py-3 font-bold border-b-2 transition-all ${
                   inputMode === 'file'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <Upload className="w-4 h-4" />
-                Upload File
+                Local Drive
               </button>
               <button
                 onClick={() => {
                   setInputMode('google-sheet');
                   setError(null);
                 }}
-                className={`px-4 py-3 font-bold border-b-2 transition-all flex items-center gap-2 ${
+                className={`px-4 py-3 font-bold border-b-2 transition-all ${
                   inputMode === 'google-sheet'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <LinkIcon className="w-4 h-4" />
-                Google Sheets URL
+                Google Drive
               </button>
             </div>
 
@@ -1136,6 +1145,7 @@ export const Part2WordToCsv: React.FC = () => {
                 )}
               </>
             )}
+            </>)}
           </>
         )}
       </div>

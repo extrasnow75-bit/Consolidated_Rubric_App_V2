@@ -290,9 +290,9 @@ export const Part1Rubric: React.FC = () => {
 
   return (
     <div className="flex flex-col items-center justify-center py-8">
-      {/* About This App - Above Main Section */}
+      {/* About Phase 1 - Above Main Section */}
       <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6 max-w-2xl w-full">
-        <h3 className="text-sm font-black text-gray-900 mb-1">About This App</h3>
+        <h3 className="text-sm font-black text-gray-900 mb-1">About Phase 1</h3>
         <p className="text-sm text-gray-700">
           Upload or paste an assignment description to generate draft rubrics in MS Word form based on the eCampus Center template.
         </p>
@@ -409,13 +409,12 @@ export const Part1Rubric: React.FC = () => {
                   setInputMode('google-doc');
                   setError(null);
                 }}
-                className={`px-4 py-3 font-bold border-b-2 transition-all flex items-center gap-2 ${
+                className={`px-4 py-3 font-bold border-b-2 transition-all ${
                   inputMode === 'google-doc'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <LinkIcon className="w-4 h-4" />
                 Google Drive
               </button>
             </div>
