@@ -7,6 +7,12 @@ export interface GoogleAuthTokens {
   expiresAt: number;
 }
 
+export interface PickerResult {
+  fileId: string;
+  mimeType: string;
+  name: string;
+}
+
 export interface GoogleUser {
   id: string;
   email: string;
@@ -40,12 +46,14 @@ class GoogleDriveService {
   private clientSecret: string;
   private redirectUri: string;
   private scopes: string[];
+  private pickerApiKey: string;
 
   constructor() {
     this.clientId = import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID || '';
     this.clientSecret = import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_SECRET || '';
     this.redirectUri = import.meta.env.VITE_GOOGLE_OAUTH_REDIRECT_URI || '';
     this.scopes = (import.meta.env.VITE_GOOGLE_OAUTH_SCOPES || '').split(' ');
+    this.pickerApiKey = import.meta.env.VITE_GOOGLE_PICKER_API_KEY || '';
 
     if (!this.clientId || !this.redirectUri) {
       console.warn('Google OAuth configuration missing. Check VITE_GOOGLE_OAUTH_CLIENT_ID and VITE_GOOGLE_OAUTH_REDIRECT_URI');
@@ -315,6 +323,56 @@ class GoogleDriveService {
     sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(USER_KEY);
     sessionStorage.removeItem(PKCE_KEY);
+  }
+
+  /**
+   * Open the Google Picker dialog to let the user browse their Drive.
+   * Resolves with the selected file's info, or null if the user cancels.
+   * Requires the Google API script (apis.google.com/js/api.js) to be loaded.
+   */
+  openPicker(accessToken: string, mimeTypes?: string): Promise<PickerResult | null> {
+    return new Promise((resolve, reject) => {
+      const gapi = (window as any).gapi;
+      if (!gapi) {
+        reject(new Error('Google API library is not loaded. Please refresh the page and try again.'));
+        return;
+      }
+
+      gapi.load('picker', {
+        callback: () => {
+          const google = (window as any).google;
+          if (!google?.picker) {
+            reject(new Error('Google Picker failed to load. Please refresh and try again.'));
+            return;
+          }
+
+          const view = new google.picker.DocsView()
+            .setIncludeFolders(false)
+            .setMimeTypes(mimeTypes || 'application/vnd.google-apps.document');
+
+          const builder = new google.picker.PickerBuilder()
+            .addView(view)
+            .setOAuthToken(accessToken)
+            .setCallback((data: any) => {
+              if (data.action === google.picker.Action.PICKED) {
+                const doc = data.docs[0];
+                resolve({ fileId: doc.id, mimeType: doc.mimeType, name: doc.name });
+              } else if (data.action === google.picker.Action.CANCEL) {
+                resolve(null);
+              }
+            });
+
+          if (this.pickerApiKey) {
+            builder.setDeveloperKey(this.pickerApiKey);
+          }
+
+          builder.build().setVisible(true);
+        },
+        onerror: () => {
+          reject(new Error('Failed to load Google Picker. Check that the Picker API is enabled in your Google Cloud project.'));
+        },
+      });
+    });
   }
 
   /**

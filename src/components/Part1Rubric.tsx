@@ -24,6 +24,7 @@ export const Part1Rubric: React.FC = () => {
     extractGoogleDocText,
     startGoogleAuth,
     signOutGoogle,
+    openGooglePicker,
   } = useSession();
 
   const [assignmentDescription, setAssignmentDescription] = useState<string>('');
@@ -40,6 +41,7 @@ export const Part1Rubric: React.FC = () => {
   const [inputMode, setInputMode] = useState<'text' | 'google-doc'>('text');
   const [googleDocUrl, setGoogleDocUrl] = useState<string>('');
   const [fetchingGoogleDoc, setFetchingGoogleDoc] = useState(false);
+  const [isPickerLoading, setIsPickerLoading] = useState(false);
 
   const handleFileUpload = async (file: File) => {
     setIsLoading(true);
@@ -120,6 +122,33 @@ export const Part1Rubric: React.FC = () => {
     } catch (err: any) {
       setError(`Failed to fetch Google Doc: ${err.message}`);
     } finally {
+      setFetchingGoogleDoc(false);
+    }
+  };
+
+  const handlePickerOpen = async () => {
+    if (!state.isGoogleAuthenticated) {
+      setError('Please sign in with Google first');
+      return;
+    }
+
+    setIsPickerLoading(true);
+    setError(null);
+
+    try {
+      const result = await openGooglePicker('application/vnd.google-apps.document');
+      if (!result) return; // User cancelled
+
+      setFetchingGoogleDoc(true);
+      // extractGoogleDocText accepts a plain file ID (matches standalone-ID regex)
+      const text = await extractGoogleDocText(result.fileId);
+      setAssignmentDescription(text);
+      setInputMode('text');
+      setGoogleDocUrl('');
+    } catch (err: any) {
+      setError(`Failed to open Google Drive: ${err.message}`);
+    } finally {
+      setIsPickerLoading(false);
       setFetchingGoogleDoc(false);
     }
   };
@@ -450,6 +479,29 @@ export const Part1Rubric: React.FC = () => {
                     </button>
                   </div>
                 )}
+
+                {/* Browse Drive button */}
+                <button
+                  onClick={handlePickerOpen}
+                  disabled={isPickerLoading || fetchingGoogleDoc || !state.isGoogleAuthenticated}
+                  className="w-full py-3 px-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-400 transition-all text-sm flex items-center justify-center gap-2 mb-6"
+                >
+                  {(isPickerLoading || fetchingGoogleDoc) ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M19 2H5C3.9 2 3 2.9 3 4v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 12 12 12s-3.5-1.57-3.5-3.5S10.07 5 12 5zm7 14H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"/>
+                    </svg>
+                  )}
+                  {isPickerLoading ? 'Opening Drive...' : fetchingGoogleDoc ? 'Fetching Document...' : 'Browse Google Drive'}
+                </button>
+
+                {/* Divider */}
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">or paste a URL</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
 
                 {/* Google Docs URL Input */}
                 <div>

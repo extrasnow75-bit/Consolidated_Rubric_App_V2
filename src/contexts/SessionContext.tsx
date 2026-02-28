@@ -11,7 +11,7 @@ import {
   GoogleUser,
   GoogleAuthTokens,
 } from '../types';
-import { googleDriveService } from '../services/googleDriveService';
+import { googleDriveService, PickerResult } from '../services/googleDriveService';
 import { setGeminiApiKey as geminiServiceSetApiKey } from '../services/geminiService';
 
 // Create context
@@ -46,6 +46,7 @@ const SessionContext = createContext<{
   refreshGoogleToken: () => Promise<void>;
   extractGoogleDocText: (docUrl: string) => Promise<string>;
   extractGoogleSheetCsv: (sheetUrl: string) => Promise<string>;
+  openGooglePicker: (mimeTypes?: string) => Promise<PickerResult | null>;
 } | undefined>(undefined);
 
 // Provider component
@@ -440,6 +441,16 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     [state.isGoogleAuthenticated, state.googleAccessToken]
   );
 
+  const openGooglePicker = useCallback(
+    async (mimeTypes?: string): Promise<PickerResult | null> => {
+      if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+        throw new Error('Please sign in with Google first');
+      }
+      return googleDriveService.openPicker(state.googleAccessToken, mimeTypes);
+    },
+    [state.isGoogleAuthenticated, state.googleAccessToken]
+  );
+
   // Initialize on app load
   useEffect(() => {
     // Restore saved Gemini API key from localStorage
@@ -527,6 +538,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     refreshGoogleToken,
     extractGoogleDocText,
     extractGoogleSheetCsv,
+    openGooglePicker,
   };
 
   return (
