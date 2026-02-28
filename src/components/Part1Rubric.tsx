@@ -22,6 +22,7 @@ export const Part1Rubric: React.FC = () => {
     setProgress,
     getAbortSignal,
     extractGoogleDocText,
+    downloadDriveFile,
     startGoogleAuth,
     signOutGoogle,
     openGooglePicker,
@@ -139,14 +140,44 @@ export const Part1Rubric: React.FC = () => {
       const result = await openGooglePicker();
       if (!result) return; // User cancelled
 
-      if (result.mimeType !== 'application/vnd.google-apps.document') {
-        setError(`"${result.name}" is not a Google Doc. Please select a Google Doc file.`);
+      setFetchingGoogleDoc(true);
+      let text = '';
+
+      if (result.mimeType === 'application/vnd.google-apps.document') {
+        // Native Google Doc — use export API
+        text = await extractGoogleDocText(result.fileId);
+
+      } else if (
+        result.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        result.mimeType === 'application/msword'
+      ) {
+        // Word document — download raw bytes and parse with mammoth
+        const arrayBuffer = await downloadDriveFile(result.fileId);
+        const extracted = await mammoth.extractRawText({ arrayBuffer });
+        text = extracted.value;
+
+      } else if (result.mimeType === 'application/pdf') {
+        // PDF — download raw bytes and parse with pdfjs
+        const arrayBuffer = await downloadDriveFile(result.fileId);
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const pageTexts: string[] = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          pageTexts.push(content.items.map((item: any) => item.str).join(' '));
+        }
+        text = pageTexts.join('\n\n');
+
+      } else if (result.mimeType === 'text/plain') {
+        // Plain text — download and decode
+        const arrayBuffer = await downloadDriveFile(result.fileId);
+        text = new TextDecoder().decode(arrayBuffer);
+
+      } else {
+        setError(`"${result.name}" is not a supported file type. Please select a Google Doc, Word document (.docx), PDF, or plain text file.`);
         return;
       }
 
-      setFetchingGoogleDoc(true);
-      // extractGoogleDocText accepts a plain file ID (matches standalone-ID regex)
-      const text = await extractGoogleDocText(result.fileId);
       setAssignmentDescription(text);
       setInputMode('text');
       setGoogleDocUrl('');

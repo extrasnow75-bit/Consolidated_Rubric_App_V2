@@ -46,6 +46,7 @@ const SessionContext = createContext<{
   refreshGoogleToken: () => Promise<void>;
   extractGoogleDocText: (docUrl: string) => Promise<string>;
   extractGoogleSheetCsv: (sheetUrl: string) => Promise<string>;
+  downloadDriveFile: (fileId: string) => Promise<ArrayBuffer>;
   openGooglePicker: () => Promise<PickerResult | null>;
 } | undefined>(undefined);
 
@@ -441,6 +442,16 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     [state.isGoogleAuthenticated, state.googleAccessToken]
   );
 
+  const downloadDriveFile = useCallback(
+    async (fileId: string): Promise<ArrayBuffer> => {
+      if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+        throw new Error('Please sign in with Google first');
+      }
+      return googleDriveService.downloadFileAsArrayBuffer(fileId, state.googleAccessToken);
+    },
+    [state.isGoogleAuthenticated, state.googleAccessToken]
+  );
+
   const openGooglePicker = useCallback(
     async (): Promise<PickerResult | null> => {
       if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
@@ -538,6 +549,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     refreshGoogleToken,
     extractGoogleDocText,
     extractGoogleSheetCsv,
+    downloadDriveFile,
     openGooglePicker,
   };
 

@@ -346,9 +346,17 @@ class GoogleDriveService {
             return;
           }
 
+          const SUPPORTED_MIME_TYPES = [
+            'application/vnd.google-apps.document',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/pdf',
+            'text/plain',
+          ].join(',');
+
           const view = new google.picker.DocsView()
             .setIncludeFolders(true)
-            .setSelectFolderEnabled(false);
+            .setSelectFolderEnabled(false)
+            .setMimeTypes(SUPPORTED_MIME_TYPES);
 
           const builder = new google.picker.PickerBuilder()
             .addView(view)
@@ -474,6 +482,46 @@ class GoogleDriveService {
       }
       throw new Error(`Failed to fetch Google Doc: ${error.message}`);
     }
+  }
+
+  /**
+   * Download a non-Google-native file (DOCX, PDF, TXT) as raw bytes.
+   * Use this for files that can't be exported via the export API.
+   */
+  async downloadFileAsArrayBuffer(fileId: string, accessToken: string): Promise<ArrayBuffer> {
+    const response = await fetch(
+      `${GOOGLE_DRIVE_API}/${fileId}?alt=media`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    if (response.status === 401) {
+      throw new Error('Your Google session has expired. Please sign out and sign in again.');
+    }
+
+    if (response.status === 403) {
+      const detail = await this.parseGoogleErrorBody(response);
+      const isPermissionError = detail.toLowerCase().includes('insufficientpermissions') ||
+        detail.toLowerCase().includes('insufficient permissions') ||
+        detail.toLowerCase().includes('request had insufficient authentication scopes');
+      if (isPermissionError) {
+        throw new Error(
+          'Google Drive access not authorized. Please sign out and sign in again, ' +
+          'making sure to allow Drive access on the Google consent screen.'
+        );
+      }
+      throw new Error(
+        'You do not have access to this file. ' +
+        (detail ? `(${detail}) ` : '') +
+        'Please ensure the file is shared with your Google account.'
+      );
+    }
+
+    if (!response.ok) {
+      const detail = await this.parseGoogleErrorBody(response);
+      throw new Error(`Failed to download file (HTTP ${response.status}${detail ? `: ${detail}` : ''})`);
+    }
+
+    return await response.arrayBuffer();
   }
 
   /**
