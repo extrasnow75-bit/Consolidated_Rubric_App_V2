@@ -1,7 +1,7 @@
 import React from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode } from '../types';
-import { HelpCircle, ChevronLeft } from 'lucide-react';
+import { HelpCircle, ChevronLeft, Camera } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -51,11 +51,6 @@ const CanvasLogo = () => (
   </div>
 );
 
-const CameraIcon = () => (
-  <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
-    <path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v6a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 000-2H4zm0 0A2 2 0 002 7v6a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 000-2H4zm6 9a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-  </svg>
-);
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { state, setCurrentStep, setHelpOpen } = useSession();
@@ -112,7 +107,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       case AppMode.SCREENSHOT:
         return (
           <div className={baseClasses}>
-            <IconBox><CameraIcon /></IconBox>
+            <IconBox className="bg-purple-50">
+              <Camera className="w-5 h-5 text-purple-600" />
+            </IconBox>
+            <RightArrow />
+            <IconBox><WordIcon /></IconBox>
             <span className="text-sm font-black uppercase tracking-widest ml-2">
               <span className="text-[#2B579A]">Phase 1: </span><span className="text-gray-900">Convert Screenshot</span>
             </span>
