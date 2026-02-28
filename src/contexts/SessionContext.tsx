@@ -198,9 +198,13 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     progressIntervalRef.current = setInterval(() => {
       setState((prev) => {
         const elapsed = Date.now() - progressStartTimeRef.current;
-        const percentageDecimal = prev.progress.totalItems > 0
-          ? prev.progress.itemsProcessed / prev.progress.totalItems
-          : 0;
+        // Use percentage field when set (e.g. single-item flows that update it directly),
+        // fall back to itemsProcessed/totalItems for multi-item batch flows.
+        const percentageDecimal = prev.progress.percentage > 0
+          ? prev.progress.percentage
+          : (prev.progress.totalItems > 0
+              ? prev.progress.itemsProcessed / prev.progress.totalItems
+              : 0);
         const estimatedTotal = percentageDecimal > 0 ? elapsed / percentageDecimal : 0;
         const remaining = Math.max(0, estimatedTotal - elapsed);
 

@@ -3,7 +3,7 @@ import { useSession } from '../contexts/SessionContext';
 import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
 import { generateRubricFromDescription, validateAssignmentDescription } from '../services/geminiService';
 import { exportToWord } from '../services/wordExportService';
-import { Loader2, Download, Trash2, Settings, FileText, Link as LinkIcon } from 'lucide-react';
+import { Loader2, Download, Trash2, Settings, FileText, Link as LinkIcon, CheckCircle, ArrowRight, RotateCw, Home } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -16,7 +16,7 @@ export const Part1Rubric: React.FC = () => {
     setRubric,
     setIsLoading,
     setError,
-    setTaskCompletionOpen,
+    newBatch,
     startProgress,
     stopProgress,
     setProgress,
@@ -246,10 +246,8 @@ export const Part1Rubric: React.FC = () => {
         setRubric(rubric);
         setProgress({ percentage: 1, itemsProcessed: 1 });
         setError(null);
-        // Show task completion dialog
         setTimeout(() => {
           stopProgress();
-          setTaskCompletionOpen(true);
         }, 500);
       }
     } catch (err: any) {
@@ -283,6 +281,11 @@ export const Part1Rubric: React.FC = () => {
     setAssignmentDescription('');
     setRubric(null);
     setError(null);
+  };
+
+  const handleDashboard = () => {
+    newBatch();
+    setCurrentStep(AppMode.DASHBOARD);
   };
 
   return (
@@ -584,6 +587,15 @@ export const Part1Rubric: React.FC = () => {
           </>
         ) : (
           <>
+            {/* Inline Success Banner */}
+            <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
+              <CheckCircle className="w-6 h-6 text-amber-500 flex-shrink-0" />
+              <div>
+                <p className="font-black text-amber-900">✓ Draft Rubric Created!</p>
+                <p className="text-sm text-amber-700">Your draft rubric has been generated successfully.</p>
+              </div>
+            </div>
+
             {/* Display Generated Rubric */}
             <div>
               <h3 className="text-xl font-black text-gray-900 mb-2">
@@ -619,26 +631,37 @@ export const Part1Rubric: React.FC = () => {
                 </table>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex gap-4">
+              {/* Primary Action */}
+              <button
+                onClick={handleContinue}
+                className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all active:scale-95 mb-3 flex items-center justify-center gap-2"
+              >
+                <ArrowRight className="w-5 h-5" />
+                Continue to Part 2: Convert to CSV
+              </button>
+
+              {/* Secondary Actions */}
+              <div className="flex gap-3">
                 <button
                   onClick={handleExportToWord}
-                  className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2"
+                  className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2 text-sm"
                 >
-                  <Download className="w-5 h-5" />
+                  <Download className="w-4 h-4" />
                   Export to Word
                 </button>
                 <button
-                  onClick={handleContinue}
-                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all"
+                  onClick={handleReset}
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
                 >
-                  Continue to Part 2
+                  <RotateCw className="w-4 h-4" />
+                  Create Another
                 </button>
                 <button
-                  onClick={handleReset}
-                  className="px-4 py-3 bg-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-300 transition-all"
+                  onClick={handleDashboard}
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
                 >
-                  <Trash2 className="w-5 h-5" />
+                  <Home className="w-4 h-4" />
+                  Dashboard
                 </button>
               </div>
             </div>
