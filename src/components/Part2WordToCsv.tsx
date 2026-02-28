@@ -4,6 +4,7 @@ import { AppMode, Attachment, RubricMeta, ProcessingType } from '../types';
 import {
   generateCsvForRubric,
   generateAllCsvsFromDoc,
+  generateCsvFromRubricObject,
 } from '../services/geminiService';
 import { friendlyError } from './ErrorDisplay';
 import {
@@ -19,6 +20,7 @@ import {
   Clock,
   RotateCcw,
   PackageOpen,
+  Zap,
 } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 
@@ -169,6 +171,36 @@ export const Part2WordToCsv: React.FC = () => {
     setIsGeneratingAll(false);
     setIsLoading(false);
     stopProgress();
+  };
+
+  // ── Phase 1 → Phase 2 carry-forward ──────────────────────────────────
+
+  /** True when the user arrived here via "Continue to Part 2" from Phase 1. */
+  const fromPhase1 = Boolean(state.rubric);
+
+  /** Infer scoring method from Phase 1 point strings (e.g. "40-50" = ranges). */
+  const inferScoringMethod = (): 'ranges' | 'fixed' => {
+    const points = state.rubric?.criteria?.[0]?.exemplary?.points ?? '';
+    return points.includes('-') ? 'ranges' : 'fixed';
+  };
+
+  // Pre-fill editable fields from Phase 1 rubric on first mount.
+  useEffect(() => {
+    if (state.rubric && !editableRubricName) {
+      setEditableRubricName(state.rubric.title);
+      setEditableTotalPoints(String(state.rubric.totalPoints));
+      setEditableScoringMethod(inferScoringMethod());
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.rubric]);
+
+  /** Generate Canvas CSV directly from Phase 1 rubric — no file or API call needed. */
+  const handleGenerateFromPhase1 = () => {
+    if (!state.rubric) return;
+    const csv = generateCsvFromRubricObject(state.rubric, editableScoringMethod);
+    const fileName = `${editableRubricName || state.rubric.title}.csv`;
+    setSingleCsvContent(csv);
+    setCsvOutput(csv, fileName);
   };
 
   // ── File handling ─────────────────────────────────────────────────────
@@ -495,6 +527,74 @@ export const Part2WordToCsv: React.FC = () => {
         ) : (
           /* ══ UPLOAD / GENERATION FORM ══════════════════════════════════ */
           <>
+            {/* ── Phase 1 carry-forward panel ────────────────────────────── */}
+            {fromPhase1 && (
+              <div className="mb-8">
+                {/* Banner */}
+                <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-4">
+                  <CheckCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-blue-900 text-sm">Rubric from Phase 1 is ready</p>
+                    <p className="text-xs text-blue-700 mt-0.5">
+                      Review the settings below and click Generate — no file upload needed.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Pre-filled form */}
+                <div className="p-5 bg-gray-50 border border-gray-200 rounded-2xl space-y-4">
+                  <div>
+                    <label className="text-sm font-bold text-gray-700 block mb-1">Rubric Name</label>
+                    <input
+                      value={editableRubricName}
+                      onChange={(e) => setEditableRubricName(e.target.value)}
+                      className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-bold text-gray-700 block mb-2">Scoring Method</label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          value="ranges"
+                          checked={editableScoringMethod === 'ranges'}
+                          onChange={() => setEditableScoringMethod('ranges')}
+                          className="w-4 h-4 accent-blue-600"
+                        />
+                        <span className="text-sm text-gray-700">Point Ranges</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          value="fixed"
+                          checked={editableScoringMethod === 'fixed'}
+                          onChange={() => setEditableScoringMethod('fixed')}
+                          className="w-4 h-4 accent-blue-600"
+                        />
+                        <span className="text-sm text-gray-700">Fixed Points</span>
+                      </label>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleGenerateFromPhase1}
+                    disabled={!editableRubricName.trim()}
+                    className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Zap className="w-4 h-4" />
+                    Generate Canvas CSV from Phase 1 Rubric
+                  </button>
+                </div>
+
+                {/* Divider to file upload escape hatch */}
+                <div className="flex items-center gap-3 mt-6 mb-2">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">or use a different file</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+              </div>
+            )}
+
             {/* Tab bar ──────────────────────────────────────────────────── */}
             <div className="flex gap-3 mb-6 border-b border-gray-200">
               <button
