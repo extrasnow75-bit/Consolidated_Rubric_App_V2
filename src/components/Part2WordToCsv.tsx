@@ -476,6 +476,14 @@ export const Part2WordToCsv: React.FC = () => {
 
   return (
     <div className="flex flex-col items-center justify-center py-8">
+      {/* About Phase 2 - Above Main Section */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6 max-w-2xl w-full">
+        <h3 className="text-sm font-black text-gray-900 mb-1">About Phase 2</h3>
+        <p className="text-sm text-gray-700">
+          Upload or paste one or more draft rubrics to transform them into Canvas-compatible CSV rubric files. Draft rubrics can be in MS Word, Google Docs, or PDF format.
+        </p>
+      </div>
+
       <div className="bg-white p-10 rounded-3xl shadow-2xl border border-gray-100 max-w-2xl w-full">
         <h2 className="text-2xl font-black text-gray-900 mb-1">Rubric Setup</h2>
         <p className="text-gray-500 text-sm mb-8">
