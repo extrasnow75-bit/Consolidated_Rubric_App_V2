@@ -543,14 +543,11 @@ export const Part2WordToCsv: React.FC = () => {
             {fromPhase1 && (
               <div className="mb-8">
                 {/* Banner */}
-                <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-2xl p-4 mb-4">
-                  <CheckCircle className="w-5 h-5 text-green-700 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-bold text-green-900 text-sm">Rubric from Phase 1 is ready</p>
-                    <p className="text-xs text-green-800 mt-0.5">
-                      Review the settings below and click Generate — no file upload needed.
-                    </p>
-                  </div>
+                <div className="bg-green-50 border border-green-200 rounded-2xl p-4 mb-4">
+                  <p className="font-bold text-green-900 text-sm">Rubric from Phase 1 is ready</p>
+                  <p className="text-xs text-green-800 mt-0.5">
+                    Review the settings below and click Generate — no file upload needed.
+                  </p>
                 </div>
 
                 {/* Pre-filled form */}

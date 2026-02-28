@@ -380,6 +380,16 @@ export const Part3Upload: React.FC = () => {
   return (
     <div className="flex flex-col min-h-screen bg-gray-50 py-8 px-4">
       <div className="max-w-7xl mx-auto w-full">
+        {/* Phase 2 carry-forward banner */}
+        {state.csvOutput && (
+          <div className="bg-green-50 border border-green-200 rounded-2xl p-4 mb-6">
+            <p className="font-bold text-green-900 text-sm">CSV Rubric batch from Phase 2 is ready</p>
+            <p className="text-xs text-green-800 mt-0.5">
+              Review the file(s) and proceed when ready.
+            </p>
+          </div>
+        )}
+
         {/* Header */}
         <div className="mb-6">
           <h2 className="text-2xl font-black text-gray-900 mb-2">Upload to Canvas</h2>
@@ -721,7 +731,7 @@ export const Part3Upload: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">
-                    API Token
+                    Canvas API Token
                   </label>
                   <div className="relative">
                     <input
