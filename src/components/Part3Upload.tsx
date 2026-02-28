@@ -161,10 +161,8 @@ export const Part3Upload: React.FC = () => {
             });
             setProgress({ percentage: 1, itemsProcessed: 1 });
 
-            // Show task completion dialog
             setTimeout(() => {
               stopProgress();
-              setTaskCompletionOpen(true);
             }, 500);
           } else {
             addLog(`✗ Upload failed: ${result.message}`);
@@ -276,11 +274,9 @@ export const Part3Upload: React.FC = () => {
           message: `Batch upload complete: ${successCount} successful, ${errorCount} failed`,
         });
 
-        // Show task completion dialog if all uploads successful
         if (uploadSuccess) {
           setTimeout(() => {
             stopProgress();
-            setTaskCompletionOpen(true);
           }, 500);
         } else {
           stopProgress();
