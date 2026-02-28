@@ -588,11 +588,11 @@ export const Part1Rubric: React.FC = () => {
         ) : (
           <>
             {/* Inline Success Banner */}
-            <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
-              <CheckCircle className="w-6 h-6 text-amber-500 flex-shrink-0" />
+            <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-2xl p-4 mb-6">
+              <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0" />
               <div>
-                <p className="font-black text-amber-900">✓ Draft Rubric Created!</p>
-                <p className="text-sm text-amber-700">Your draft rubric has been generated successfully.</p>
+                <p className="font-black text-green-900">✓ Draft Rubric Created!</p>
+                <p className="text-sm text-green-700">Your draft rubric has been generated successfully.</p>
               </div>
             </div>
 
