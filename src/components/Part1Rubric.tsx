@@ -402,7 +402,7 @@ export const Part1Rubric: React.FC = () => {
                     : 'border-transparent text-gray-600 hover:text-gray-900'
                 }`}
               >
-                Document
+                Local Drive
               </button>
               <button
                 onClick={() => {
@@ -416,7 +416,7 @@ export const Part1Rubric: React.FC = () => {
                 }`}
               >
                 <LinkIcon className="w-4 h-4" />
-                Google Docs URL
+                Google Drive
               </button>
             </div>
 
