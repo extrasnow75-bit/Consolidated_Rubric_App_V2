@@ -330,7 +330,7 @@ class GoogleDriveService {
    * Resolves with the selected file's info, or null if the user cancels.
    * Requires the Google API script (apis.google.com/js/api.js) to be loaded.
    */
-  openPicker(accessToken: string, mimeTypes?: string): Promise<PickerResult | null> {
+  openPicker(accessToken: string): Promise<PickerResult | null> {
     return new Promise((resolve, reject) => {
       const gapi = (window as any).gapi;
       if (!gapi) {
@@ -348,8 +348,7 @@ class GoogleDriveService {
 
           const view = new google.picker.DocsView()
             .setIncludeFolders(true)
-            .setSelectFolderEnabled(false)
-            .setMimeTypes(mimeTypes || 'application/vnd.google-apps.document');
+            .setSelectFolderEnabled(false);
 
           const builder = new google.picker.PickerBuilder()
             .addView(view)

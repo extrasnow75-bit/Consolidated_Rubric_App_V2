@@ -136,8 +136,13 @@ export const Part1Rubric: React.FC = () => {
     setError(null);
 
     try {
-      const result = await openGooglePicker('application/vnd.google-apps.document');
+      const result = await openGooglePicker();
       if (!result) return; // User cancelled
+
+      if (result.mimeType !== 'application/vnd.google-apps.document') {
+        setError(`"${result.name}" is not a Google Doc. Please select a Google Doc file.`);
+        return;
+      }
 
       setFetchingGoogleDoc(true);
       // extractGoogleDocText accepts a plain file ID (matches standalone-ID regex)

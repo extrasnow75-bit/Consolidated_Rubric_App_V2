@@ -46,7 +46,7 @@ const SessionContext = createContext<{
   refreshGoogleToken: () => Promise<void>;
   extractGoogleDocText: (docUrl: string) => Promise<string>;
   extractGoogleSheetCsv: (sheetUrl: string) => Promise<string>;
-  openGooglePicker: (mimeTypes?: string) => Promise<PickerResult | null>;
+  openGooglePicker: () => Promise<PickerResult | null>;
 } | undefined>(undefined);
 
 // Provider component
@@ -442,11 +442,11 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
   );
 
   const openGooglePicker = useCallback(
-    async (mimeTypes?: string): Promise<PickerResult | null> => {
+    async (): Promise<PickerResult | null> => {
       if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
         throw new Error('Please sign in with Google first');
       }
-      return googleDriveService.openPicker(state.googleAccessToken, mimeTypes);
+      return googleDriveService.openPicker(state.googleAccessToken);
     },
     [state.isGoogleAuthenticated, state.googleAccessToken]
   );
