@@ -543,11 +543,11 @@ export const Part2WordToCsv: React.FC = () => {
             {fromPhase1 && (
               <div className="mb-8">
                 {/* Banner */}
-                <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-4">
-                  <CheckCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-2xl p-4 mb-4">
+                  <CheckCircle className="w-5 h-5 text-green-700 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-bold text-blue-900 text-sm">Rubric from Phase 1 is ready</p>
-                    <p className="text-xs text-blue-700 mt-0.5">
+                    <p className="font-bold text-green-900 text-sm">Rubric from Phase 1 is ready</p>
+                    <p className="text-xs text-green-800 mt-0.5">
                       Review the settings below and click Generate — no file upload needed.
                     </p>
                   </div>
@@ -603,12 +603,12 @@ export const Part2WordToCsv: React.FC = () => {
                   onClick={() => setShowAlternativeInput((v) => !v)}
                   className="flex items-center gap-3 mt-6 mb-2 w-full group"
                 >
-                  <div className="flex-1 h-px bg-gray-200 group-hover:bg-gray-300 transition-colors" />
-                  <span className="text-xs font-bold text-gray-400 group-hover:text-gray-600 uppercase tracking-wider transition-colors flex items-center gap-1">
+                  <div className="flex-1 h-px bg-blue-200 group-hover:bg-blue-300 transition-colors" />
+                  <span className="text-xs font-bold text-blue-500 group-hover:text-blue-700 uppercase tracking-wider transition-colors flex items-center gap-1">
                     or use a different file
                     {showAlternativeInput ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                   </span>
-                  <div className="flex-1 h-px bg-gray-200 group-hover:bg-gray-300 transition-colors" />
+                  <div className="flex-1 h-px bg-blue-200 group-hover:bg-blue-300 transition-colors" />
                 </button>
               </div>
             )}
