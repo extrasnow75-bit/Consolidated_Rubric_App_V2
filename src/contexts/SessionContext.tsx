@@ -39,6 +39,8 @@ const SessionContext = createContext<{
   newBatch: () => void;
   // Gemini API Key
   setUserGeminiApiKey: (key: string | null) => void;
+  // Canvas API Token
+  setUserCanvasApiToken: (token: string | null) => void;
   // Google Auth methods
   startGoogleAuth: () => void;
   completeGoogleAuth: (code: string, state: string) => Promise<void>;
@@ -83,6 +85,8 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     },
     // Gemini API Key
     geminiApiKey: null,
+    // Canvas API Token
+    canvasApiToken: null,
     // Google Authentication
     isGoogleAuthenticated: false,
     googleUser: null,
@@ -283,8 +287,9 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
         totalItems: 0,
         canCancel: false,
       },
-      // Preserve Gemini API key and Google auth across session clears
+      // Preserve Gemini API key, Canvas token, and Google auth across session clears
       geminiApiKey: prev.geminiApiKey,
+      canvasApiToken: prev.canvasApiToken,
       isGoogleAuthenticated: prev.isGoogleAuthenticated,
       googleUser: prev.googleUser,
       googleAccessToken: prev.googleAccessToken,
@@ -317,6 +322,16 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     } else {
       localStorage.removeItem('gemini_api_key');
       geminiServiceSetApiKey('');
+    }
+  }, []);
+
+  // Canvas API Token management
+  const setUserCanvasApiToken = useCallback((token: string | null) => {
+    setState((prev) => ({ ...prev, canvasApiToken: token }));
+    if (token) {
+      localStorage.setItem('canvas_api_token', token);
+    } else {
+      localStorage.removeItem('canvas_api_token');
     }
   }, []);
 
@@ -475,6 +490,12 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       geminiServiceSetApiKey(savedApiKey);
     }
 
+    // Restore saved Canvas API token from localStorage
+    const savedCanvasToken = localStorage.getItem('canvas_api_token');
+    if (savedCanvasToken) {
+      setState((prev) => ({ ...prev, canvasApiToken: savedCanvasToken }));
+    }
+
     const initializeAuth = async () => {
       const storedTokens = googleDriveService.getStoredTokens();
       const storedUser = googleDriveService.getStoredUser();
@@ -546,6 +567,8 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     newBatch,
     // Gemini API Key
     setUserGeminiApiKey,
+    // Canvas API Token
+    setUserCanvasApiToken,
     // Google Auth
     startGoogleAuth,
     completeGoogleAuth,

@@ -1,9 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode, CanvasConfig } from '../types';
 import { pushRubricToCanvas } from '../services/canvasService';
-import { analyzeCsvForCanvas, CsvAnalysisResult } from '../services/geminiService';
-import { Eye, EyeOff, Loader2, Upload, CheckCircle, AlertCircle, X, Info, Zap, ScanSearch } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Upload, CheckCircle, AlertCircle, X, Zap } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import JSZip from 'jszip';
 
@@ -31,8 +30,7 @@ export const Part3Upload: React.FC = () => {
   } = useSession();
 
   const [courseUrl, setCourseUrl] = useState('');
-  const [courseId, setCourseId] = useState('');
-  const [accessToken, setAccessToken] = useState('');
+  const [accessToken, setAccessToken] = useState(state.canvasApiToken || '');
   const [showToken, setShowToken] = useState(false);
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -43,12 +41,19 @@ export const Part3Upload: React.FC = () => {
   const [batchFiles, setBatchFiles] = useState<BatchFile[]>([]);
   const [uploadMode, setUploadMode] = useState<'single' | 'batch'>('single');
   const [deploymentLogs, setDeploymentLogs] = useState<string[]>([]);
-  const [tunnelTested, setTunnelTested] = useState(false);
-  const [analysisMap, setAnalysisMap] = useState<Record<string, CsvAnalysisResult | 'analyzing' | 'error'>>({});
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const analyzeAbortRef = useRef<AbortController | null>(null);
 
   const csvToUse = state.csvOutput || manualCsv;
+
+  const addLog = (message: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    setDeploymentLogs(prev => [...prev, `[${timestamp}] ${message}`]);
+  };
+
+  // Helper: extract course ID from full Canvas course URL
+  const extractCourseId = (url: string): string => {
+    const match = url.match(/\/courses\/(\d+)/i);
+    return match ? match[1] : '';
+  };
 
   // Handle file selection (CSV or ZIP)
   const handleFileSelect = async (files: FileList | null) => {
@@ -123,18 +128,12 @@ export const Part3Upload: React.FC = () => {
     setUploadStatus(null);
     setDeploymentLogs([]);
 
-    const base = courseUrl.startsWith('http')
+    const courseHomeUrl = courseUrl.startsWith('http')
       ? courseUrl.replace(/\/$/, '')
       : `https://${courseUrl.replace(/\/$/, '')}`;
-    const courseHomeUrl = courseId.trim() ? `${base}/courses/${courseId.trim()}` : courseUrl;
     const config: CanvasConfig = {
       courseHomeUrl,
       accessToken,
-    };
-
-    const addLog = (message: string) => {
-      const timestamp = new Date().toLocaleTimeString();
-      setDeploymentLogs(prev => [...prev, `[${timestamp}] ${message}`]);
     };
 
     try {
@@ -295,30 +294,27 @@ export const Part3Upload: React.FC = () => {
 
   const removeBatchFile = (id: string) => {
     setBatchFiles((prev) => prev.filter((f) => f.id !== id));
-    setAnalysisMap((prev) => { const next = { ...prev }; delete next[id]; return next; });
     if (batchFiles.length === 1) {
       setUploadMode('single');
     }
   };
 
   const clearBatchFiles = () => {
-    analyzeAbortRef.current?.abort();
     setBatchFiles([]);
-    setAnalysisMap({});
-    setIsAnalyzing(false);
     setUploadMode('single');
   };
 
   // Validate Canvas credentials by making a test GET request to the course endpoint
   const handleValidate = async () => {
-    if (!courseUrl.trim() || !courseId.trim() || !accessToken.trim()) return;
+    const courseId = extractCourseId(courseUrl);
+    if (!courseUrl.trim() || !courseId || !accessToken.trim()) return;
     setValidating(true);
     setValidationResult(null);
     try {
       const base = courseUrl.startsWith('http')
-        ? courseUrl.replace(/\/$/, '')
-        : `https://${courseUrl.replace(/\/$/, '')}`;
-      const res = await fetch('/canvas-proxy/api/v1/courses/' + courseId.trim(), {
+        ? courseUrl.replace(/\/courses\/\d+.*$/, '').replace(/\/$/, '')
+        : `https://${courseUrl.replace(/\/courses\/\d+.*$/, '').replace(/\/$/, '')}`;
+      const res = await fetch('/canvas-proxy/api/v1/courses/' + courseId, {
         headers: {
           'Authorization': 'Bearer ' + accessToken,
           'x-canvas-base': base,
@@ -327,50 +323,29 @@ export const Part3Upload: React.FC = () => {
       });
       if (res.ok) {
         const data = await res.json();
-        setValidationResult({ ok: true, message: `✓ Connected — ${data.name || 'Course found'}` });
+        const msg = `✓ Connected — ${data.name || 'Course found'}`;
+        setValidationResult({ ok: true, message: msg });
+        addLog(msg);
       } else if (res.status === 401) {
-        setValidationResult({ ok: false, message: '✗ Invalid API token — check your credentials' });
+        const msg = '✗ Invalid API token — check your credentials';
+        setValidationResult({ ok: false, message: msg });
+        addLog(msg);
       } else if (res.status === 404) {
-        setValidationResult({ ok: false, message: '✗ Course not found — check the Course ID' });
+        const msg = '✗ Course not found — check the Course ID';
+        setValidationResult({ ok: false, message: msg });
+        addLog(msg);
       } else {
-        setValidationResult({ ok: false, message: `✗ Error ${res.status}: ${res.statusText}` });
+        const msg = `✗ Error ${res.status}: ${res.statusText}`;
+        setValidationResult({ ok: false, message: msg });
+        addLog(msg);
       }
     } catch (err: any) {
-      setValidationResult({ ok: false, message: `✗ Network error: ${err.message}` });
+      const msg = `✗ Network error: ${err.message}`;
+      setValidationResult({ ok: false, message: msg });
+      addLog(msg);
     } finally {
       setValidating(false);
     }
-  };
-
-  // Analyse all queued CSV files with Gemini before uploading
-  const handleAnalyzeFiles = async () => {
-    if (batchFiles.length === 0 || isAnalyzing) return;
-
-    analyzeAbortRef.current?.abort();
-    const controller = new AbortController();
-    analyzeAbortRef.current = controller;
-    setIsAnalyzing(true);
-
-    // Mark every file as 'analyzing' immediately
-    const initialMap: Record<string, CsvAnalysisResult | 'analyzing' | 'error'> = {};
-    batchFiles.forEach((f) => { initialMap[f.id] = 'analyzing'; });
-    setAnalysisMap(initialMap);
-
-    // Process files one at a time — prevents concurrent retry storms that exhaust the quota.
-    // Parallel dispatch was causing all N retry chains to run simultaneously, overwhelming
-    // the API even with the throttle queue (retries bypass the queue after the initial slot).
-    for (const file of batchFiles) {
-      if (controller.signal.aborted) break;
-      try {
-        const result = await analyzeCsvForCanvas(file.content, controller.signal);
-        setAnalysisMap((prev) => ({ ...prev, [file.id]: result }));
-      } catch (err: any) {
-        // Always clear 'analyzing' state — whether error or cancellation
-        setAnalysisMap((prev) => ({ ...prev, [file.id]: 'error' }));
-      }
-    }
-
-    setIsAnalyzing(false);
   };
 
   return (
@@ -491,10 +466,10 @@ export const Part3Upload: React.FC = () => {
                           {file.status === 'error' && (
                             <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
                           )}
-                          {file.status === 'pending' && analysisMap[file.id] !== 'analyzing' && (
+                          {file.status === 'pending' && (
                             <Upload className="w-5 h-5 text-gray-400 flex-shrink-0" />
                           )}
-                          {(file.status === 'uploading' || analysisMap[file.id] === 'analyzing') && (
+                          {file.status === 'uploading' && (
                             <div className="w-5 h-5 rounded-full border-2 border-gray-300 border-t-blue-600 animate-spin flex-shrink-0" />
                           )}
                           <div className="min-w-0 flex-1">
@@ -530,81 +505,6 @@ export const Part3Upload: React.FC = () => {
                   </button>
                 )}
 
-                {/* AI Pre-Analysis section */}
-                {batchFiles.length > 0 && (
-                  <div className="mt-5 border-t border-gray-100 pt-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-black text-gray-400 uppercase tracking-wider">
-                        AI Pre-Analysis
-                      </span>
-                      {!isAnalyzing && Object.keys(analysisMap).length === 0 && (
-                        <span className="text-xs text-gray-400">
-                          ~{batchFiles.length * 10}s estimated&nbsp;({batchFiles.length}&nbsp;file{batchFiles.length !== 1 ? 's' : ''}&nbsp;×&nbsp;~10s)
-                        </span>
-                      )}
-                    </div>
-
-                    <button
-                      onClick={handleAnalyzeFiles}
-                      disabled={isAnalyzing}
-                      className="w-full px-4 py-2 bg-gray-100 hover:bg-blue-50 border border-gray-200 hover:border-blue-300 text-gray-700 hover:text-blue-700 rounded-xl font-bold transition-all text-sm disabled:opacity-50 flex items-center justify-center gap-2"
-                    >
-                      {isAnalyzing ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Analyzing… (~{batchFiles.length * 10}s total)
-                        </>
-                      ) : (
-                        <>
-                          <ScanSearch className="w-4 h-4" />
-                          Analyze {batchFiles.length} File{batchFiles.length !== 1 ? 's' : ''} with AI
-                        </>
-                      )}
-                    </button>
-
-                    {/* Per-file analysis result cards */}
-                    {Object.keys(analysisMap).length > 0 && (
-                      <div className="mt-3 space-y-2">
-                        {batchFiles.map((file) => {
-                          const result = analysisMap[file.id];
-                          if (!result) return null;
-
-                          if (result === 'analyzing') return (
-                            <div key={file.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-xl text-xs text-gray-500">
-                              <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
-                              <span className="truncate">{file.name}</span>
-                            </div>
-                          );
-
-                          if (result === 'error') return (
-                            <div key={file.id} className="flex items-center gap-2 p-2 bg-red-50 rounded-xl text-xs text-red-600">
-                              <AlertCircle className="w-3 h-3 flex-shrink-0" />
-                              <span className="truncate">{file.name} — analysis failed</span>
-                            </div>
-                          );
-
-                          return (
-                            <div key={file.id} className={`p-3 rounded-xl text-xs ${result.isValid ? 'bg-green-50 border border-green-200' : 'bg-yellow-50 border border-yellow-200'}`}>
-                              <div className="flex items-center gap-2 mb-1">
-                                {result.isValid
-                                  ? <CheckCircle className="w-3 h-3 text-green-600 flex-shrink-0" />
-                                  : <AlertCircle className="w-3 h-3 text-yellow-600 flex-shrink-0" />
-                                }
-                                <span className="font-bold text-gray-900 truncate">
-                                  {result.rubricName || file.name}
-                                </span>
-                              </div>
-                              <p className="text-gray-500 ml-5">
-                                {result.criteriaCount} criteria · {result.totalPoints} pts
-                              </p>
-                              <p className="text-gray-400 ml-5 mt-0.5 italic">{result.notes}</p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             )}
 
@@ -612,22 +512,40 @@ export const Part3Upload: React.FC = () => {
             <div className="bg-gray-900 rounded-2xl overflow-hidden border border-gray-800 shadow-sm">
               <div className="flex justify-between items-center p-4 border-b border-gray-800">
                 <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider">Deployment Timeline</h3>
-                <button
-                  onClick={() => setDeploymentLogs([])}
-                  className="text-xs text-gray-500 hover:text-gray-300 font-bold"
-                >
-                  Clear Console
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => navigator.clipboard.writeText(deploymentLogs.join('\n'))}
+                    disabled={deploymentLogs.length === 0}
+                    className="text-xs text-gray-500 hover:text-gray-300 font-bold disabled:opacity-40"
+                  >
+                    Copy Logs
+                  </button>
+                  <button
+                    onClick={() => setDeploymentLogs([])}
+                    className="text-xs text-gray-500 hover:text-gray-300 font-bold"
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
-              <div className="p-4 h-64 overflow-y-auto font-mono text-xs text-gray-400">
+              <div className="p-4 h-64 overflow-y-auto font-mono text-xs">
                 {deploymentLogs.length === 0 ? (
                   <p className="text-gray-600">No activity yet. Upload CSVs to start deployment.</p>
                 ) : (
-                  deploymentLogs.map((log, i) => (
-                    <div key={i} className="whitespace-pre-wrap break-words mb-1">
-                      {log}
-                    </div>
-                  ))
+                  deploymentLogs.map((log, i) => {
+                    const isSuccess = log.includes('✓');
+                    const isError = log.includes('✗');
+                    return (
+                      <div
+                        key={i}
+                        className={`whitespace-pre-wrap break-words mb-1 ${
+                          isSuccess ? 'text-green-400' : isError ? 'text-red-400' : 'text-gray-400'
+                        }`}
+                      >
+                        {log}
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -658,69 +576,25 @@ export const Part3Upload: React.FC = () => {
 
           {/* Right Column: Config Panel */}
           <div className="lg:col-span-1 flex flex-col gap-6">
-            {/* Network Tunnel Section */}
-            <div className="bg-blue-50 p-6 rounded-2xl border border-blue-200 shadow-sm">
-              <div className="flex items-start gap-3">
-                <Zap className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <h3 className="font-bold text-blue-900 mb-2">Network Tunnel</h3>
-                  <p className="text-sm text-blue-800 mb-4">
-                    Canvas requests are routed through the local dev server, so no browser extension is required.
-                  </p>
-                  <p className="text-xs text-green-700 font-semibold text-center">
-                    ✓ Tunnel active — Canvas requests proxied via Vite dev server
-                  </p>
-                  <p className="text-xs text-blue-600 mt-1 text-center">
-                    No setup required. CORS is handled server-side automatically.
-                  </p>
-                </div>
-              </div>
-            </div>
-
             {/* Target Course & User Section */}
             <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
               <h3 className="font-bold text-gray-900 mb-4 uppercase text-sm tracking-wider">Target Course & User</h3>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1">
-                    Canvas URL
+                    Canvas Course URL
                   </label>
                   <p className="text-xs text-gray-400 mb-2">
-                    Paste your full course URL — Course ID will be filled automatically
+                    Paste your full course URL with the course ID included
                   </p>
                   <input
                     type="text"
                     value={courseUrl}
                     onChange={(e) => {
-                      const raw = e.target.value;
                       setValidationResult(null);
-                      // Auto-extract base URL and course ID from a full Canvas course URL
-                      // e.g. https://boisestate.instructure.com/courses/123456
-                      const match = raw.match(/^(https?:\/\/[^/]+)(?:\/courses\/(\d+))?/i);
-                      if (match) {
-                        const baseUrl = match[1];
-                        setCourseUrl(baseUrl);  // Store ONLY the base URL
-                        if (match[2]) {
-                          setCourseId(match[2]);  // Extract course ID if present in URL
-                        }
-                      } else {
-                        setCourseUrl(raw);  // Fallback: store as-is if parsing fails
-                      }
+                      setCourseUrl(e.target.value);
                     }}
-                    placeholder="https://boisestate.instructure.com or paste full course URL"
-                    className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Course ID
-                  </label>
-                  <input
-                    type="text"
-                    value={courseId}
-                    onChange={(e) => { setCourseId(e.target.value); setValidationResult(null); }}
-                    placeholder="Auto-filled from URL, or enter manually"
+                    placeholder="https://boisestate.instructure.com/courses/12345"
                     className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
                   />
                 </div>
@@ -753,7 +627,7 @@ export const Part3Upload: React.FC = () => {
 
                 <button
                   onClick={handleValidate}
-                  disabled={validating || !courseUrl.trim() || !courseId.trim() || !accessToken.trim()}
+                  disabled={validating || !courseUrl.trim() || !accessToken.trim()}
                   className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-all text-sm disabled:opacity-50 disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
                 >
                   {validating ? (
@@ -762,9 +636,9 @@ export const Part3Upload: React.FC = () => {
                     'Validate Connection'
                   )}
                 </button>
-                {!validationResult && (!courseUrl.trim() || !courseId.trim() || !accessToken.trim()) && (
+                {!validationResult && (!courseUrl.trim() || !accessToken.trim()) && (
                   <p className="text-xs text-gray-400 text-center">
-                    {!courseUrl.trim() ? 'Enter Canvas URL' : !courseId.trim() ? 'Enter Course ID' : 'Enter API Token'} to enable validation
+                    {!courseUrl.trim() ? 'Enter Canvas URL (with course ID)' : 'Enter API Token'} to enable validation
                   </p>
                 )}
                 {validationResult && (
