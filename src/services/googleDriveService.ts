@@ -164,6 +164,13 @@ class GoogleDriveService {
       throw new Error('OAuth session expired. Please sign in again.');
     }
 
+    // Remove PKCE state from storage immediately after all checks pass.
+    // This prevents a replay attack where a second visit to the same callback
+    // URL (e.g., via browser back/restore) re-uses the already-consumed state.
+    // The code_verifier is already captured in `pkce` (local variable) so
+    // removing the sessionStorage entry here is safe.
+    sessionStorage.removeItem(PKCE_KEY);
+
     // Exchange code for tokens
     try {
       const tokens = await this.exchangeCodeForTokens(code, pkce.codeVerifier);
@@ -175,12 +182,8 @@ class GoogleDriveService {
       sessionStorage.setItem(TOKEN_KEY, JSON.stringify(tokens));
       sessionStorage.setItem(USER_KEY, JSON.stringify(user));
 
-      // Clean up PKCE data
-      sessionStorage.removeItem(PKCE_KEY);
-
       return { tokens, user };
     } catch (error) {
-      sessionStorage.removeItem(PKCE_KEY);
       throw error;
     }
   }

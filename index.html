@@ -4,6 +4,29 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Content Security Policy — production variant (no ws/wss needed outside dev).
+      Most valuable directive here is connect-src, which prevents a stolen key
+      from being exfiltrated to an attacker-controlled server even if XSS occurs.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://apis.google.com;
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      img-src 'self' https://lh3.googleusercontent.com data: blob:;
+      font-src 'self' https://fonts.gstatic.com;
+      connect-src 'self'
+        https://generativelanguage.googleapis.com
+        https://accounts.google.com
+        https://oauth2.googleapis.com
+        https://www.googleapis.com
+        https://content.googleapis.com
+        https://drive.google.com
+        https://*.instructure.com;
+      frame-src 'none';
+      object-src 'none';
+      base-uri 'self';
+    " />
     <title>Canvas Rubric Creator</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">

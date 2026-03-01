@@ -39,7 +39,7 @@ const parseCSV = (csvText: string): string[][] => {
 };
 
 /**
- * Push a rubric CSV to Canvas LMS (App1 approach - form-urlencoded)
+ * Push a rubric CSV to Canvas LMS (JSON approach matching working app)
  */
 export const pushRubricToCanvas = async (
   config: CanvasConfig,
@@ -59,18 +59,39 @@ export const pushRubricToCanvas = async (
     let instanceUrl = "";
     let courseId = "";
 
-    const urlMatch = courseHomeUrl.match(
-      /^(https?:\/\/[^\/]+)(?:\/courses\/(\d+))/i
-    );
-    if (!urlMatch) {
+    // Parse and validate the Canvas URL with the browser's URL API.
+    // Rejects malformed URLs, enforces HTTPS, and extracts origin + course ID
+    // without relying on a permissive regex that could accept http:// targets.
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(courseHomeUrl.trim());
+    } catch {
+      return {
+        success: false,
+        message:
+          "Invalid URL format. Please paste a link from inside your Canvas course (e.g., https://canvas.your-school.edu/courses/12345)",
+      };
+    }
+
+    if (parsedUrl.protocol !== "https:") {
+      return {
+        success: false,
+        message:
+          "Canvas URL must use HTTPS. Please check that your link starts with https://",
+      };
+    }
+
+    const courseMatch = parsedUrl.pathname.match(/\/courses\/(\d+)/);
+    if (!courseMatch) {
       return {
         success: false,
         message:
           "Could not find a Course ID in that URL. Please paste a link from inside your Canvas course (e.g., https://canvas.your-school.edu/courses/12345)",
       };
     }
-    instanceUrl = urlMatch[1];
-    courseId = urlMatch[2];
+
+    instanceUrl = `${parsedUrl.protocol}//${parsedUrl.host}`;
+    courseId = courseMatch[1];
 
     // In development the Vite dev server proxies /canvas-proxy/* to the
     // Canvas instance (set via x-canvas-base header), bypassing browser CORS.
@@ -80,13 +101,39 @@ export const pushRubricToCanvas = async (
       : `${instanceUrl}/api/v1/courses/${courseId}/rubrics`;
 
     const data = parseCSV(csvContent);
-    const dataRows = data.filter(
-      (r) =>
-        r.length > 3 &&
-        r[0].toLowerCase() !== "rubric name" &&
-        r[0].toLowerCase() !== "rubric title" &&
-        r[1].toLowerCase() !== "criteria name"
+    if (data.length < 2) {
+      return {
+        success: false,
+        message: "The CSV appears to be empty or formatted incorrectly.",
+      };
+    }
+
+    // Header-based column detection (matching working app approach)
+    const headers = data[0].map((h) => h.toLowerCase().trim());
+    const idxRubricName = headers.findIndex(
+      (h) => h.includes("rubric name") || h.includes("rubric title")
     );
+    const idxCriteriaName = headers.findIndex((h) =>
+      h.includes("criteria name")
+    );
+    const idxCriteriaDesc = headers.findIndex((h) =>
+      h.includes("criteria description")
+    );
+    const idxRatingStart = headers.findIndex(
+      (h) => h.includes("rating") && (h.includes("name") || h.includes("1"))
+    );
+
+    if (idxRubricName === -1 || idxCriteriaName === -1 || idxRatingStart === -1) {
+      return {
+        success: false,
+        message:
+          "CSV headers not recognized. Expected columns: Rubric Name, Criteria Name, Criteria Description, Rating Name, Rating Description, Points, …",
+      };
+    }
+
+    const dataRows = data
+      .slice(1)
+      .filter((r) => r.length > idxCriteriaName && r[idxCriteriaName]?.trim());
 
     if (dataRows.length === 0) {
       return {
@@ -95,69 +142,64 @@ export const pushRubricToCanvas = async (
       };
     }
 
-    const rubricTitle = dataRows[0][0] || "Imported Rubric";
+    const rubricTitle = dataRows[0][idxRubricName] || "Imported Rubric";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const criteria: Record<string, any> = {};
 
-    const params = new URLSearchParams();
-    params.append("rubric[title]", rubricTitle);
-    params.append("rubric_id", "new");
+    dataRows.forEach((row, rowIndex) => {
+      const criterionKey = String(rowIndex + 1);
+      const criterionName = row[idxCriteriaName] || `Criterion ${rowIndex + 1}`;
+      const criterionDesc =
+        idxCriteriaDesc >= 0 ? row[idxCriteriaDesc] || "" : "";
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ratings: Record<string, any> = {};
+      let ratingCounter = 1;
 
-    dataRows.forEach((row, cIdx) => {
-      const criterionName = row[1] || `Criterion ${cIdx + 1}`;
-      const criterionDesc = row[2] || "";
-      params.append(
-        `rubric[criteria][${cIdx}][description]`,
-        criterionName
-      );
-      params.append(
-        `rubric[criteria][${cIdx}][long_description]`,
-        criterionDesc
-      );
+      for (let j = idxRatingStart; j < row.length; j += 3) {
+        const rTitle = row[j];
+        const rDesc = row[j + 1] || "";
+        const rPointsRaw = row[j + 2];
 
-      let maxPoints = 0;
-      let rIdx = 0;
-
-      for (let i = 4; i < row.length; i += 3) {
-        const rTitle = row[i];
-        const rDesc = row[i + 1];
-        const rPointsRaw = row[i + 2];
-
-        if (
-          rTitle !== undefined &&
-          rTitle !== "" &&
-          rPointsRaw !== undefined
-        ) {
+        if (rTitle !== undefined && rTitle.trim() !== "" && rPointsRaw !== undefined) {
           const rPoints = parseFloat(rPointsRaw) || 0;
-          params.append(
-            `rubric[criteria][${cIdx}][ratings][${rIdx}][description]`,
-            rTitle || ""
-          );
-          params.append(
-            `rubric[criteria][${cIdx}][ratings][${rIdx}][long_description]`,
-            rDesc || ""
-          );
-          params.append(
-            `rubric[criteria][${cIdx}][ratings][${rIdx}][points]`,
-            rPoints.toString()
-          );
-          if (rPoints > maxPoints) maxPoints = rPoints;
-          rIdx++;
+          ratings[String(ratingCounter)] = {
+            description: rTitle.trim(),
+            long_description: rDesc.trim(),
+            points: rPoints,
+          };
+          ratingCounter++;
         }
       }
 
-      params.append(`rubric[criteria][${cIdx}][points]`, maxPoints.toString());
+      criteria[criterionKey] = {
+        description: criterionName,
+        long_description: criterionDesc,
+        ratings,
+      };
     });
+
+    const payload: RubricPayload = {
+      rubric: { title: rubricTitle, criteria },
+      rubric_association: {
+        association_id: courseId,
+        association_type: "Course",
+        use_for_grading: false,
+        purpose: "bookmarking",
+      },
+    };
 
     const fetchHeaders: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/x-www-form-urlencoded",
+      "Content-Type": "application/json",
       Accept: "application/json",
+      "X-Requested-With": "XMLHttpRequest",
     };
     if (isDev) fetchHeaders["x-canvas-base"] = instanceUrl;
 
     const response = await fetch(endpoint, {
       method: "POST",
       headers: fetchHeaders,
-      body: params,
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {

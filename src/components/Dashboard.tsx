@@ -34,6 +34,7 @@ export const Dashboard: React.FC = () => {
 
   const [canvasTokenInput, setCanvasTokenInput] = useState('');
   const [showCanvasToken, setShowCanvasToken] = useState(false);
+  const [canvasTokenError, setCanvasTokenError] = useState<string | null>(null);
 
   const handleSaveApiKey = async () => {
     if (!apiKeyInput.trim()) return;
@@ -61,8 +62,25 @@ export const Dashboard: React.FC = () => {
   };
 
   const handleSaveCanvasToken = () => {
-    if (!canvasTokenInput.trim()) return;
-    setUserCanvasApiToken(canvasTokenInput.trim());
+    const trimmed = canvasTokenInput.trim();
+    if (!trimmed) return;
+
+    // Basic sanity check: Canvas API tokens are alphanumeric strings,
+    // typically 64–80 characters.  Reject anything suspiciously short or
+    // containing characters that should never appear in a token (spaces,
+    // angle brackets, quotes) so that an accidentally pasted URL or
+    // paragraph of text fails fast here rather than silently failing in Phase 3.
+    if (trimmed.length < 20) {
+      setCanvasTokenError('Token looks too short — Canvas tokens are usually 64+ characters.');
+      return;
+    }
+    if (/[\s<>"'`]/.test(trimmed)) {
+      setCanvasTokenError('Token contains invalid characters. Please paste only the token itself.');
+      return;
+    }
+
+    setCanvasTokenError(null);
+    setUserCanvasApiToken(trimmed);
     setCanvasTokenInput('');
   };
 
@@ -413,9 +431,9 @@ export const Dashboard: React.FC = () => {
                   <input
                     type={showCanvasToken ? 'text' : 'password'}
                     value={canvasTokenInput}
-                    onChange={(e) => setCanvasTokenInput(e.target.value)}
+                    onChange={(e) => { setCanvasTokenInput(e.target.value); setCanvasTokenError(null); }}
                     placeholder="Paste your Canvas token here..."
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-sm font-mono focus:border-red-400 focus:outline-none transition-all pr-10"
+                    className={`w-full px-4 py-3 border-2 rounded-xl text-sm font-mono focus:outline-none transition-all pr-10 ${canvasTokenError ? 'border-red-400 focus:border-red-500' : 'border-gray-200 focus:border-red-400'}`}
                   />
                   <button
                     type="button"
@@ -425,6 +443,12 @@ export const Dashboard: React.FC = () => {
                     {showCanvasToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                {canvasTokenError && (
+                  <p className="text-xs text-red-600 mb-3 flex items-start gap-1">
+                    <X className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                    {canvasTokenError}
+                  </p>
+                )}
                 <button
                   onClick={handleSaveCanvasToken}
                   disabled={!canvasTokenInput.trim()}
