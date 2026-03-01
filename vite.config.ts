@@ -168,6 +168,9 @@ export default defineConfig(({ mode }) => {
             " https://content.googleapis.com" +
             " https://drive.google.com" +
             " https://*.instructure.com" +
+            " https://*.firebaseapp.com" +
+            " https://identitytoolkit.googleapis.com" +
+            " https://securetoken.googleapis.com" +
             " ws://localhost:* wss://localhost:*",
           // No iframes or plugins
           "frame-src 'none'",
