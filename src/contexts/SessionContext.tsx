@@ -11,7 +11,7 @@ import {
   GoogleUser,
   GoogleAuthTokens,
 } from '../types';
-import { googleDriveService } from '../services/googleDriveService';
+import { googleDriveService, PickerResult } from '../services/googleDriveService';
 import { setGeminiApiKey as geminiServiceSetApiKey } from '../services/geminiService';
 
 // Create context
@@ -39,6 +39,8 @@ const SessionContext = createContext<{
   newBatch: () => void;
   // Gemini API Key
   setUserGeminiApiKey: (key: string | null) => void;
+  // Canvas API Token
+  setUserCanvasApiToken: (token: string | null) => void;
   // Google Auth methods
   startGoogleAuth: () => void;
   completeGoogleAuth: (code: string, state: string) => Promise<void>;
@@ -46,6 +48,8 @@ const SessionContext = createContext<{
   refreshGoogleToken: () => Promise<void>;
   extractGoogleDocText: (docUrl: string) => Promise<string>;
   extractGoogleSheetCsv: (sheetUrl: string) => Promise<string>;
+  downloadDriveFile: (fileId: string) => Promise<ArrayBuffer>;
+  openGooglePicker: () => Promise<PickerResult | null>;
 } | undefined>(undefined);
 
 // Provider component
@@ -81,6 +85,8 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     },
     // Gemini API Key
     geminiApiKey: null,
+    // Canvas API Token
+    canvasApiToken: null,
     // Google Authentication
     isGoogleAuthenticated: false,
     googleUser: null,
@@ -196,9 +202,13 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     progressIntervalRef.current = setInterval(() => {
       setState((prev) => {
         const elapsed = Date.now() - progressStartTimeRef.current;
-        const percentageDecimal = prev.progress.totalItems > 0
-          ? prev.progress.itemsProcessed / prev.progress.totalItems
-          : 0;
+        // Use percentage field when set (e.g. single-item flows that update it directly),
+        // fall back to itemsProcessed/totalItems for multi-item batch flows.
+        const percentageDecimal = prev.progress.percentage > 0
+          ? prev.progress.percentage
+          : (prev.progress.totalItems > 0
+              ? prev.progress.itemsProcessed / prev.progress.totalItems
+              : 0);
         const estimatedTotal = percentageDecimal > 0 ? elapsed / percentageDecimal : 0;
         const remaining = Math.max(0, estimatedTotal - elapsed);
 
@@ -277,8 +287,9 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
         totalItems: 0,
         canCancel: false,
       },
-      // Preserve Gemini API key and Google auth across session clears
+      // Preserve Gemini API key, Canvas token, and Google auth across session clears
       geminiApiKey: prev.geminiApiKey,
+      canvasApiToken: prev.canvasApiToken,
       isGoogleAuthenticated: prev.isGoogleAuthenticated,
       googleUser: prev.googleUser,
       googleAccessToken: prev.googleAccessToken,
@@ -311,6 +322,16 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     } else {
       localStorage.removeItem('gemini_api_key');
       geminiServiceSetApiKey('');
+    }
+  }, []);
+
+  // Canvas API Token management
+  const setUserCanvasApiToken = useCallback((token: string | null) => {
+    setState((prev) => ({ ...prev, canvasApiToken: token }));
+    if (token) {
+      localStorage.setItem('canvas_api_token', token);
+    } else {
+      localStorage.removeItem('canvas_api_token');
     }
   }, []);
 
@@ -440,6 +461,26 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     [state.isGoogleAuthenticated, state.googleAccessToken]
   );
 
+  const downloadDriveFile = useCallback(
+    async (fileId: string): Promise<ArrayBuffer> => {
+      if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+        throw new Error('Please sign in with Google first');
+      }
+      return googleDriveService.downloadFileAsArrayBuffer(fileId, state.googleAccessToken);
+    },
+    [state.isGoogleAuthenticated, state.googleAccessToken]
+  );
+
+  const openGooglePicker = useCallback(
+    async (): Promise<PickerResult | null> => {
+      if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+        throw new Error('Please sign in with Google first');
+      }
+      return googleDriveService.openPicker(state.googleAccessToken);
+    },
+    [state.isGoogleAuthenticated, state.googleAccessToken]
+  );
+
   // Initialize on app load
   useEffect(() => {
     // Restore saved Gemini API key from localStorage
@@ -447,6 +488,12 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (savedApiKey) {
       setState((prev) => ({ ...prev, geminiApiKey: savedApiKey }));
       geminiServiceSetApiKey(savedApiKey);
+    }
+
+    // Restore saved Canvas API token from localStorage
+    const savedCanvasToken = localStorage.getItem('canvas_api_token');
+    if (savedCanvasToken) {
+      setState((prev) => ({ ...prev, canvasApiToken: savedCanvasToken }));
     }
 
     const initializeAuth = async () => {
@@ -520,6 +567,8 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     newBatch,
     // Gemini API Key
     setUserGeminiApiKey,
+    // Canvas API Token
+    setUserCanvasApiToken,
     // Google Auth
     startGoogleAuth,
     completeGoogleAuth,
@@ -527,6 +576,8 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     refreshGoogleToken,
     extractGoogleDocText,
     extractGoogleSheetCsv,
+    downloadDriveFile,
+    openGooglePicker,
   };
 
   return (

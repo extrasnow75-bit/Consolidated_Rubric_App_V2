@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode } from '../types';
-import { Lightbulb, FileText, Upload, Camera, ArrowRight, LogOut, Key, Check, X, Loader2, ExternalLink, Trash2 } from 'lucide-react';
+import { Lightbulb, FileText, Upload, Camera, ArrowRight, LogOut, Key, Check, X, Loader2, ExternalLink, Trash2, Eye, EyeOff } from 'lucide-react';
 import { validateGeminiApiKey } from '../services/geminiService';
 
 const GoogleIcon = () => (
@@ -26,11 +26,14 @@ const GoogleIcon = () => (
 );
 
 export const Dashboard: React.FC = () => {
-  const { state, setCurrentStep, clearSession, startGoogleAuth, signOutGoogle, setUserGeminiApiKey } = useSession();
+  const { state, setCurrentStep, clearSession, startGoogleAuth, signOutGoogle, setUserGeminiApiKey, setUserCanvasApiToken } = useSession();
 
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [isValidatingKey, setIsValidatingKey] = useState(false);
   const [keyValidationResult, setKeyValidationResult] = useState<'idle' | 'valid' | 'invalid'>('idle');
+
+  const [canvasTokenInput, setCanvasTokenInput] = useState('');
+  const [showCanvasToken, setShowCanvasToken] = useState(false);
 
   const handleSaveApiKey = async () => {
     if (!apiKeyInput.trim()) return;
@@ -55,6 +58,16 @@ export const Dashboard: React.FC = () => {
     setUserGeminiApiKey(null);
     setKeyValidationResult('idle');
     setApiKeyInput('');
+  };
+
+  const handleSaveCanvasToken = () => {
+    if (!canvasTokenInput.trim()) return;
+    setUserCanvasApiToken(canvasTokenInput.trim());
+    setCanvasTokenInput('');
+  };
+
+  const handleRemoveCanvasToken = () => {
+    setUserCanvasApiToken(null);
   };
 
   const maskApiKey = (key: string) => {
@@ -237,51 +250,11 @@ export const Dashboard: React.FC = () => {
         </div>
         </div>
 
-        {/* Google Sign-In Box - Right Side */}
+        {/* Right Sidebar */}
         <div className="w-80 flex-shrink-0">
-          {!state.isGoogleAuthenticated ? (
-            <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100">
-              <h3 className="font-black text-lg text-gray-900 mb-1">Optional</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Log in to integrate Google Docs and Sheets in the process. Otherwise, just use downloaded MS Word and CSV files.
-              </p>
-              <button
-                onClick={handleGoogleSignIn}
-                className="w-full px-6 py-3 bg-white border-2 border-blue-400 text-blue-600 rounded-xl font-black hover:bg-blue-50 transition-all flex items-center justify-center gap-2 whitespace-nowrap"
-              >
-                <GoogleIcon />
-                Sign In
-              </button>
-            </div>
-          ) : (
-            <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100">
-              <div className="text-center">
-                {state.googleUser?.picture && (
-                  <img
-                    src={state.googleUser.picture}
-                    alt="Profile"
-                    className="w-16 h-16 rounded-full mx-auto mb-3 border-2 border-green-200"
-                  />
-                )}
-                <h3 className="font-black text-gray-900">{state.googleUser?.name}</h3>
-                <p className="text-sm text-gray-600 mb-4 break-all">{state.googleUser?.email}</p>
-                <div className="flex items-center justify-center mb-4 text-green-600">
-                  <div className="w-2 h-2 bg-green-600 rounded-full mr-2"></div>
-                  <span className="text-xs font-bold">Signed In</span>
-                </div>
-                <button
-                  onClick={handleGoogleSignOut}
-                  className="w-full px-4 py-2 bg-red-100 text-red-700 rounded-lg font-bold hover:bg-red-200 transition-all text-sm"
-                >
-                  <LogOut className="w-4 h-4 inline mr-2" />
-                  Sign Out
-                </button>
-              </div>
-            </div>
-          )}
 
-          {/* Gemini API Key Card */}
-          <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 mt-4">
+          {/* 1. Gemini API Key Card */}
+          <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100">
             <div className="flex items-center gap-2 mb-1">
               <Key className="w-4 h-4 text-amber-600" />
               <h3 className="font-black text-lg text-gray-900">Gemini API Key</h3>
@@ -360,6 +333,110 @@ export const Dashboard: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* 2. Google Sign-In Box */}
+          <div className="mt-4">
+            {!state.isGoogleAuthenticated ? (
+              <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100">
+                <h3 className="font-black text-lg text-gray-900 mb-1">Optional</h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  Log in to integrate Google Docs and Sheets in the process. Otherwise, just use downloaded MS Word and CSV files.
+                </p>
+                <button
+                  onClick={handleGoogleSignIn}
+                  className="w-full px-6 py-3 bg-white border-2 border-blue-400 text-blue-600 rounded-xl font-black hover:bg-blue-50 transition-all flex items-center justify-center gap-2 whitespace-nowrap"
+                >
+                  <GoogleIcon />
+                  Sign In
+                </button>
+              </div>
+            ) : (
+              <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100">
+                <div className="text-center">
+                  {state.googleUser?.picture && (
+                    <img
+                      src={state.googleUser.picture}
+                      alt="Profile"
+                      className="w-16 h-16 rounded-full mx-auto mb-3 border-2 border-green-200"
+                    />
+                  )}
+                  <h3 className="font-black text-gray-900">{state.googleUser?.name}</h3>
+                  <p className="text-sm text-gray-600 mb-4 break-all">{state.googleUser?.email}</p>
+                  <div className="flex items-center justify-center mb-4 text-green-600">
+                    <div className="w-2 h-2 bg-green-600 rounded-full mr-2"></div>
+                    <span className="text-xs font-bold">Signed In</span>
+                  </div>
+                  <button
+                    onClick={handleGoogleSignOut}
+                    className="w-full px-4 py-2 bg-red-100 text-red-700 rounded-lg font-bold hover:bg-red-200 transition-all text-sm"
+                  >
+                    <LogOut className="w-4 h-4 inline mr-2" />
+                    Sign Out
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 3. Canvas API Token Card */}
+          <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 mt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Key className="w-4 h-4 text-red-600" />
+              <h3 className="font-black text-lg text-gray-900">Canvas API Token</h3>
+            </div>
+
+            {state.canvasApiToken ? (
+              /* Token is saved — show active state */
+              <div>
+                <div className="flex items-center gap-2 mt-3 mb-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span className="text-sm font-bold text-green-700">Token saved</span>
+                </div>
+                <p className="text-xs text-gray-500 font-mono mb-4 break-all">
+                  {maskApiKey(state.canvasApiToken)}
+                </p>
+                <button
+                  onClick={handleRemoveCanvasToken}
+                  className="w-full px-4 py-2 bg-red-50 text-red-600 rounded-lg font-bold hover:bg-red-100 transition-all text-sm flex items-center justify-center gap-2"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Remove Token
+                </button>
+              </div>
+            ) : (
+              /* No token saved — show input */
+              <div>
+                <p className="text-sm text-gray-600 mb-3">
+                  Only required for Phase 3. You can enter it here now or directly in Phase 3 later.
+                </p>
+                <div className="relative mb-3">
+                  <input
+                    type={showCanvasToken ? 'text' : 'password'}
+                    value={canvasTokenInput}
+                    onChange={(e) => setCanvasTokenInput(e.target.value)}
+                    placeholder="Paste your Canvas token here..."
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-sm font-mono focus:border-red-400 focus:outline-none transition-all pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCanvasToken((v) => !v)}
+                    className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600"
+                  >
+                    {showCanvasToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <button
+                  onClick={handleSaveCanvasToken}
+                  disabled={!canvasTokenInput.trim()}
+                  className="w-full px-4 py-3 bg-red-600 text-white rounded-xl font-black hover:bg-red-700 transition-all text-sm disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
+                >
+                  <Check className="w-4 h-4" />
+                  Save Token
+                </button>
+              </div>
+            )}
+          </div>
+
         </div>
       </div>
     </div>

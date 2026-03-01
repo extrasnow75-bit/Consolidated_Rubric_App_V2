@@ -238,6 +238,9 @@ export interface SessionState {
   // Gemini API Key (user-provided)
   geminiApiKey: string | null;
 
+  // Canvas API Token (user-provided, optional — used by Phase 3)
+  canvasApiToken: string | null;
+
   // Google Authentication
   isGoogleAuthenticated: boolean;
   googleUser: GoogleUser | null;
