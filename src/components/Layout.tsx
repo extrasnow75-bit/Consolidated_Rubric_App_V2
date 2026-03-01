@@ -1,7 +1,7 @@
 import React from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode } from '../types';
-import { HelpCircle, ChevronLeft, Camera } from 'lucide-react';
+import { HelpCircle, ChevronLeft, Camera, Lightbulb } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -19,11 +19,6 @@ const RightArrow = () => (
   </svg>
 );
 
-const LightbulbIcon = () => (
-  <svg className="w-5 h-5 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
-    <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.343a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM16.657 14.657a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM11 17v1a1 1 0 11-2 0v-1a1 1 0 112 0zM5.343 15.657a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM2 10a1 1 0 01 1 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM4.343 5.343A1 1 0 005.757 3.929l.707.707a1 1 0 11-1.414 1.414l-.707-.707z" />
-  </svg>
-);
 
 const WordIcon = () => (
   <div className="w-8 h-8 bg-[#2b579a] rounded flex items-center justify-center text-white font-black text-lg shadow-sm">W</div>
@@ -62,7 +57,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       case AppMode.DASHBOARD:
         return (
           <div className={baseClasses}>
-            <IconBox><LightbulbIcon /></IconBox>
+            <IconBox className="bg-amber-50"><Lightbulb className="w-5 h-5 text-amber-500" /></IconBox>
             <RightArrow />
             <IconBox><WordIcon /></IconBox>
             <RightArrow />
@@ -76,7 +71,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       case AppMode.PART_1:
         return (
           <div className={baseClasses}>
-            <IconBox><LightbulbIcon /></IconBox>
+            <IconBox className="bg-amber-50"><Lightbulb className="w-5 h-5 text-amber-500" /></IconBox>
             <RightArrow />
             <IconBox><WordIcon /></IconBox>
             <span className="text-sm font-black uppercase tracking-widest ml-2">
