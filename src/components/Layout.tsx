@@ -31,17 +31,26 @@ const CSVIcon = () => (
 const CanvasLogo = () => (
   <div className="relative w-10 h-10 flex items-center justify-center bg-white rounded-xl shadow-sm border border-slate-100">
     <svg viewBox="0 0 100 100" className="w-6 h-6" xmlns="http://www.w3.org/2000/svg">
-      {/* Canvas LMS Logo - Professional Design */}
-      <defs>
-        <linearGradient id="canvasGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style={{ stopColor: '#FF6B5B', stopOpacity: 1 }} />
-          <stop offset="100%" style={{ stopColor: '#E64C3C', stopOpacity: 1 }} />
-        </linearGradient>
-      </defs>
-      <circle cx="50" cy="50" r="48" fill="url(#canvasGradient)"/>
-      {/* Clean, professional white C letter */}
-      <path d="M 70 30 A 25 25 0 0 0 30 50 A 25 25 0 0 0 70 70"
-            fill="none" stroke="white" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round"/>
+      <g fill="#E63027">
+        {/* 8 outer crescents — dome pointing outward, flat side toward center */}
+        <path d="M 38 14 A 12 12 0 0 0 62 14 Z" />
+        <path d="M 38 14 A 12 12 0 0 0 62 14 Z" transform="rotate(45, 50, 50)" />
+        <path d="M 38 14 A 12 12 0 0 0 62 14 Z" transform="rotate(90, 50, 50)" />
+        <path d="M 38 14 A 12 12 0 0 0 62 14 Z" transform="rotate(135, 50, 50)" />
+        <path d="M 38 14 A 12 12 0 0 0 62 14 Z" transform="rotate(180, 50, 50)" />
+        <path d="M 38 14 A 12 12 0 0 0 62 14 Z" transform="rotate(225, 50, 50)" />
+        <path d="M 38 14 A 12 12 0 0 0 62 14 Z" transform="rotate(270, 50, 50)" />
+        <path d="M 38 14 A 12 12 0 0 0 62 14 Z" transform="rotate(315, 50, 50)" />
+        {/* 8 inner dots interspersed at 22.5° offset */}
+        <circle cx="50" cy="28" r="5" transform="rotate(22.5, 50, 50)" />
+        <circle cx="50" cy="28" r="5" transform="rotate(67.5, 50, 50)" />
+        <circle cx="50" cy="28" r="5" transform="rotate(112.5, 50, 50)" />
+        <circle cx="50" cy="28" r="5" transform="rotate(157.5, 50, 50)" />
+        <circle cx="50" cy="28" r="5" transform="rotate(202.5, 50, 50)" />
+        <circle cx="50" cy="28" r="5" transform="rotate(247.5, 50, 50)" />
+        <circle cx="50" cy="28" r="5" transform="rotate(292.5, 50, 50)" />
+        <circle cx="50" cy="28" r="5" transform="rotate(337.5, 50, 50)" />
+      </g>
     </svg>
   </div>
 );
