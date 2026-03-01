@@ -7,6 +7,12 @@ export interface GoogleAuthTokens {
   expiresAt: number;
 }
 
+export interface PickerResult {
+  fileId: string;
+  mimeType: string;
+  name: string;
+}
+
 export interface GoogleUser {
   id: string;
   email: string;
@@ -40,12 +46,14 @@ class GoogleDriveService {
   private clientSecret: string;
   private redirectUri: string;
   private scopes: string[];
+  private pickerApiKey: string;
 
   constructor() {
     this.clientId = import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID || '';
     this.clientSecret = import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_SECRET || '';
     this.redirectUri = import.meta.env.VITE_GOOGLE_OAUTH_REDIRECT_URI || '';
     this.scopes = (import.meta.env.VITE_GOOGLE_OAUTH_SCOPES || '').split(' ');
+    this.pickerApiKey = import.meta.env.VITE_GOOGLE_PICKER_API_KEY || '';
 
     if (!this.clientId || !this.redirectUri) {
       console.warn('Google OAuth configuration missing. Check VITE_GOOGLE_OAUTH_CLIENT_ID and VITE_GOOGLE_OAUTH_REDIRECT_URI');
@@ -180,7 +188,7 @@ class GoogleDriveService {
   /**
    * Exchange authorization code for tokens
    */
-  private async exchangeCodeForTokens(code: string, codeVerifier: string): Promise<GoogleAuthTokens> {
+  private async exchangeCodeForTokens(code: string, codeVerifier: string): Promise<GoogleAuthTokens & { grantedScopes?: string }> {
     const response = await fetch(GOOGLE_TOKEN_ENDPOINT, {
       method: 'POST',
       headers: {
@@ -203,10 +211,23 @@ class GoogleDriveService {
 
     const data = await response.json();
 
+    // Log granted scopes for diagnostic purposes
+    if (data.scope) {
+      const grantedScopes = data.scope as string;
+      const hasDriveReadonly = grantedScopes.includes('drive.readonly') || grantedScopes.includes('https://www.googleapis.com/auth/drive.readonly');
+      const hasDriveFile = grantedScopes.includes('drive.file') || grantedScopes.includes('https://www.googleapis.com/auth/drive.file');
+      if (!hasDriveReadonly && !hasDriveFile) {
+        console.warn('Google OAuth: No Drive scope was granted. Document fetching will not work.');
+      } else if (!hasDriveReadonly && hasDriveFile) {
+        console.warn('Google OAuth: Only drive.file scope granted (not drive.readonly). Only app-created files can be accessed. Files shared from other accounts will not be accessible.');
+      }
+    }
+
     return {
       accessToken: data.access_token,
       refreshToken: data.refresh_token || '',
       expiresAt: Date.now() + (data.expires_in * 1000),
+      grantedScopes: data.scope || '',
     };
   }
 
@@ -276,12 +297,7 @@ class GoogleDriveService {
    * Sign out and revoke tokens
    */
   async signOut(): Promise<void> {
-    // Clear local storage
-    sessionStorage.removeItem(TOKEN_KEY);
-    sessionStorage.removeItem(USER_KEY);
-    sessionStorage.removeItem(PKCE_KEY);
-
-    // Best effort token revocation (may fail due to CORS)
+    // Best effort token revocation before clearing (may fail due to CORS)
     const tokensJson = sessionStorage.getItem(TOKEN_KEY);
     if (tokensJson) {
       try {
@@ -302,6 +318,69 @@ class GoogleDriveService {
         // Ignore parsing errors
       }
     }
+
+    // Clear storage after revocation attempt
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(USER_KEY);
+    sessionStorage.removeItem(PKCE_KEY);
+  }
+
+  /**
+   * Open the Google Picker dialog to let the user browse their Drive.
+   * Resolves with the selected file's info, or null if the user cancels.
+   * Requires the Google API script (apis.google.com/js/api.js) to be loaded.
+   */
+  openPicker(accessToken: string): Promise<PickerResult | null> {
+    return new Promise((resolve, reject) => {
+      const gapi = (window as any).gapi;
+      if (!gapi) {
+        reject(new Error('Google API library is not loaded. Please refresh the page and try again.'));
+        return;
+      }
+
+      gapi.load('picker', {
+        callback: () => {
+          const google = (window as any).google;
+          if (!google?.picker) {
+            reject(new Error('Google Picker failed to load. Please refresh and try again.'));
+            return;
+          }
+
+          const SUPPORTED_MIME_TYPES = [
+            'application/vnd.google-apps.document',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/pdf',
+            'text/plain',
+          ].join(',');
+
+          const view = new google.picker.DocsView()
+            .setIncludeFolders(true)
+            .setSelectFolderEnabled(false)
+            .setMimeTypes(SUPPORTED_MIME_TYPES);
+
+          const builder = new google.picker.PickerBuilder()
+            .addView(view)
+            .setOAuthToken(accessToken)
+            .setCallback((data: any) => {
+              if (data.action === google.picker.Action.PICKED) {
+                const doc = data.docs[0];
+                resolve({ fileId: doc.id, mimeType: doc.mimeType, name: doc.name });
+              } else if (data.action === google.picker.Action.CANCEL) {
+                resolve(null);
+              }
+            });
+
+          if (this.pickerApiKey) {
+            builder.setDeveloperKey(this.pickerApiKey);
+          }
+
+          builder.build().setVisible(true);
+        },
+        onerror: () => {
+          reject(new Error('Failed to load Google Picker. Check that the Picker API is enabled in your Google Cloud project.'));
+        },
+      });
+    });
   }
 
   /**
@@ -325,6 +404,26 @@ class GoogleDriveService {
   }
 
   /**
+   * Parse a Google API error response body for a useful message
+   */
+  private async parseGoogleErrorBody(response: Response): Promise<string> {
+    try {
+      const body = await response.clone().json();
+      const err = body?.error;
+      if (!err) return '';
+      const reason = err?.errors?.[0]?.reason || '';
+      const message = err?.message || '';
+      return reason ? `${reason}: ${message}` : message;
+    } catch {
+      try {
+        return await response.clone().text();
+      } catch {
+        return '';
+      }
+    }
+  }
+
+  /**
    * Get Google Docs content as plain text
    */
   async getGoogleDocContent(fileId: string, accessToken: string): Promise<string> {
@@ -343,21 +442,86 @@ class GoogleDriveService {
         throw new Error('Document not found. Please check the link and try again.');
       }
 
+      if (response.status === 401) {
+        throw new Error('Your Google session has expired. Please sign out and sign in again.');
+      }
+
       if (response.status === 403) {
-        throw new Error('You do not have access to this document. Please ensure it is shared with you.');
+        const detail = await this.parseGoogleErrorBody(response);
+        const isPermissionError = detail.toLowerCase().includes('insufficientpermissions') ||
+          detail.toLowerCase().includes('insufficient permissions') ||
+          detail.toLowerCase().includes('request had insufficient authentication scopes');
+        if (isPermissionError) {
+          throw new Error(
+            'Google Drive access not authorized. Your current sign-in does not include Drive read permission. ' +
+            'Please sign out from the Google panel and sign in again — on the Google consent screen, make sure to allow Drive access.'
+          );
+        }
+        throw new Error(
+          'You do not have access to this document. ' +
+          (detail ? `(${detail}) ` : '') +
+          'Please ensure the document is shared with your Google account.'
+        );
       }
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch document (HTTP ${response.status})`);
+        const detail = await this.parseGoogleErrorBody(response);
+        throw new Error(`Failed to fetch document (HTTP ${response.status}${detail ? `: ${detail}` : ''})`);
       }
 
       return await response.text();
     } catch (error: any) {
-      if (error.message.includes('Document not found') || error.message.includes('You do not have access')) {
+      if (
+        error.message.includes('Document not found') ||
+        error.message.includes('You do not have access') ||
+        error.message.includes('Google Drive access not authorized') ||
+        error.message.includes('session has expired') ||
+        error.message.includes('Failed to fetch document')
+      ) {
         throw error;
       }
       throw new Error(`Failed to fetch Google Doc: ${error.message}`);
     }
+  }
+
+  /**
+   * Download a non-Google-native file (DOCX, PDF, TXT) as raw bytes.
+   * Use this for files that can't be exported via the export API.
+   */
+  async downloadFileAsArrayBuffer(fileId: string, accessToken: string): Promise<ArrayBuffer> {
+    const response = await fetch(
+      `${GOOGLE_DRIVE_API}/${fileId}?alt=media`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    if (response.status === 401) {
+      throw new Error('Your Google session has expired. Please sign out and sign in again.');
+    }
+
+    if (response.status === 403) {
+      const detail = await this.parseGoogleErrorBody(response);
+      const isPermissionError = detail.toLowerCase().includes('insufficientpermissions') ||
+        detail.toLowerCase().includes('insufficient permissions') ||
+        detail.toLowerCase().includes('request had insufficient authentication scopes');
+      if (isPermissionError) {
+        throw new Error(
+          'Google Drive access not authorized. Please sign out and sign in again, ' +
+          'making sure to allow Drive access on the Google consent screen.'
+        );
+      }
+      throw new Error(
+        'You do not have access to this file. ' +
+        (detail ? `(${detail}) ` : '') +
+        'Please ensure the file is shared with your Google account.'
+      );
+    }
+
+    if (!response.ok) {
+      const detail = await this.parseGoogleErrorBody(response);
+      throw new Error(`Failed to download file (HTTP ${response.status}${detail ? `: ${detail}` : ''})`);
+    }
+
+    return await response.arrayBuffer();
   }
 
   /**
@@ -379,17 +543,42 @@ class GoogleDriveService {
         throw new Error('Sheet not found. Please check the link and try again.');
       }
 
+      if (response.status === 401) {
+        throw new Error('Your Google session has expired. Please sign out and sign in again.');
+      }
+
       if (response.status === 403) {
-        throw new Error('You do not have access to this sheet. Please ensure it is shared with you.');
+        const detail = await this.parseGoogleErrorBody(response);
+        const isPermissionError = detail.toLowerCase().includes('insufficientpermissions') ||
+          detail.toLowerCase().includes('insufficient permissions') ||
+          detail.toLowerCase().includes('request had insufficient authentication scopes');
+        if (isPermissionError) {
+          throw new Error(
+            'Google Drive access not authorized. Your current sign-in does not include Drive read permission. ' +
+            'Please sign out from the Google panel and sign in again — on the Google consent screen, make sure to allow Drive access.'
+          );
+        }
+        throw new Error(
+          'You do not have access to this sheet. ' +
+          (detail ? `(${detail}) ` : '') +
+          'Please ensure the sheet is shared with your Google account.'
+        );
       }
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch sheet (HTTP ${response.status})`);
+        const detail = await this.parseGoogleErrorBody(response);
+        throw new Error(`Failed to fetch sheet (HTTP ${response.status}${detail ? `: ${detail}` : ''})`);
       }
 
       return await response.text();
     } catch (error: any) {
-      if (error.message.includes('Sheet not found') || error.message.includes('You do not have access')) {
+      if (
+        error.message.includes('Sheet not found') ||
+        error.message.includes('You do not have access') ||
+        error.message.includes('Google Drive access not authorized') ||
+        error.message.includes('session has expired') ||
+        error.message.includes('Failed to fetch sheet')
+      ) {
         throw error;
       }
       throw new Error(`Failed to fetch Google Sheet: ${error.message}`);

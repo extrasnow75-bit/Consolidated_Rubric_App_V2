@@ -1,6 +1,6 @@
 import React from 'react';
 import { AppMode } from '../types';
-import { CheckCircle, ArrowRight, RotateCw, Home } from 'lucide-react';
+import { CheckCircle, ArrowRight, RotateCw, Home, X } from 'lucide-react';
 
 interface TaskCompletionDialogProps {
   isOpen: boolean;
@@ -8,6 +8,7 @@ interface TaskCompletionDialogProps {
   onContinue: () => void;
   onNewBatch: () => void;
   onNewSession: () => void;
+  onClose: () => void;
   onExport?: () => void;
   onDownload?: () => void;
 }
@@ -18,6 +19,7 @@ const TaskCompletionDialog: React.FC<TaskCompletionDialogProps> = ({
   onContinue,
   onNewBatch,
   onNewSession,
+  onClose,
   onExport,
   onDownload,
 }) => {
@@ -83,7 +85,16 @@ const TaskCompletionDialog: React.FC<TaskCompletionDialogProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40">
-      <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full mx-4">
+      <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full mx-4 relative">
+        {/* Close Button */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+          aria-label="Close"
+        >
+          <X className="w-6 h-6" />
+        </button>
+
         {/* Icon */}
         <div className="flex justify-center mb-4">
           <CheckCircle className={`w-16 h-16 ${getIconColor()}`} />
@@ -125,26 +136,26 @@ const TaskCompletionDialog: React.FC<TaskCompletionDialogProps> = ({
             Workflow Progress
           </p>
           <div className="flex gap-2 justify-center">
-            {/* Part 1 */}
+            {/* Part 1 - Blue */}
             <div
               className={`flex-1 h-2 rounded-full ${
                 [AppMode.PART_1, AppMode.PART_2, AppMode.PART_3].includes(currentStep)
-                  ? 'bg-amber-500'
-                  : 'bg-gray-200'
-              }`}
-            />
-            {/* Part 2 */}
-            <div
-              className={`flex-1 h-2 rounded-full ${
-                [AppMode.PART_2, AppMode.PART_3].includes(currentStep)
                   ? 'bg-blue-500'
                   : 'bg-gray-200'
               }`}
             />
-            {/* Part 3 */}
+            {/* Part 2 - Green */}
             <div
               className={`flex-1 h-2 rounded-full ${
-                currentStep === AppMode.PART_3 ? 'bg-green-500' : 'bg-gray-200'
+                [AppMode.PART_2, AppMode.PART_3].includes(currentStep)
+                  ? 'bg-green-500'
+                  : 'bg-gray-200'
+              }`}
+            />
+            {/* Part 3 - Red */}
+            <div
+              className={`flex-1 h-2 rounded-full ${
+                currentStep === AppMode.PART_3 ? 'bg-red-500' : 'bg-gray-200'
               }`}
             />
           </div>

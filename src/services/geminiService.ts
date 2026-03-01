@@ -810,3 +810,49 @@ Return a JSON object with a "rubrics" array. Each element must have:
     return parsed.rubrics;
   }, signal);
 }
+
+// ─── Phase 1 → Phase 2 direct carry-forward ─────────────────────────
+
+/**
+ * Build a Canvas-compatible CSV directly from a Phase 1 RubricData object.
+ * No API call required — all data is already structured.
+ *
+ * @param rubric       The RubricData object produced by Phase 1.
+ * @param scoringMethod 'ranges' sets Criteria Enable Range=TRUE; 'fixed' sets FALSE.
+ * @returns Raw CSV string ready for Canvas import.
+ */
+export function generateCsvFromRubricObject(
+  rubric: RubricData,
+  scoringMethod: 'ranges' | 'fixed',
+): string {
+  const HEADER =
+    'Rubric Name,Criteria Name,Criteria Description,Criteria Enable Range,' +
+    'Rating Name,Rating Description,Rating Points,' +
+    'Rating Name,Rating Description,Rating Points,' +
+    'Rating Name,Rating Description,Rating Points,' +
+    'Rating Name,Rating Description,Rating Points';
+
+  const enableRange = scoringMethod === 'ranges' ? 'TRUE' : 'FALSE';
+
+  /** Wrap a field in double-quotes if it contains commas, quotes, or newlines. */
+  const q = (s: string): string => {
+    const str = String(s ?? '');
+    return str.includes(',') || str.includes('"') || str.includes('\n')
+      ? `"${str.replace(/"/g, '""')}"`
+      : str;
+  };
+
+  const rows = rubric.criteria.map((c, i) => {
+    const rubricName = i === 0 ? q(rubric.title) : '';
+    const ratings: [string, { text: string; points: string }][] = [
+      ['Exemplary',      c.exemplary],
+      ['Proficient',     c.proficient],
+      ['Developing',     c.developing],
+      ['Unsatisfactory', c.unsatisfactory],
+    ];
+    const ratingCols = ratings.flatMap(([name, r]) => [q(name), q(r.text), q(r.points)]);
+    return [rubricName, q(c.category), q(c.description), enableRange, ...ratingCols].join(',');
+  });
+
+  return [HEADER, ...rows].join('\n');
+}

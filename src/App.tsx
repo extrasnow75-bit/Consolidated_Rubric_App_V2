@@ -39,7 +39,7 @@ const AppContent: React.FC = () => {
 
   // If this is an OAuth callback, show the callback component
   if (isOAuthCallback) {
-    return <GoogleAuthCallback />;
+    return <GoogleAuthCallback onComplete={() => setIsOAuthCallback(false)} />;
   }
 
   const renderContent = () => {
@@ -99,6 +99,7 @@ const AppContent: React.FC = () => {
         onContinue={handleTaskContinue}
         onNewBatch={handleNewBatch}
         onNewSession={handleNewSession}
+        onClose={() => setTaskCompletionOpen(false)}
       />
     </>
   );

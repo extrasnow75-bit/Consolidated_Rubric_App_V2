@@ -3,7 +3,7 @@ import { useSession } from '../contexts/SessionContext';
 import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
 import { generateRubricFromDescription, validateAssignmentDescription } from '../services/geminiService';
 import { exportToWord } from '../services/wordExportService';
-import { Loader2, Download, Trash2, Settings, FileText, Link as LinkIcon } from 'lucide-react';
+import { Loader2, Download, Trash2, Settings, FileText, Link as LinkIcon, CheckCircle, ArrowRight, RotateCw, Home } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -16,14 +16,16 @@ export const Part1Rubric: React.FC = () => {
     setRubric,
     setIsLoading,
     setError,
-    setTaskCompletionOpen,
+    newBatch,
     startProgress,
     stopProgress,
     setProgress,
     getAbortSignal,
     extractGoogleDocText,
+    downloadDriveFile,
     startGoogleAuth,
     signOutGoogle,
+    openGooglePicker,
   } = useSession();
 
   const [assignmentDescription, setAssignmentDescription] = useState<string>('');
@@ -40,6 +42,7 @@ export const Part1Rubric: React.FC = () => {
   const [inputMode, setInputMode] = useState<'text' | 'google-doc'>('text');
   const [googleDocUrl, setGoogleDocUrl] = useState<string>('');
   const [fetchingGoogleDoc, setFetchingGoogleDoc] = useState(false);
+  const [isPickerLoading, setIsPickerLoading] = useState(false);
 
   const handleFileUpload = async (file: File) => {
     setIsLoading(true);
@@ -124,6 +127,68 @@ export const Part1Rubric: React.FC = () => {
     }
   };
 
+  const handlePickerOpen = async () => {
+    if (!state.isGoogleAuthenticated) {
+      setError('Please sign in with Google first');
+      return;
+    }
+
+    setIsPickerLoading(true);
+    setError(null);
+
+    try {
+      const result = await openGooglePicker();
+      if (!result) return; // User cancelled
+
+      setFetchingGoogleDoc(true);
+      let text = '';
+
+      if (result.mimeType === 'application/vnd.google-apps.document') {
+        // Native Google Doc — use export API
+        text = await extractGoogleDocText(result.fileId);
+
+      } else if (
+        result.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        result.mimeType === 'application/msword'
+      ) {
+        // Word document — download raw bytes and parse with mammoth
+        const arrayBuffer = await downloadDriveFile(result.fileId);
+        const extracted = await mammoth.extractRawText({ arrayBuffer });
+        text = extracted.value;
+
+      } else if (result.mimeType === 'application/pdf') {
+        // PDF — download raw bytes and parse with pdfjs
+        const arrayBuffer = await downloadDriveFile(result.fileId);
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const pageTexts: string[] = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          pageTexts.push(content.items.map((item: any) => item.str).join(' '));
+        }
+        text = pageTexts.join('\n\n');
+
+      } else if (result.mimeType === 'text/plain') {
+        // Plain text — download and decode
+        const arrayBuffer = await downloadDriveFile(result.fileId);
+        text = new TextDecoder().decode(arrayBuffer);
+
+      } else {
+        setError(`"${result.name}" is not a supported file type. Please select a Google Doc, Word document (.docx), PDF, or plain text file.`);
+        return;
+      }
+
+      setAssignmentDescription(text);
+      setInputMode('text');
+      setGoogleDocUrl('');
+    } catch (err: any) {
+      setError(`Failed to open Google Drive: ${err.message}`);
+    } finally {
+      setIsPickerLoading(false);
+      setFetchingGoogleDoc(false);
+    }
+  };
+
   const handleGenerateRubric = async () => {
     if (!assignmentDescription.trim()) {
       setError('Please enter an assignment description');
@@ -181,10 +246,8 @@ export const Part1Rubric: React.FC = () => {
         setRubric(rubric);
         setProgress({ percentage: 1, itemsProcessed: 1 });
         setError(null);
-        // Show task completion dialog
         setTimeout(() => {
           stopProgress();
-          setTaskCompletionOpen(true);
         }, 500);
       }
     } catch (err: any) {
@@ -220,11 +283,16 @@ export const Part1Rubric: React.FC = () => {
     setError(null);
   };
 
+  const handleDashboard = () => {
+    newBatch();
+    setCurrentStep(AppMode.DASHBOARD);
+  };
+
   return (
     <div className="flex flex-col items-center justify-center py-8">
-      {/* About This App - Above Main Section */}
+      {/* About Phase 1 - Above Main Section */}
       <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6 max-w-2xl w-full">
-        <h3 className="text-sm font-black text-gray-900 mb-1">About This App</h3>
+        <h3 className="text-sm font-black text-gray-900 mb-1">About Phase 1</h3>
         <p className="text-sm text-gray-700">
           Upload or paste an assignment description to generate draft rubrics in MS Word form based on the eCampus Center template.
         </p>
@@ -334,21 +402,20 @@ export const Part1Rubric: React.FC = () => {
                     : 'border-transparent text-gray-600 hover:text-gray-900'
                 }`}
               >
-                Document
+                Local Drive
               </button>
               <button
                 onClick={() => {
                   setInputMode('google-doc');
                   setError(null);
                 }}
-                className={`px-4 py-3 font-bold border-b-2 transition-all flex items-center gap-2 ${
+                className={`px-4 py-3 font-bold border-b-2 transition-all ${
                   inputMode === 'google-doc'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <LinkIcon className="w-4 h-4" />
-                Google Docs URL
+                Google Drive
               </button>
             </div>
 
@@ -451,6 +518,29 @@ export const Part1Rubric: React.FC = () => {
                   </div>
                 )}
 
+                {/* Browse Drive button */}
+                <button
+                  onClick={handlePickerOpen}
+                  disabled={isPickerLoading || fetchingGoogleDoc || !state.isGoogleAuthenticated}
+                  className="w-full py-3 px-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-400 transition-all text-sm flex items-center justify-center gap-2 mb-6"
+                >
+                  {(isPickerLoading || fetchingGoogleDoc) ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M19 2H5C3.9 2 3 2.9 3 4v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 12 12 12s-3.5-1.57-3.5-3.5S10.07 5 12 5zm7 14H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"/>
+                    </svg>
+                  )}
+                  {isPickerLoading ? 'Opening Drive...' : fetchingGoogleDoc ? 'Fetching Document...' : 'Browse Google Drive'}
+                </button>
+
+                {/* Divider */}
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">or paste a URL</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+
                 {/* Google Docs URL Input */}
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">
@@ -496,6 +586,15 @@ export const Part1Rubric: React.FC = () => {
           </>
         ) : (
           <>
+            {/* Inline Success Banner */}
+            <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-2xl p-4 mb-6">
+              <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0" />
+              <div>
+                <p className="font-black text-green-900">✓ Draft Rubric Created!</p>
+                <p className="text-sm text-green-700">Your draft rubric has been generated successfully.</p>
+              </div>
+            </div>
+
             {/* Display Generated Rubric */}
             <div>
               <h3 className="text-xl font-black text-gray-900 mb-2">
@@ -531,26 +630,37 @@ export const Part1Rubric: React.FC = () => {
                 </table>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex gap-4">
+              {/* Primary Action */}
+              <button
+                onClick={handleContinue}
+                className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all active:scale-95 mb-3 flex items-center justify-center gap-2"
+              >
+                <ArrowRight className="w-5 h-5" />
+                Continue to Part 2: Convert to CSV
+              </button>
+
+              {/* Secondary Actions */}
+              <div className="flex gap-3">
                 <button
                   onClick={handleExportToWord}
-                  className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2"
+                  className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2 text-sm"
                 >
-                  <Download className="w-5 h-5" />
+                  <Download className="w-4 h-4" />
                   Export to Word
                 </button>
                 <button
-                  onClick={handleContinue}
-                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all"
+                  onClick={handleReset}
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
                 >
-                  Continue to Part 2
+                  <RotateCw className="w-4 h-4" />
+                  Create Another
                 </button>
                 <button
-                  onClick={handleReset}
-                  className="px-4 py-3 bg-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-300 transition-all"
+                  onClick={handleDashboard}
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
                 >
-                  <Trash2 className="w-5 h-5" />
+                  <Home className="w-4 h-4" />
+                  Dashboard
                 </button>
               </div>
             </div>

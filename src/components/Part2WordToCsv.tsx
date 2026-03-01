@@ -4,6 +4,7 @@ import { AppMode, Attachment, RubricMeta, ProcessingType } from '../types';
 import {
   generateCsvForRubric,
   generateAllCsvsFromDoc,
+  generateCsvFromRubricObject,
 } from '../services/geminiService';
 import { friendlyError } from './ErrorDisplay';
 import {
@@ -19,6 +20,9 @@ import {
   Clock,
   RotateCcw,
   PackageOpen,
+  Zap,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 
@@ -169,6 +173,38 @@ export const Part2WordToCsv: React.FC = () => {
     setIsGeneratingAll(false);
     setIsLoading(false);
     stopProgress();
+  };
+
+  // ── Phase 1 → Phase 2 carry-forward ──────────────────────────────────
+
+  /** True when the user arrived here via "Continue to Part 2" from Phase 1. */
+  const fromPhase1 = Boolean(state.rubric);
+  /** When fromPhase1 is true, file-upload section starts hidden; toggle via "or use a different file". */
+  const [showAlternativeInput, setShowAlternativeInput] = useState(!fromPhase1);
+
+  /** Infer scoring method from Phase 1 point strings (e.g. "40-50" = ranges). */
+  const inferScoringMethod = (): 'ranges' | 'fixed' => {
+    const points = state.rubric?.criteria?.[0]?.exemplary?.points ?? '';
+    return points.includes('-') ? 'ranges' : 'fixed';
+  };
+
+  // Pre-fill editable fields from Phase 1 rubric on first mount.
+  useEffect(() => {
+    if (state.rubric && !editableRubricName) {
+      setEditableRubricName(state.rubric.title);
+      setEditableTotalPoints(String(state.rubric.totalPoints));
+      setEditableScoringMethod(inferScoringMethod());
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.rubric]);
+
+  /** Generate Canvas CSV directly from Phase 1 rubric — no file or API call needed. */
+  const handleGenerateFromPhase1 = () => {
+    if (!state.rubric) return;
+    const csv = generateCsvFromRubricObject(state.rubric, editableScoringMethod);
+    const fileName = `${editableRubricName || state.rubric.title}.csv`;
+    setSingleCsvContent(csv);
+    setCsvOutput(csv, fileName);
   };
 
   // ── File handling ─────────────────────────────────────────────────────
@@ -440,6 +476,14 @@ export const Part2WordToCsv: React.FC = () => {
 
   return (
     <div className="flex flex-col items-center justify-center py-8">
+      {/* About Phase 2 - Above Main Section */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6 max-w-2xl w-full">
+        <h3 className="text-sm font-black text-gray-900 mb-1">About Phase 2</h3>
+        <p className="text-sm text-gray-700">
+          Upload or paste one or more draft rubrics to transform them into Canvas-compatible CSV rubric files. Draft rubrics can be in MS Word, Google Docs, or PDF format.
+        </p>
+      </div>
+
       <div className="bg-white p-10 rounded-3xl shadow-2xl border border-gray-100 max-w-2xl w-full">
         <h2 className="text-2xl font-black text-gray-900 mb-1">Rubric Setup</h2>
         <p className="text-gray-500 text-sm mb-8">
@@ -495,7 +539,79 @@ export const Part2WordToCsv: React.FC = () => {
         ) : (
           /* ══ UPLOAD / GENERATION FORM ══════════════════════════════════ */
           <>
+            {/* ── Phase 1 carry-forward panel ────────────────────────────── */}
+            {fromPhase1 && (
+              <div className="mb-8">
+                {/* Banner */}
+                <div className="bg-green-50 border border-green-200 rounded-2xl p-4 mb-4">
+                  <p className="font-bold text-green-900 text-sm">Rubric from Phase 1 is ready</p>
+                  <p className="text-xs text-green-800 mt-0.5">
+                    Review the settings below and click Generate — no file upload needed.
+                  </p>
+                </div>
+
+                {/* Pre-filled form */}
+                <div className="p-5 bg-gray-50 border border-gray-200 rounded-2xl space-y-4">
+                  <div>
+                    <label className="text-sm font-bold text-gray-700 block mb-1">Rubric Name</label>
+                    <input
+                      value={editableRubricName}
+                      onChange={(e) => setEditableRubricName(e.target.value)}
+                      className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-bold text-gray-700 block mb-2">Scoring Method</label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          value="ranges"
+                          checked={editableScoringMethod === 'ranges'}
+                          onChange={() => setEditableScoringMethod('ranges')}
+                          className="w-4 h-4 accent-blue-600"
+                        />
+                        <span className="text-sm text-gray-700">Point Ranges</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          value="fixed"
+                          checked={editableScoringMethod === 'fixed'}
+                          onChange={() => setEditableScoringMethod('fixed')}
+                          className="w-4 h-4 accent-blue-600"
+                        />
+                        <span className="text-sm text-gray-700">Fixed Points</span>
+                      </label>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleGenerateFromPhase1}
+                    disabled={!editableRubricName.trim()}
+                    className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Zap className="w-4 h-4" />
+                    Generate Canvas CSV from Phase 1 Rubric
+                  </button>
+                </div>
+
+                {/* Collapsible toggle to file upload escape hatch */}
+                <button
+                  onClick={() => setShowAlternativeInput((v) => !v)}
+                  className="flex items-center gap-3 mt-6 mb-2 w-full group"
+                >
+                  <div className="flex-1 h-px bg-blue-200 group-hover:bg-blue-300 transition-colors" />
+                  <span className="text-xs font-bold text-blue-500 group-hover:text-blue-700 uppercase tracking-wider transition-colors flex items-center gap-1">
+                    or use a different file
+                    {showAlternativeInput ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </span>
+                  <div className="flex-1 h-px bg-blue-200 group-hover:bg-blue-300 transition-colors" />
+                </button>
+              </div>
+            )}
+
             {/* Tab bar ──────────────────────────────────────────────────── */}
+            {(!fromPhase1 || showAlternativeInput) && (<>
             <div className="flex gap-3 mb-6 border-b border-gray-200">
               <button
                 onClick={() => {
@@ -503,28 +619,26 @@ export const Part2WordToCsv: React.FC = () => {
                   setGoogleSheetUrl('');
                   setError(null);
                 }}
-                className={`px-4 py-3 font-bold border-b-2 transition-all flex items-center gap-2 ${
+                className={`px-4 py-3 font-bold border-b-2 transition-all ${
                   inputMode === 'file'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <Upload className="w-4 h-4" />
-                Upload File
+                Local Drive
               </button>
               <button
                 onClick={() => {
                   setInputMode('google-sheet');
                   setError(null);
                 }}
-                className={`px-4 py-3 font-bold border-b-2 transition-all flex items-center gap-2 ${
+                className={`px-4 py-3 font-bold border-b-2 transition-all ${
                   inputMode === 'google-sheet'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <LinkIcon className="w-4 h-4" />
-                Google Sheets URL
+                Google Drive
               </button>
             </div>
 
@@ -1036,6 +1150,7 @@ export const Part2WordToCsv: React.FC = () => {
                 )}
               </>
             )}
+            </>)}
           </>
         )}
       </div>

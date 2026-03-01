@@ -16,7 +16,7 @@ const STEPS: { key: AuthStep; label: string }[] = [
  * Handles the OAuth redirect from Google after user authorization
  * Shows stepped progress so users know login isn't stuck
  */
-const GoogleAuthCallback: React.FC = () => {
+const GoogleAuthCallback: React.FC<{ onComplete?: () => void }> = ({ onComplete }) => {
   const { completeGoogleAuth, setCurrentStep, setError } = useSession();
   const [currentAuthStep, setCurrentAuthStep] = useState<AuthStep>('validating');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -39,8 +39,9 @@ const GoogleAuthCallback: React.FC = () => {
           setCurrentAuthStep('error');
           setTimeout(() => {
             setError(`Google sign-in failed: ${message}`);
-            setCurrentStep(AppMode.DASHBOARD);
             window.history.replaceState({}, document.title, '/');
+            setCurrentStep(AppMode.DASHBOARD);
+            onComplete?.();
           }, 2000);
           return;
         }
@@ -51,8 +52,9 @@ const GoogleAuthCallback: React.FC = () => {
           setCurrentAuthStep('error');
           setTimeout(() => {
             setError('Invalid OAuth callback: missing code or state parameter');
-            setCurrentStep(AppMode.DASHBOARD);
             window.history.replaceState({}, document.title, '/');
+            setCurrentStep(AppMode.DASHBOARD);
+            onComplete?.();
           }, 2000);
           return;
         }
@@ -75,16 +77,21 @@ const GoogleAuthCallback: React.FC = () => {
         // Brief pause so user sees the final step
         await new Promise((resolve) => setTimeout(resolve, 500));
 
-        // Redirect to dashboard
-        setCurrentStep(AppMode.DASHBOARD);
+        // Clean up the OAuth query params from the URL
         window.history.replaceState({}, document.title, '/');
+
+        // Transition to dashboard — setCurrentStep updates context state,
+        // onComplete() resets isOAuthCallback in App so this component unmounts
+        setCurrentStep(AppMode.DASHBOARD);
+        onComplete?.();
       } catch (err: any) {
         setErrorMessage(err.message || 'Authentication failed');
         setCurrentAuthStep('error');
         setTimeout(() => {
           setError(`Authentication failed: ${err.message}`);
-          setCurrentStep(AppMode.DASHBOARD);
           window.history.replaceState({}, document.title, '/');
+          setCurrentStep(AppMode.DASHBOARD);
+          onComplete?.();
         }, 3000);
       }
     };
