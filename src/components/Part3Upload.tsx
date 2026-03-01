@@ -126,7 +126,6 @@ export const Part3Upload: React.FC = () => {
     setIsUploading(true);
     setError(null);
     setUploadStatus(null);
-    setDeploymentLogs([]);
 
     const courseHomeUrl = courseUrl.startsWith('http')
       ? courseUrl.replace(/\/$/, '')
