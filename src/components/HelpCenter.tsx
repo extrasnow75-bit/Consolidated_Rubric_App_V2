@@ -64,13 +64,9 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
                 <span className="text-sm font-bold text-blue-900 group-hover:text-blue-700 block">
                   How To Get a Gemini API Key
                 </span>
-                {promptCopied ? (
+                {promptCopied && (
                   <span className="text-xs text-green-600 font-semibold mt-0.5 block">
                     ✓ Question copied! Just paste it into the Gemini tab.
-                  </span>
-                ) : (
-                  <span className="text-xs text-blue-600 mt-0.5 block">
-                    Opens Gemini AI in a new tab and copies the question to your clipboard
                   </span>
                 )}
               </div>
