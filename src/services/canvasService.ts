@@ -59,18 +59,39 @@ export const pushRubricToCanvas = async (
     let instanceUrl = "";
     let courseId = "";
 
-    const urlMatch = courseHomeUrl.match(
-      /^(https?:\/\/[^\/]+)(?:\/courses\/(\d+))/i
-    );
-    if (!urlMatch) {
+    // Parse and validate the Canvas URL with the browser's URL API.
+    // Rejects malformed URLs, enforces HTTPS, and extracts origin + course ID
+    // without relying on a permissive regex that could accept http:// targets.
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(courseHomeUrl.trim());
+    } catch {
+      return {
+        success: false,
+        message:
+          "Invalid URL format. Please paste a link from inside your Canvas course (e.g., https://canvas.your-school.edu/courses/12345)",
+      };
+    }
+
+    if (parsedUrl.protocol !== "https:") {
+      return {
+        success: false,
+        message:
+          "Canvas URL must use HTTPS. Please check that your link starts with https://",
+      };
+    }
+
+    const courseMatch = parsedUrl.pathname.match(/\/courses\/(\d+)/);
+    if (!courseMatch) {
       return {
         success: false,
         message:
           "Could not find a Course ID in that URL. Please paste a link from inside your Canvas course (e.g., https://canvas.your-school.edu/courses/12345)",
       };
     }
-    instanceUrl = urlMatch[1];
-    courseId = urlMatch[2];
+
+    instanceUrl = `${parsedUrl.protocol}//${parsedUrl.host}`;
+    courseId = courseMatch[1];
 
     // In development the Vite dev server proxies /canvas-proxy/* to the
     // Canvas instance (set via x-canvas-base header), bypassing browser CORS.
