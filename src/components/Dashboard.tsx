@@ -175,15 +175,24 @@ export const Dashboard: React.FC = () => {
                 <ArrowRight className="w-5 h-5 text-gray-400" />
                 <div className="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center group-hover:bg-red-200 transition-all">
                   <svg viewBox="0 0 100 100" className="w-6 h-6" xmlns="http://www.w3.org/2000/svg">
-                    <defs>
-                      <linearGradient id="canvasGradient2" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" style={{ stopColor: '#FF6B5B', stopOpacity: 1 }} />
-                        <stop offset="100%" style={{ stopColor: '#E64C3C', stopOpacity: 1 }} />
-                      </linearGradient>
-                    </defs>
-                    <circle cx="50" cy="50" r="48" fill="url(#canvasGradient2)"/>
-                    <path d="M 70 30 A 25 25 0 0 0 30 50 A 25 25 0 0 0 70 70"
-                          fill="none" stroke="white" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round"/>
+                    <g fill="#E63027">
+                      <path d="M 38 14 A 12 12 0 0 0 62 14 Z" />
+                      <path d="M 38 14 A 12 12 0 0 0 62 14 Z" transform="rotate(45, 50, 50)" />
+                      <path d="M 38 14 A 12 12 0 0 0 62 14 Z" transform="rotate(90, 50, 50)" />
+                      <path d="M 38 14 A 12 12 0 0 0 62 14 Z" transform="rotate(135, 50, 50)" />
+                      <path d="M 38 14 A 12 12 0 0 0 62 14 Z" transform="rotate(180, 50, 50)" />
+                      <path d="M 38 14 A 12 12 0 0 0 62 14 Z" transform="rotate(225, 50, 50)" />
+                      <path d="M 38 14 A 12 12 0 0 0 62 14 Z" transform="rotate(270, 50, 50)" />
+                      <path d="M 38 14 A 12 12 0 0 0 62 14 Z" transform="rotate(315, 50, 50)" />
+                      <circle cx="50" cy="28" r="5" transform="rotate(22.5, 50, 50)" />
+                      <circle cx="50" cy="28" r="5" transform="rotate(67.5, 50, 50)" />
+                      <circle cx="50" cy="28" r="5" transform="rotate(112.5, 50, 50)" />
+                      <circle cx="50" cy="28" r="5" transform="rotate(157.5, 50, 50)" />
+                      <circle cx="50" cy="28" r="5" transform="rotate(202.5, 50, 50)" />
+                      <circle cx="50" cy="28" r="5" transform="rotate(247.5, 50, 50)" />
+                      <circle cx="50" cy="28" r="5" transform="rotate(292.5, 50, 50)" />
+                      <circle cx="50" cy="28" r="5" transform="rotate(337.5, 50, 50)" />
+                    </g>
                   </svg>
                 </div>
               </div>
