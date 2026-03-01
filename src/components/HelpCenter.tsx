@@ -78,6 +78,18 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
               </svg>
             </button>
+
+            <a
+              href="https://docs.google.com/document/d/1Ce1gOTozOD3TGd8ntPz3oEWJjU-Y07K2akuIJHXnzHk/edit?tab=t.0"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 flex items-center justify-between p-4 bg-gray-50 hover:bg-blue-50 border border-gray-100 hover:border-blue-200 rounded-2xl transition-all group"
+            >
+              <span className="text-sm font-bold text-gray-800 group-hover:text-blue-700">What Is a Gemini API Key and Why Do I Need One?</span>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400 group-hover:text-blue-500 flex-shrink-0 ml-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
           </section>
 
           {/* Documentation Section */}
@@ -122,17 +134,20 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
             </div>
           </section>
 
-          {/* Contact Support */}
+          {/* App Suggestions */}
           <section className="pt-8 border-t border-gray-100">
-            <div className="text-center">
-              <p className="text-[10px] font-bold text-gray-400 mb-4 uppercase tracking-widest">Find bugs? Have improvement requests?</p>
-              <button 
-                className="w-full py-4 bg-[#0033a0] text-white rounded-2xl font-black uppercase tracking-widest text-sm opacity-50 cursor-not-allowed shadow-lg"
-                disabled
-              >
-                Contact ID Toolkit (Coming Soon)
-              </button>
-            </div>
+            <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Find bugs? Have improvement requests?</h3>
+            <a
+              href="https://docs.google.com/document/d/1UALeUcbTKGx6ytt7tY4aCqja28rvRdIR-tW8nGYhFn8/edit?tab=t.0"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between p-4 bg-gray-50 hover:bg-blue-50 border border-gray-100 hover:border-blue-200 rounded-2xl transition-all group"
+            >
+              <span className="text-sm font-bold text-gray-800 group-hover:text-blue-700">App Suggestions Document</span>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400 group-hover:text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
           </section>
         </div>
       </aside>
