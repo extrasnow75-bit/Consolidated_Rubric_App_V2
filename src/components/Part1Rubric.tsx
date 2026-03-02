@@ -342,11 +342,6 @@ export const Part1Rubric: React.FC = () => {
     setCurrentStep(AppMode.DASHBOARD);
   };
 
-  const handleDashboard = () => {
-    newBatch();
-    setCurrentStep(AppMode.DASHBOARD);
-  };
-
   return (
     <div className="flex flex-col items-center justify-center py-8">
       {/* About Phase 1 - Above Main Section */}

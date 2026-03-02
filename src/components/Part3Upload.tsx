@@ -59,17 +59,6 @@ export const Part3Upload: React.FC = () => {
     return match ? match[1] : '';
   };
 
-  const addLog = (message: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    setDeploymentLogs(prev => [...prev, `[${timestamp}] ${message}`]);
-  };
-
-  // Helper: extract course ID from full Canvas course URL
-  const extractCourseId = (url: string): string => {
-    const match = url.match(/\/courses\/(\d+)/i);
-    return match ? match[1] : '';
-  };
-
   // Handle file selection (CSV or ZIP)
   const handleFileSelect = async (files: FileList | null) => {
     if (!files) return;
