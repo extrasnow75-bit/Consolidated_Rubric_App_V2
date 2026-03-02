@@ -126,7 +126,6 @@ export const Part3Upload: React.FC = () => {
     setIsUploading(true);
     setError(null);
     setUploadStatus(null);
-    setDeploymentLogs([]);
 
     const courseHomeUrl = courseUrl.startsWith('http')
       ? courseUrl.replace(/\/$/, '')
@@ -584,8 +583,8 @@ export const Part3Upload: React.FC = () => {
                   <label className="block text-sm font-bold text-gray-700 mb-1">
                     Canvas Course URL
                   </label>
-                  <p className="text-xs text-gray-400 mb-2">
-                    Paste your full course URL with the course ID included
+                  <p className="text-xs text-gray-900 mb-2">
+                    Paste the URL of your Canvas course home page.
                   </p>
                   <input
                     type="text"

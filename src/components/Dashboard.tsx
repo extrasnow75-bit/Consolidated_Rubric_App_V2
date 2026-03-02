@@ -362,11 +362,27 @@ export const Dashboard: React.FC = () => {
                 </p>
                 <button
                   onClick={handleGoogleSignIn}
-                  className="w-full px-6 py-3 bg-white border-2 border-blue-400 text-blue-600 rounded-xl font-black hover:bg-blue-50 transition-all flex items-center justify-center gap-2 whitespace-nowrap"
+                  disabled={state.isAuthenticating}
+                  className="w-full px-6 py-3 bg-white border-2 border-blue-400 text-blue-600 rounded-xl font-black hover:bg-blue-50 transition-all flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <GoogleIcon />
-                  Sign In
+                  {state.isAuthenticating ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Signing in...
+                    </>
+                  ) : (
+                    <>
+                      <GoogleIcon />
+                      Sign In
+                    </>
+                  )}
                 </button>
+                {state.googleAuthError && (
+                  <p className="text-xs text-red-600 mt-3 flex items-start gap-1">
+                    <X className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                    {state.googleAuthError}
+                  </p>
+                )}
               </div>
             ) : (
               <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100">

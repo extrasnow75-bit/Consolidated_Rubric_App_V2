@@ -168,9 +168,13 @@ export default defineConfig(({ mode }) => {
             " https://content.googleapis.com" +
             " https://drive.google.com" +
             " https://*.instructure.com" +
+            " https://*.firebaseapp.com" +
+            " https://identitytoolkit.googleapis.com" +
+            " https://securetoken.googleapis.com" +
             " ws://localhost:* wss://localhost:*",
           // No iframes or plugins
-          "frame-src 'none'",
+          // Firebase popup auth uses a hidden iframe from this origin
+          "frame-src https://updated-rubric-creator.firebaseapp.com",
           "object-src 'none'",
           // Lock down base tag hijacking
           "base-uri 'self'",

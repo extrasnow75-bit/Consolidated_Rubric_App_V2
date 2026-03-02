@@ -9,10 +9,15 @@ import {
   UploadHistoryItem,
   ProgressState,
   GoogleUser,
-  GoogleAuthTokens,
 } from '../types';
 import { googleDriveService, PickerResult } from '../services/googleDriveService';
 import { setGeminiApiKey as geminiServiceSetApiKey } from '../services/geminiService';
+import {
+  signInWithGoogle,
+  signOutFromGoogle,
+  getStoredAccessToken,
+  onAuthStateChanged,
+} from '../services/firebaseService';
 
 // Create context
 const SessionContext = createContext<{
@@ -42,10 +47,8 @@ const SessionContext = createContext<{
   // Canvas API Token
   setUserCanvasApiToken: (token: string | null) => void;
   // Google Auth methods
-  startGoogleAuth: () => void;
-  completeGoogleAuth: (code: string, state: string) => Promise<void>;
+  startGoogleAuth: () => Promise<void>;
   signOutGoogle: () => Promise<void>;
-  refreshGoogleToken: () => Promise<void>;
   extractGoogleDocText: (docUrl: string) => Promise<string>;
   extractGoogleSheetCsv: (sheetUrl: string) => Promise<string>;
   downloadDriveFile: (fileId: string) => Promise<ArrayBuffer>;
@@ -194,7 +197,6 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       },
     }));
 
-    // Update elapsed time every 100ms
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current);
     }
@@ -202,8 +204,6 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     progressIntervalRef.current = setInterval(() => {
       setState((prev) => {
         const elapsed = Date.now() - progressStartTimeRef.current;
-        // Use percentage field when set (e.g. single-item flows that update it directly),
-        // fall back to itemsProcessed/totalItems for multi-item batch flows.
         const percentageDecimal = prev.progress.percentage > 0
           ? prev.progress.percentage
           : (prev.progress.totalItems > 0
@@ -293,7 +293,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       isGoogleAuthenticated: prev.isGoogleAuthenticated,
       googleUser: prev.googleUser,
       googleAccessToken: prev.googleAccessToken,
-      googleRefreshToken: prev.googleRefreshToken,
+      googleRefreshToken: null,
       googleTokenExpiresAt: prev.googleTokenExpiresAt,
       googleAuthError: null,
       isAuthenticating: false,
@@ -335,46 +335,40 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   }, []);
 
-  // Google Auth callbacks
-  const startGoogleAuth = useCallback(() => {
-    setState((prev) => ({ ...prev, isAuthenticating: true }));
-    try {
-      googleDriveService.startOAuthFlow();
-    } catch (err: any) {
-      setState((prev) => ({
-        ...prev,
-        isAuthenticating: false,
-        googleAuthError: err.message,
-      }));
-    }
-  }, []);
+  // ── Google Auth (Firebase popup flow) ──────────────────────────────────────
 
-  const completeGoogleAuth = useCallback(async (code: string, state: string) => {
+  const startGoogleAuth = useCallback(async () => {
+    setState((prev) => ({ ...prev, isAuthenticating: true, googleAuthError: null }));
     try {
-      const { tokens, user } = await googleDriveService.handleOAuthCallback(code, state);
+      const { user, accessToken, expiresAt } = await signInWithGoogle();
       setState((prev) => ({
         ...prev,
         isGoogleAuthenticated: true,
         googleUser: user,
-        googleAccessToken: tokens.accessToken,
-        googleRefreshToken: tokens.refreshToken,
-        googleTokenExpiresAt: tokens.expiresAt,
+        googleAccessToken: accessToken,
+        googleRefreshToken: null,
+        googleTokenExpiresAt: expiresAt,
         googleAuthError: null,
         isAuthenticating: false,
       }));
     } catch (err: any) {
+      // User cancelled the popup — don't treat as error
+      const isCancelled = err.code === 'auth/popup-closed-by-user' ||
+        err.code === 'auth/cancelled-popup-request';
       setState((prev) => ({
         ...prev,
         isAuthenticating: false,
-        googleAuthError: err.message,
+        googleAuthError: isCancelled ? null : (err.message || 'Sign-in failed'),
       }));
-      throw err;
     }
   }, []);
 
   const signOutGoogle = useCallback(async () => {
     try {
-      await googleDriveService.signOut();
+      await signOutFromGoogle();
+    } catch (err: any) {
+      console.error('Sign out error:', err);
+    } finally {
       setState((prev) => ({
         ...prev,
         isGoogleAuthenticated: false,
@@ -384,62 +378,16 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
         googleTokenExpiresAt: null,
         googleAuthError: null,
       }));
-    } catch (err: any) {
-      console.error('Sign out error:', err);
-      // Still clear auth state even if revocation fails
-      setState((prev) => ({
-        ...prev,
-        isGoogleAuthenticated: false,
-        googleUser: null,
-        googleAccessToken: null,
-        googleRefreshToken: null,
-        googleTokenExpiresAt: null,
-      }));
     }
   }, []);
-
-  const refreshGoogleToken = useCallback(async () => {
-    try {
-      const tokens = googleDriveService.getStoredTokens();
-      if (!tokens || !tokens.refreshToken) {
-        return; // No tokens to refresh
-      }
-
-      if (!googleDriveService.isTokenExpired(tokens.expiresAt)) {
-        return; // Token still valid
-      }
-
-      const { accessToken, expiresAt } = await googleDriveService.refreshAccessToken(tokens.refreshToken);
-      googleDriveService.updateStoredTokens({
-        accessToken,
-        refreshToken: tokens.refreshToken,
-        expiresAt,
-      });
-
-      setState((prev) => ({
-        ...prev,
-        googleAccessToken: accessToken,
-        googleTokenExpiresAt: expiresAt,
-      }));
-    } catch (err: any) {
-      // If refresh fails, clear auth
-      await signOutGoogle();
-    }
-  }, [signOutGoogle]);
 
   const extractGoogleDocText = useCallback(
     async (docUrl: string): Promise<string> => {
       if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
         throw new Error('Please sign in with Google first');
       }
-
-      try {
-        const fileId = googleDriveService.extractFileIdFromUrl(docUrl);
-        const text = await googleDriveService.getGoogleDocContent(fileId, state.googleAccessToken);
-        return text;
-      } catch (err: any) {
-        throw err;
-      }
+      const fileId = googleDriveService.extractFileIdFromUrl(docUrl);
+      return googleDriveService.getGoogleDocContent(fileId, state.googleAccessToken);
     },
     [state.isGoogleAuthenticated, state.googleAccessToken]
   );
@@ -449,14 +397,8 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
         throw new Error('Please sign in with Google first');
       }
-
-      try {
-        const fileId = googleDriveService.extractFileIdFromUrl(sheetUrl);
-        const csv = await googleDriveService.getGoogleSheetContent(fileId, state.googleAccessToken);
-        return csv;
-      } catch (err: any) {
-        throw err;
-      }
+      const fileId = googleDriveService.extractFileIdFromUrl(sheetUrl);
+      return googleDriveService.getGoogleSheetContent(fileId, state.googleAccessToken);
     },
     [state.isGoogleAuthenticated, state.googleAccessToken]
   );
@@ -481,66 +423,67 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     [state.isGoogleAuthenticated, state.googleAccessToken]
   );
 
-  // Initialize on app load
+  // ── Initialization ─────────────────────────────────────────────────────────
+
   useEffect(() => {
-    // Restore saved Gemini API key from localStorage
+    // Restore saved Gemini API key
     const savedApiKey = localStorage.getItem('gemini_api_key');
     if (savedApiKey) {
       setState((prev) => ({ ...prev, geminiApiKey: savedApiKey }));
       geminiServiceSetApiKey(savedApiKey);
     }
 
-    // Restore saved Canvas API token from localStorage
+    // Restore saved Canvas API token
     const savedCanvasToken = localStorage.getItem('canvas_api_token');
     if (savedCanvasToken) {
       setState((prev) => ({ ...prev, canvasApiToken: savedCanvasToken }));
     }
 
-    const initializeAuth = async () => {
-      const storedTokens = googleDriveService.getStoredTokens();
-      const storedUser = googleDriveService.getStoredUser();
-
-      if (storedTokens && storedUser) {
-        // Check if tokens are expired
-        if (googleDriveService.isTokenExpired(storedTokens.expiresAt)) {
-          // Try to refresh
-          try {
-            const { accessToken, expiresAt } = await googleDriveService.refreshAccessToken(
-              storedTokens.refreshToken
-            );
-            googleDriveService.updateStoredTokens({
-              accessToken,
-              refreshToken: storedTokens.refreshToken,
-              expiresAt,
-            });
-
-            setState((prev) => ({
-              ...prev,
-              isGoogleAuthenticated: true,
-              googleUser: storedUser,
-              googleAccessToken: accessToken,
-              googleRefreshToken: storedTokens.refreshToken,
-              googleTokenExpiresAt: expiresAt,
-            }));
-          } catch (err) {
-            // Refresh failed, clear auth
-            await googleDriveService.signOut();
-          }
-        } else {
-          // Tokens still valid
+    // Listen for Firebase auth state changes.
+    // When the page reloads, Firebase restores the user from IndexedDB.
+    // If a valid Google access token is also in sessionStorage we restore
+    // the full authenticated state silently; otherwise the user needs to
+    // sign in again (a lightweight popup re-auth).
+    const unsubscribe = onAuthStateChanged((firebaseUser) => {
+      if (firebaseUser) {
+        const stored = getStoredAccessToken();
+        if (stored) {
+          const googleUser: GoogleUser = {
+            id: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            name: firebaseUser.displayName || firebaseUser.email || 'Google User',
+            picture: firebaseUser.photoURL || undefined,
+          };
           setState((prev) => ({
             ...prev,
             isGoogleAuthenticated: true,
-            googleUser: storedUser,
-            googleAccessToken: storedTokens.accessToken,
-            googleRefreshToken: storedTokens.refreshToken,
-            googleTokenExpiresAt: storedTokens.expiresAt,
+            googleUser,
+            googleAccessToken: stored.accessToken,
+            googleTokenExpiresAt: stored.expiresAt,
+          }));
+        } else {
+          // Firebase user exists but Drive access token has expired.
+          // Clear auth so the UI prompts the user to sign in again.
+          setState((prev) => ({
+            ...prev,
+            isGoogleAuthenticated: false,
+            googleUser: null,
+            googleAccessToken: null,
+            googleTokenExpiresAt: null,
           }));
         }
+      } else {
+        setState((prev) => ({
+          ...prev,
+          isGoogleAuthenticated: false,
+          googleUser: null,
+          googleAccessToken: null,
+          googleTokenExpiresAt: null,
+        }));
       }
-    };
+    });
 
-    initializeAuth();
+    return () => unsubscribe();
   }, []);
 
   const value = {
@@ -565,15 +508,10 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     getAbortSignal,
     clearSession,
     newBatch,
-    // Gemini API Key
     setUserGeminiApiKey,
-    // Canvas API Token
     setUserCanvasApiToken,
-    // Google Auth
     startGoogleAuth,
-    completeGoogleAuth,
     signOutGoogle,
-    refreshGoogleToken,
     extractGoogleDocText,
     extractGoogleSheetCsv,
     downloadDriveFile,
