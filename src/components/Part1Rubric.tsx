@@ -531,6 +531,11 @@ export const Part1Rubric: React.FC = () => {
                   {isGenerating && <Loader2 className="w-5 h-5 animate-spin" />}
                   {isGenerating ? 'Generating Rubric...' : 'Generate Rubric'}
                 </button>
+                {assignmentDescription.trim() && (
+                  <p className="text-xs text-gray-400 text-center mt-2 italic">
+                    This usually takes less than a minute to generate a rubric.
+                  </p>
+                )}
               </>
             ) : (
               <>

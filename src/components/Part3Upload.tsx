@@ -40,7 +40,7 @@ export const Part3Upload: React.FC = () => {
   const [manualCsv, setManualCsv] = useState('');
   const [showManualInput, setShowManualInput] = useState(false);
   const [batchFiles, setBatchFiles] = useState<BatchFile[]>([]);
-  const [uploadMode, setUploadMode] = useState<'single' | 'batch'>('single');
+  const [uploadMode, setUploadMode] = useState<'single' | 'batch' | 'google-drive'>('single');
   const [deploymentLogs, setDeploymentLogs] = useState<string[]>([]);
   const [pickingFromDrive, setPickingFromDrive] = useState(false);
   const [drivePickedCsv, setDrivePickedCsv] = useState<string | null>(null);
@@ -117,7 +117,7 @@ export const Part3Upload: React.FC = () => {
       return;
     }
 
-    if (uploadMode === 'single' && !csvToUse.trim()) {
+    if ((uploadMode === 'single' || uploadMode === 'google-drive') && !csvToUse.trim()) {
       setError('No CSV content to upload');
       return;
     }
@@ -140,7 +140,7 @@ export const Part3Upload: React.FC = () => {
     };
 
     try {
-      if (uploadMode === 'single') {
+      if (uploadMode === 'single' || uploadMode === 'google-drive') {
         addLog('Starting single rubric upload...');
         // Single upload
         startProgress(1, true);
@@ -435,6 +435,8 @@ export const Part3Upload: React.FC = () => {
           <p className="text-gray-600 font-medium mb-6">
             {uploadMode === 'single'
               ? 'Enter your Canvas credentials to upload the rubric'
+              : uploadMode === 'google-drive'
+              ? 'Pick a CSV from Google Drive and upload to Canvas'
               : 'Upload multiple CSV files to Canvas LMS'}
           </p>
 
@@ -446,27 +448,40 @@ export const Part3Upload: React.FC = () => {
           </div>
         </div>
 
-        {/* Upload Mode Toggle */}
-        <div className="mb-6 flex gap-3">
+        {/* Upload Mode Tabs */}
+        <div className="mb-6 border-b border-gray-200 flex gap-0">
           <button
             onClick={() => {
               setUploadMode('single');
               clearBatchFiles();
             }}
-            className={`px-4 py-2 rounded-xl font-bold text-sm transition-all ${
+            className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
               uploadMode === 'single'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
             From Phase 2
           </button>
           <button
+            onClick={() => {
+              setUploadMode('google-drive');
+              clearBatchFiles();
+            }}
+            className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
+              uploadMode === 'google-drive'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Google Drive
+          </button>
+          <button
             onClick={() => setUploadMode('batch')}
-            className={`px-4 py-2 rounded-xl font-bold text-sm transition-all ${
+            className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
               uploadMode === 'batch'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
             Batch Upload
@@ -488,31 +503,54 @@ export const Part3Upload: React.FC = () => {
             )}
 
             {uploadMode === 'single' && !csvToUse && (
-              <div className="p-5 bg-yellow-50 border border-yellow-200 rounded-2xl space-y-4">
+              <div className="p-5 bg-yellow-50 border border-yellow-200 rounded-2xl space-y-2">
                 <p className="text-sm font-bold text-yellow-900">
                   ⚠ No CSV available from Phase 2.
                 </p>
-                {/* Google Drive picker */}
-                <button
-                  onClick={handleGoogleDrivePick}
-                  disabled={pickingFromDrive || !state.isGoogleAuthenticated}
-                  className="w-full py-2.5 px-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 transition-all flex items-center justify-center gap-2 text-sm"
-                >
-                  {pickingFromDrive ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <FolderOpen className="w-4 h-4" />
-                  )}
-                  {pickingFromDrive ? 'Opening Drive…' : 'Pick CSV from Google Drive'}
-                </button>
-                {!state.isGoogleAuthenticated && (
-                  <p className="text-xs text-red-600 font-bold text-center">
-                    Sign in with Google on the Dashboard to use this option.
-                  </p>
-                )}
-                <p className="text-xs text-center text-yellow-700">
-                  Or paste CSV content in the manual input below, or go back to Part 2.
+                <p className="text-xs text-yellow-700">
+                  Go back to Phase 2 to generate a CSV, use the Google Drive tab, or paste CSV content in the manual input below.
                 </p>
+              </div>
+            )}
+
+            {/* Google Drive Tab Content */}
+            {uploadMode === 'google-drive' && (
+              <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-4">
+                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <FolderOpen className="w-5 h-5 text-blue-600" />
+                  Pick CSV from Google Drive
+                </h3>
+                {drivePickedCsv ? (
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                    <p className="text-sm font-bold text-blue-900">✓ CSV ready: {drivePickedFileName}</p>
+                    <button
+                      onClick={() => { setDrivePickedCsv(null); setDrivePickedFileName(''); }}
+                      className="text-xs text-blue-600 hover:underline mt-1"
+                    >
+                      Pick a different file
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={handleGoogleDrivePick}
+                      disabled={pickingFromDrive || !state.isGoogleAuthenticated}
+                      className="w-full py-3 px-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 transition-all flex items-center justify-center gap-2"
+                    >
+                      {pickingFromDrive ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <FolderOpen className="w-4 h-4" />
+                      )}
+                      {pickingFromDrive ? 'Opening Drive…' : 'Open Google Drive Picker'}
+                    </button>
+                    {!state.isGoogleAuthenticated && (
+                      <p className="text-xs text-red-600 font-bold text-center">
+                        Sign in with Google on the Dashboard to use this option.
+                      </p>
+                    )}
+                  </>
+                )}
               </div>
             )}
 
@@ -772,7 +810,7 @@ export const Part3Upload: React.FC = () => {
                   isUploading ||
                   !courseUrl.trim() ||
                   !accessToken.trim() ||
-                  (uploadMode === 'single' && !csvToUse.trim()) ||
+                  ((uploadMode === 'single' || uploadMode === 'google-drive') && !csvToUse.trim()) ||
                   (uploadMode === 'batch' && batchFiles.length === 0)
                 }
                 className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"

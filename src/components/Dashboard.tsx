@@ -270,9 +270,10 @@ export const Dashboard: React.FC = () => {
 
         {/* Right Sidebar */}
         <div className="w-80 flex-shrink-0">
+          <div className="bg-[#e5eff6] rounded-3xl p-4 shadow-2xl border border-blue-100 space-y-4">
 
           {/* 1. Gemini API Key Card */}
-          <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100">
+          <div className="bg-white p-6 rounded-2xl shadow border border-gray-100">
             <div className="flex items-center gap-2 mb-1">
               <Key className="w-4 h-4 text-amber-600" />
               <h3 className="font-black text-lg text-gray-900">Gemini API Key</h3>
@@ -353,9 +354,9 @@ export const Dashboard: React.FC = () => {
           </div>
 
           {/* 2. Google Sign-In Box */}
-          <div className="mt-4">
+          <div>
             {!state.isGoogleAuthenticated ? (
-              <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100">
+              <div className="bg-white p-6 rounded-2xl shadow border border-gray-100">
                 <h3 className="font-black text-lg text-gray-900 mb-1">Optional</h3>
                 <p className="text-sm text-gray-600 mb-4">
                   Log in to integrate Google Docs and Sheets in the process. Otherwise, just use downloaded MS Word and CSV files.
@@ -385,7 +386,7 @@ export const Dashboard: React.FC = () => {
                 )}
               </div>
             ) : (
-              <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100">
+              <div className="bg-white p-6 rounded-2xl shadow border border-gray-100">
                 <div className="text-center">
                   {state.googleUser?.picture && (
                     <img
@@ -402,7 +403,7 @@ export const Dashboard: React.FC = () => {
                   </div>
                   <button
                     onClick={handleGoogleSignOut}
-                    className="w-full px-4 py-2 bg-red-100 text-red-700 rounded-lg font-bold hover:bg-red-200 transition-all text-sm"
+                    className="w-full px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-sm"
                   >
                     <LogOut className="w-4 h-4 inline mr-2" />
                     Sign Out
@@ -413,7 +414,7 @@ export const Dashboard: React.FC = () => {
           </div>
 
           {/* 3. Canvas API Token Card */}
-          <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 mt-4">
+          <div className="bg-white p-6 rounded-2xl shadow border border-gray-100">
             <div className="flex items-center gap-2 mb-1">
               <Key className="w-4 h-4 text-red-600" />
               <h3 className="font-black text-lg text-gray-900">Canvas API Token</h3>
@@ -477,6 +478,7 @@ export const Dashboard: React.FC = () => {
             )}
           </div>
 
+          </div>{/* end pale blue wrapper */}
         </div>
       </div>
     </div>

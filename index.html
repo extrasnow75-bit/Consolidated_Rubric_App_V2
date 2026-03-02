@@ -11,7 +11,6 @@
     -->
     <meta http-equiv="Content-Security-Policy" content="
       default-src 'self';
-      script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://apis.google.com;
       style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
       img-src 'self' https://lh3.googleusercontent.com data: blob:;
       font-src 'self' https://fonts.gstatic.com;
@@ -26,7 +25,11 @@
         https://*.firebaseapp.com
         https://identitytoolkit.googleapis.com
         https://securetoken.googleapis.com;
-      frame-src https://updated-rubric-creator.firebaseapp.com;
+      frame-src https://updated-rubric-creator.firebaseapp.com
+                https://docs.google.com
+                https://drive.google.com
+                https://accounts.google.com;
+      script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://apis.google.com https://ssl.gstatic.com;
       object-src 'none';
       base-uri 'self';
     " />

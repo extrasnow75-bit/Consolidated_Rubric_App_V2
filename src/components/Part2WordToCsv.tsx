@@ -534,7 +534,7 @@ export const Part2WordToCsv: React.FC = () => {
                 <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0" />
                 <div>
                   <p className="font-black text-green-900">✓ Canvas CSV Generated!</p>
-                  <p className="text-sm text-green-700">Your CSV rubric is ready to download and upload to Canvas.</p>
+                  <p className="text-sm text-green-700">Your CSV rubric is ready to be uploaded to Canvas.</p>
                 </div>
               </div>
             </div>
@@ -580,7 +580,7 @@ export const Part2WordToCsv: React.FC = () => {
                 onClick={handleContinuePart3}
                 className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all"
               >
-                Continue to Phase 3
+                Carry CSV to Phase 3
               </button>
             </div>
 
@@ -1101,7 +1101,7 @@ export const Part2WordToCsv: React.FC = () => {
                                 onClick={() => setCurrentStep(AppMode.PART_3)}
                                 className="w-full py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center gap-2"
                               >
-                                Continue to Phase 3 →
+                                Carry CSV to Phase 3 →
                               </button>
                             )}
 
