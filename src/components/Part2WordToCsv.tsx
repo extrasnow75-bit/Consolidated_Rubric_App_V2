@@ -493,6 +493,15 @@ export const Part2WordToCsv: React.FC = () => {
         {/* ══ SINGLE-RUBRIC RESULT VIEW ══════════════════════════════════ */}
         {singleCsvContent && processingType === ProcessingType.SINGLE ? (
           <>
+            {/* Success banner */}
+            <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-2xl p-4 mb-6">
+              <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0" />
+              <div>
+                <p className="font-black text-green-900">✓ Canvas CSV Generated!</p>
+                <p className="text-sm text-green-700">Your CSV file is ready to download and upload to Canvas.</p>
+              </div>
+            </div>
+
             <div className="mb-6">
               <label className="block text-sm font-bold text-gray-700 mb-2">
                 Generated CSV
