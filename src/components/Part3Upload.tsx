@@ -144,10 +144,10 @@ export const Part3Upload: React.FC = () => {
 
         try {
           const result = await pushRubricToCanvas(config, csvToUse);
-          setUploadStatus(result);
 
           if (result.success) {
             addLog('✓ Upload successful!');
+            setUploadStatus(result);
             setCanvasConfig(config);
             addToHistory({
               id: Date.now().toString(),
@@ -163,11 +163,14 @@ export const Part3Upload: React.FC = () => {
               stopProgress();
             }, 500);
           } else {
+            // Full error detail goes to the log; status box shows a short summary
             addLog(`✗ Upload failed: ${result.message}`);
+            setUploadStatus({ success: false, message: 'Upload failed — see the deployment log above for details.' });
             stopProgress();
           }
         } catch (err: any) {
           addLog(`✗ Error: ${err.message}`);
+          setUploadStatus({ success: false, message: 'Upload failed — see the deployment log above for details.' });
           stopProgress();
         }
       } else {
@@ -559,12 +562,12 @@ export const Part3Upload: React.FC = () => {
                 className={`p-4 border rounded-2xl ${
                   uploadStatus.success
                     ? 'bg-green-50 border-green-200'
-                    : 'bg-red-50 border-red-200'
+                    : 'bg-amber-50 border-amber-200'
                 }`}
               >
                 <p
-                  className={`text-sm font-bold ${
-                    uploadStatus.success ? 'text-green-900' : 'text-red-900'
+                  className={`text-sm font-semibold ${
+                    uploadStatus.success ? 'text-green-900' : 'text-amber-800'
                   }`}
                 >
                   {uploadStatus.message}
