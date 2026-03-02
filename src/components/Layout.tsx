@@ -132,17 +132,9 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     <div className="flex flex-col h-screen bg-gray-50 relative overflow-hidden">
       {/* Blue Banner */}
       <div className="bg-[#0033a0] text-white py-6 px-8 sm:px-12 flex items-center justify-between shadow-lg z-50">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-md">
-            <svg className="w-6 h-6 text-[#0033a0]" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
-              <path fillRule="evenodd" d="M4 5a2 2 0 012-2 1 1 0 100 2v10a2 2 0 01-2 2 1 1 0 100 2h12a2 2 0 01-2 2 1 1 0 100-2v-10a2 2 0 012-2 1 1 0 100-2H4zm3 4a1 1 0 000 2h6a1 1 0 000-2H7z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-xl font-black">eCampus Center Rubric Creator</h1>
-            <p className="text-xs text-blue-100">All-in-one rubric workflow</p>
-          </div>
+        <div>
+          <h1 className="text-xl font-black">eCampus Center Rubric Creator</h1>
+          <p className="text-xs text-blue-100">All-in-one rubric workflow</p>
         </div>
       </div>
 
