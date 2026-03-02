@@ -502,6 +502,12 @@ export const Part2WordToCsv: React.FC = () => {
               </div>
             </div>
 
+            {editableRubricName && (
+              <div className="mb-4">
+                <h3 className="text-xl font-black text-gray-900">{editableRubricName}</h3>
+              </div>
+            )}
+
             <div className="mb-6">
               <label className="block text-sm font-bold text-gray-700 mb-2">
                 Generated CSV
