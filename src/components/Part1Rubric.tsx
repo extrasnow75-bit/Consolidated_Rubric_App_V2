@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
-import { generateRubricFromDescription, validateAssignmentDescription } from '../services/geminiService';
+import { generateRubricFromDescription } from '../services/geminiService';
 import { exportToWord } from '../services/wordExportService';
 import { Loader2, Download, FileText, CheckCircle, ArrowRight, RotateCw, Home, Columns, X, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
@@ -217,28 +217,17 @@ export const Part1Rubric: React.FC = () => {
     cancelRef.current = false;
 
     startProgress(1, true);
-    setProgress({ currentStep: 'Validating assignment description...' });
+    setProgress({ currentStep: 'Generating rubric criteria...' });
 
     try {
-      // Step 1: Validate the assignment description
-      const validation = await validateAssignmentDescription(assignmentDescription);
-
       const signal = getAbortSignal();
       if (signal.aborted) {
         setError('Rubric generation cancelled');
         return;
       }
 
-      if (!validation.isValid) {
-        setError('We couldn\'t recognize this as an assignment description. Please recheck your submission to make sure it is correct.');
-        stopProgress();
-        setIsGenerating(false);
-        return;
-      }
-
-      // Step 2: Generate rubric criteria
-      setProgress({ currentStep: 'Generating rubric criteria...', percentage: 0.3 });
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      setProgress({ currentStep: 'Creating evaluation scales...', percentage: 0.3 });
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       if (signal.aborted) {
         setError('Rubric generation cancelled');
