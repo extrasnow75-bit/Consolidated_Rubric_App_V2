@@ -14,7 +14,6 @@ import { googleDriveService, PickerResult } from '../services/googleDriveService
 import { setGeminiApiKey as geminiServiceSetApiKey } from '../services/geminiService';
 import {
   initiateGoogleSignIn,
-  handleGoogleRedirectResult,
   signOutFromGoogle,
   getStoredAccessToken,
   onAuthStateChanged,
@@ -336,21 +335,31 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   }, []);
 
-  // ── Google Auth (Firebase redirect flow) ───────────────────────────────────
+  // ── Google Auth (Firebase popup flow) ──────────────────────────────────────
 
   const startGoogleAuth = useCallback(async () => {
-    // Show brief "Redirecting..." feedback before the page navigates away
     setState((prev) => ({ ...prev, isAuthenticating: true, googleAuthError: null }));
     try {
-      await initiateGoogleSignIn(); // page navigates to Google; never resolves normally
+      const result = await initiateGoogleSignIn();
+      setState((prev) => ({
+        ...prev,
+        isGoogleAuthenticated: true,
+        googleUser: result.user,
+        googleAccessToken: result.accessToken,
+        googleRefreshToken: null,
+        googleTokenExpiresAt: result.expiresAt,
+        googleAuthError: null,
+        isAuthenticating: false,
+      }));
     } catch (err: any) {
-      // User cancelled the popup — don't treat as error
-      const isCancelled = err.code === 'auth/popup-closed-by-user' ||
+      // User closed the popup — not a real error
+      const isCancelled =
+        err.code === 'auth/popup-closed-by-user' ||
         err.code === 'auth/cancelled-popup-request';
       setState((prev) => ({
         ...prev,
         isAuthenticating: false,
-        googleAuthError: err.message || 'Sign-in failed',
+        googleAuthError: isCancelled ? null : (err.message || 'Sign-in failed'),
       }));
     }
   }, []);
@@ -430,30 +439,6 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (savedCanvasToken) {
       setState((prev) => ({ ...prev, canvasApiToken: savedCanvasToken }));
     }
-
-    // Handle the result if the user just returned from a Google redirect sign-in.
-    handleGoogleRedirectResult()
-      .then((result) => {
-        if (result) {
-          setState((prev) => ({
-            ...prev,
-            isGoogleAuthenticated: true,
-            googleUser: result.user,
-            googleAccessToken: result.accessToken,
-            googleRefreshToken: null,
-            googleTokenExpiresAt: result.expiresAt,
-            googleAuthError: null,
-            isAuthenticating: false,
-          }));
-        }
-      })
-      .catch((err) => {
-        setState((prev) => ({
-          ...prev,
-          isAuthenticating: false,
-          googleAuthError: err.message || 'Sign-in failed',
-        }));
-      });
 
     // Listen for Firebase auth state changes.
     // When the page reloads, Firebase restores the user from IndexedDB.
