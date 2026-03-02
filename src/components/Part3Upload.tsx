@@ -349,6 +349,7 @@ export const Part3Upload: React.FC = () => {
       const base = courseUrl.startsWith('http')
         ? courseUrl.replace(/\/courses\/\d+.*$/, '').replace(/\/$/, '')
         : `https://${courseUrl.replace(/\/courses\/\d+.*$/, '').replace(/\/$/, '')}`;
+      addLog(`Checking: ${base}/api/v1/courses/${courseId}`);
       const res = await fetch('/canvas-proxy/api/v1/courses/' + courseId, {
         headers: {
           'Authorization': 'Bearer ' + accessToken,
@@ -356,21 +357,53 @@ export const Part3Upload: React.FC = () => {
           'Content-Type': 'application/json',
         },
       });
+
+      // Read the body for all responses so we can show the actual Canvas / proxy error
+      const rawText = await res.text().catch(() => '');
+      let errorDetail = '';
+      if (!res.ok) {
+        try {
+          const json = JSON.parse(rawText);
+          // Canvas wraps errors as { errors: [{ type, message }] } or { message }
+          errorDetail =
+            json.errors?.[0]?.message ||
+            json.errors?.[0]?.type ||
+            json.message ||
+            json.error ||
+            '';
+        } catch {
+          // Not JSON — could be an HTML Vercel error page or plain text
+          errorDetail = rawText.replace(/<[^>]+>/g, '').trim().slice(0, 200);
+        }
+      }
+
       if (res.ok) {
-        const data = await res.json();
+        let data: any = {};
+        try { data = JSON.parse(rawText); } catch { /* ignore */ }
         const msg = `✓ Connected — ${data.name || 'Course found'}`;
         setValidationResult({ ok: true, message: msg });
         addLog(msg);
       } else if (res.status === 401) {
-        const msg = '✗ Invalid API token — check your credentials';
+        const detail = errorDetail ? ` (${errorDetail})` : '';
+        const msg = `✗ Unauthorized (401)${detail} — token may be invalid or expired`;
         setValidationResult({ ok: false, message: msg });
         addLog(msg);
       } else if (res.status === 404) {
-        const msg = '✗ Course not found (404) — check the Course ID is correct and that your API token has access to this course';
-        setValidationResult({ ok: false, message: msg });
-        addLog(msg);
+        const detail = errorDetail ? ` — ${errorDetail}` : '';
+        addLog(`✗ Not found (404)${detail}`);
+        if (!errorDetail || errorDetail.toLowerCase().includes('not') || errorDetail.toLowerCase().includes('course')) {
+          // Looks like a genuine Canvas 404
+          const msg = '✗ Course not found (404) — verify the Course URL and that your token has access to this course';
+          setValidationResult({ ok: false, message: msg });
+        } else {
+          // Unexpected body — likely a Vercel routing error, not Canvas
+          const msg = `✗ Proxy error (404): ${errorDetail || 'unexpected response — check Vercel function logs'}`;
+          setValidationResult({ ok: false, message: msg });
+          addLog('  Hint: This may be a proxy routing issue, not a Canvas error.');
+        }
       } else {
-        const msg = `✗ Error ${res.status}: ${res.statusText}`;
+        const detail = errorDetail ? `: ${errorDetail}` : `: ${res.statusText}`;
+        const msg = `✗ Error ${res.status}${detail}`;
         setValidationResult({ ok: false, message: msg });
         addLog(msg);
       }
