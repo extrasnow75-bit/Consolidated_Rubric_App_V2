@@ -2,7 +2,8 @@ import { initializeApp } from 'firebase/app';
 import {
   getAuth,
   GoogleAuthProvider,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut as firebaseSignOut,
   onAuthStateChanged as firebaseOnAuthStateChanged,
   User,
@@ -43,23 +44,35 @@ export interface FirebaseSignInResult {
 }
 
 /**
- * Open a Google sign-in popup and return the user + Drive access token.
- * The access token is also persisted to sessionStorage for restoration
- * after a same-tab page refresh (valid for ~1 hour).
+ * Initiate Google sign-in via redirect. The page navigates away to Google's
+ * auth page and returns to the app after the user selects an account.
+ * Call handleGoogleRedirectResult() on page load to obtain the sign-in result.
  */
-export async function signInWithGoogle(): Promise<FirebaseSignInResult> {
-  const result = await signInWithPopup(auth, googleProvider);
+export async function initiateGoogleSignIn(): Promise<void> {
+  await signInWithRedirect(auth, googleProvider);
+}
+
+/**
+ * Call on every page load to check if the user just returned from a Google
+ * redirect sign-in. Returns the sign-in result if a redirect completed,
+ * or null if there is no pending redirect (normal page load).
+ * The access token is persisted to sessionStorage for same-tab refreshes.
+ */
+export async function handleGoogleRedirectResult(): Promise<FirebaseSignInResult | null> {
+  const result = await getRedirectResult(auth);
+  if (!result) return null;
+
   const credential = GoogleAuthProvider.credentialFromResult(result);
   const accessToken = credential?.accessToken;
 
   if (!accessToken) {
-    throw new Error('Failed to obtain Google access token. Please try signing in again.');
+    throw new Error('Failed to obtain Google access token from redirect. Please try signing in again.');
   }
 
   // Google access tokens expire in ~1 hour
   const expiresAt = Date.now() + 60 * 60 * 1000;
 
-  // Persist so the token survives a page refresh within the same tab
+  // Persist so the token survives a same-tab page refresh
   sessionStorage.setItem(GOOGLE_ACCESS_TOKEN_KEY, accessToken);
   sessionStorage.setItem(GOOGLE_ACCESS_TOKEN_EXPIRY_KEY, String(expiresAt));
 
