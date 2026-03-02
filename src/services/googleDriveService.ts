@@ -24,10 +24,13 @@ class GoogleDriveService {
 
   /**
    * Open the Google Picker dialog to let the user browse their Drive.
-   * Resolves with the selected file's info, or null if the user cancels.
-   * Requires the Google API script (apis.google.com/js/api.js) to be loaded.
+   * @param accessToken  OAuth access token for the signed-in user.
+   * @param mimeTypes    Optional list of MIME types to show.  Defaults to
+   *                     Google Docs, Word (.docx), PDF, and plain text.
+   *                     Pass e.g. ['application/vnd.google-apps.spreadsheet']
+   *                     to restrict to Google Sheets.
    */
-  openPicker(accessToken: string): Promise<PickerResult | null> {
+  openPicker(accessToken: string, mimeTypes?: string[]): Promise<PickerResult | null> {
     return new Promise((resolve, reject) => {
       const gapi = (window as any).gapi;
       if (!gapi) {
@@ -43,12 +46,13 @@ class GoogleDriveService {
             return;
           }
 
-          const SUPPORTED_MIME_TYPES = [
+          const DEFAULT_MIME_TYPES = [
             'application/vnd.google-apps.document',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'application/pdf',
             'text/plain',
-          ].join(',');
+          ];
+          const SUPPORTED_MIME_TYPES = (mimeTypes ?? DEFAULT_MIME_TYPES).join(',');
 
           const view = new google.picker.DocsView()
             .setIncludeFolders(true)

@@ -26,6 +26,9 @@ export const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
 googleProvider.addScope('https://www.googleapis.com/auth/drive.readonly');
+// Always show the account chooser so the user can pick which Google account to use,
+// even if they are already signed in.
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 // SessionStorage keys for the Google access token
 // (Firebase persists the user identity but not the Google access token)
