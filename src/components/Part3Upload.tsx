@@ -330,7 +330,7 @@ export const Part3Upload: React.FC = () => {
         setValidationResult({ ok: false, message: msg });
         addLog(msg);
       } else if (res.status === 404) {
-        const msg = '✗ Course not found — check the Course ID';
+        const msg = '✗ Course not found (404) — check the Course ID is correct and that your API token has access to this course';
         setValidationResult({ ok: false, message: msg });
         addLog(msg);
       } else {

@@ -56,7 +56,11 @@ export default async (req: VercelRequest, res: VercelResponse) => {
 
   // Reconstruct the target URL from the path (remove /api/canvas-proxy prefix)
   const fullPath = req.url || '/api/canvas-proxy';
-  const urlPath = fullPath.replace(/^\/api\/canvas-proxy/, '') || '/';
+  // Strip either /canvas-proxy or /api/canvas-proxy from the front.
+  // Vercel passes the original (pre-rewrite) path in req.url, so the prefix
+  // will be /canvas-proxy (not /api/canvas-proxy) when accessed via the
+  // vercel.json rewrite rule.
+  const urlPath = fullPath.replace(/^\/(api\/)?canvas-proxy/, '') || '/';
   // Remove query string from urlPath if present (fetch will use query params separately)
   const pathWithoutQuery = urlPath.split('?')[0];
   const queryString = urlPath.includes('?') ? '?' + urlPath.split('?')[1] : '';
