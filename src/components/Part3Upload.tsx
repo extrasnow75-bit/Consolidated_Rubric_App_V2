@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode, CanvasConfig } from '../types';
 import { pushRubricToCanvas } from '../services/canvasService';
-import { Eye, EyeOff, Loader2, Upload, CheckCircle, AlertCircle, X, Zap } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Upload, CheckCircle, AlertCircle, X, Zap, FolderOpen } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import JSZip from 'jszip';
+import { googleDriveService } from '../services/googleDriveService';
 
 interface BatchFile {
   id: string;
@@ -41,8 +42,22 @@ export const Part3Upload: React.FC = () => {
   const [batchFiles, setBatchFiles] = useState<BatchFile[]>([]);
   const [uploadMode, setUploadMode] = useState<'single' | 'batch'>('single');
   const [deploymentLogs, setDeploymentLogs] = useState<string[]>([]);
+  const [pickingFromDrive, setPickingFromDrive] = useState(false);
+  const [drivePickedCsv, setDrivePickedCsv] = useState<string | null>(null);
+  const [drivePickedFileName, setDrivePickedFileName] = useState('');
 
-  const csvToUse = state.csvOutput || manualCsv;
+  const csvToUse = state.csvOutput || drivePickedCsv || manualCsv;
+
+  const addLog = (message: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    setDeploymentLogs(prev => [...prev, `[${timestamp}] ${message}`]);
+  };
+
+  // Helper: extract course ID from full Canvas course URL
+  const extractCourseId = (url: string): string => {
+    const match = url.match(/\/courses\/(\d+)/i);
+    return match ? match[1] : '';
+  };
 
   const addLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -144,10 +159,10 @@ export const Part3Upload: React.FC = () => {
 
         try {
           const result = await pushRubricToCanvas(config, csvToUse);
-          setUploadStatus(result);
 
           if (result.success) {
             addLog('✓ Upload successful!');
+            setUploadStatus(result);
             setCanvasConfig(config);
             addToHistory({
               id: Date.now().toString(),
@@ -163,11 +178,14 @@ export const Part3Upload: React.FC = () => {
               stopProgress();
             }, 500);
           } else {
+            // Full error detail goes to the log; status box shows a short summary
             addLog(`✗ Upload failed: ${result.message}`);
+            setUploadStatus({ success: false, message: 'Upload failed — see the deployment log above for details.' });
             stopProgress();
           }
         } catch (err: any) {
           addLog(`✗ Error: ${err.message}`);
+          setUploadStatus({ success: false, message: 'Upload failed — see the deployment log above for details.' });
           stopProgress();
         }
       } else {
@@ -303,6 +321,35 @@ export const Part3Upload: React.FC = () => {
     setUploadMode('single');
   };
 
+  /** Open the Google Drive file picker filtered to Sheets, fetch the chosen sheet as CSV. */
+  const handleGoogleDrivePick = async () => {
+    if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+      setError('Please sign in with Google on the Dashboard first.');
+      return;
+    }
+    setPickingFromDrive(true);
+    setError(null);
+    try {
+      const result = await googleDriveService.openPicker(
+        state.googleAccessToken,
+        ['application/vnd.google-apps.spreadsheet'],
+      );
+      if (result) {
+        const csvData = await googleDriveService.getGoogleSheetContent(
+          result.fileId,
+          state.googleAccessToken,
+        );
+        setDrivePickedCsv(csvData);
+        setDrivePickedFileName(`${result.name}.csv`);
+        setCsvOutput(csvData, `${result.name}.csv`);
+      }
+    } catch (err: any) {
+      setError(`Google Drive: ${err.message}`);
+    } finally {
+      setPickingFromDrive(false);
+    }
+  };
+
   // Validate Canvas credentials by making a test GET request to the course endpoint
   const handleValidate = async () => {
     const courseId = extractCourseId(courseUrl);
@@ -330,7 +377,7 @@ export const Part3Upload: React.FC = () => {
         setValidationResult({ ok: false, message: msg });
         addLog(msg);
       } else if (res.status === 404) {
-        const msg = '✗ Course not found — check the Course ID';
+        const msg = '✗ Course not found (404) — check the Course ID is correct and that your API token has access to this course';
         setValidationResult({ ok: false, message: msg });
         addLog(msg);
       } else {
@@ -390,7 +437,7 @@ export const Part3Upload: React.FC = () => {
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            Single Upload
+            From Phase 2
           </button>
           <button
             onClick={() => setUploadMode('batch')}
@@ -410,18 +457,39 @@ export const Part3Upload: React.FC = () => {
           <div className="lg:col-span-2 flex flex-col gap-6">
 
             {/* CSV Display (Single Mode) */}
-            {uploadMode === 'single' && state.csvOutput && (
+            {uploadMode === 'single' && csvToUse && (
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl">
                 <p className="text-sm font-bold text-blue-900">
-                  ✓ CSV file ready ({state.csvFileName || 'rubric.csv'})
+                  ✓ CSV file ready ({state.csvFileName || drivePickedFileName || 'rubric.csv'})
                 </p>
               </div>
             )}
 
-            {uploadMode === 'single' && !state.csvOutput && !manualCsv && (
-              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-2xl">
+            {uploadMode === 'single' && !csvToUse && (
+              <div className="p-5 bg-yellow-50 border border-yellow-200 rounded-2xl space-y-4">
                 <p className="text-sm font-bold text-yellow-900">
-                  ⚠ No CSV available. You can paste CSV content below or go back to Part 2.
+                  ⚠ No CSV available from Phase 2.
+                </p>
+                {/* Google Drive picker */}
+                <button
+                  onClick={handleGoogleDrivePick}
+                  disabled={pickingFromDrive || !state.isGoogleAuthenticated}
+                  className="w-full py-2.5 px-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 transition-all flex items-center justify-center gap-2 text-sm"
+                >
+                  {pickingFromDrive ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <FolderOpen className="w-4 h-4" />
+                  )}
+                  {pickingFromDrive ? 'Opening Drive…' : 'Pick CSV from Google Drive'}
+                </button>
+                {!state.isGoogleAuthenticated && (
+                  <p className="text-xs text-red-600 font-bold text-center">
+                    Sign in with Google on the Dashboard to use this option.
+                  </p>
+                )}
+                <p className="text-xs text-center text-yellow-700">
+                  Or paste CSV content in the manual input below, or go back to Part 2.
                 </p>
               </div>
             )}
@@ -559,12 +627,12 @@ export const Part3Upload: React.FC = () => {
                 className={`p-4 border rounded-2xl ${
                   uploadStatus.success
                     ? 'bg-green-50 border-green-200'
-                    : 'bg-red-50 border-red-200'
+                    : 'bg-amber-50 border-amber-200'
                 }`}
               >
                 <p
-                  className={`text-sm font-bold ${
-                    uploadStatus.success ? 'text-green-900' : 'text-red-900'
+                  className={`text-sm font-semibold ${
+                    uploadStatus.success ? 'text-green-900' : 'text-amber-800'
                   }`}
                 >
                   {uploadStatus.message}

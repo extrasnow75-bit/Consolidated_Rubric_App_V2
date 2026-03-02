@@ -1,12 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
-import { generateRubricFromDescription, validateAssignmentDescription } from '../services/geminiService';
+import { generateRubricFromDescription } from '../services/geminiService';
 import { exportToWord } from '../services/wordExportService';
-import { Loader2, Download, Trash2, Settings, FileText, Link as LinkIcon, CheckCircle, ArrowRight, RotateCw, Home } from 'lucide-react';
+import { Loader2, Download, FileText, CheckCircle, ArrowRight, RotateCw, Home, Columns, X, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
+import { getRecentDocs, saveRecentDoc, RecentDoc } from '../utils/recentDocs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
 
 export const Part1Rubric: React.FC = () => {
@@ -43,6 +44,15 @@ export const Part1Rubric: React.FC = () => {
   const [googleDocUrl, setGoogleDocUrl] = useState<string>('');
   const [fetchingGoogleDoc, setFetchingGoogleDoc] = useState(false);
   const [isPickerLoading, setIsPickerLoading] = useState(false);
+
+  // File picker feedback & recent docs
+  const [pickedFileName, setPickedFileName] = useState<string | null>(null);
+  const [recentDocs, setRecentDocs] = useState<RecentDoc[]>(() => getRecentDocs());
+  const [showRecentDocs, setShowRecentDocs] = useState(false);
+
+  // Side-by-side comparison
+  const [showComparison, setShowComparison] = useState(false);
+  const [snapshotDescription, setSnapshotDescription] = useState('');
 
   const handleFileUpload = async (file: File) => {
     setIsLoading(true);
@@ -116,8 +126,11 @@ export const Part1Rubric: React.FC = () => {
     setError(null);
 
     try {
+      const urlToSave = googleDocUrl.trim();
       const text = await extractGoogleDocText(googleDocUrl);
       setAssignmentDescription(text);
+      saveRecentDoc({ name: urlToSave, url: urlToSave, source: 'url' });
+      setRecentDocs(getRecentDocs());
       setInputMode('text'); // Switch to text view
       setGoogleDocUrl(''); // Clear URL field
     } catch (err: any) {
@@ -179,6 +192,9 @@ export const Part1Rubric: React.FC = () => {
       }
 
       setAssignmentDescription(text);
+      setPickedFileName(result.name);
+      saveRecentDoc({ name: result.name, fileId: result.fileId, mimeType: result.mimeType, source: 'picker' });
+      setRecentDocs(getRecentDocs());
       setInputMode('text');
       setGoogleDocUrl('');
     } catch (err: any) {
@@ -195,33 +211,23 @@ export const Part1Rubric: React.FC = () => {
       return;
     }
 
+    setSnapshotDescription(assignmentDescription);
     setIsGenerating(true);
     setError(null);
     cancelRef.current = false;
 
     startProgress(1, true);
-    setProgress({ currentStep: 'Validating assignment description...' });
+    setProgress({ currentStep: 'Generating rubric criteria...' });
 
     try {
-      // Step 1: Validate the assignment description
-      const validation = await validateAssignmentDescription(assignmentDescription);
-
       const signal = getAbortSignal();
       if (signal.aborted) {
         setError('Rubric generation cancelled');
         return;
       }
 
-      if (!validation.isValid) {
-        setError('We couldn\'t recognize this as an assignment description. Please recheck your submission to make sure it is correct.');
-        stopProgress();
-        setIsGenerating(false);
-        return;
-      }
-
-      // Step 2: Generate rubric criteria
-      setProgress({ currentStep: 'Generating rubric criteria...', percentage: 0.3 });
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      setProgress({ currentStep: 'Creating evaluation scales...', percentage: 0.3 });
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       if (signal.aborted) {
         setError('Rubric generation cancelled');
@@ -281,6 +287,59 @@ export const Part1Rubric: React.FC = () => {
     setAssignmentDescription('');
     setRubric(null);
     setError(null);
+    setPickedFileName(null);
+    setSnapshotDescription('');
+    setShowComparison(false);
+  };
+
+  const handleRecentDocClick = async (doc: RecentDoc) => {
+    setShowRecentDocs(false);
+    if (doc.source === 'url' && doc.url) {
+      setGoogleDocUrl(doc.url);
+      return;
+    }
+    if (doc.source === 'picker' && doc.fileId) {
+      setIsPickerLoading(true);
+      setError(null);
+      try {
+        let text = '';
+        const mt = doc.mimeType || '';
+        if (mt === 'application/vnd.google-apps.document') {
+          text = await extractGoogleDocText(doc.fileId);
+        } else if (mt === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || mt === 'application/msword') {
+          const ab = await downloadDriveFile(doc.fileId);
+          const extracted = await mammoth.extractRawText({ arrayBuffer: ab });
+          text = extracted.value;
+        } else if (mt === 'application/pdf') {
+          const ab = await downloadDriveFile(doc.fileId);
+          const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+          const pages: string[] = [];
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            pages.push(content.items.map((item: any) => item.str).join(' '));
+          }
+          text = pages.join('\n\n');
+        } else if (mt === 'text/plain') {
+          const ab = await downloadDriveFile(doc.fileId);
+          text = new TextDecoder().decode(ab);
+        } else {
+          text = await extractGoogleDocText(doc.fileId);
+        }
+        setAssignmentDescription(text);
+        setPickedFileName(doc.name);
+        setInputMode('text');
+      } catch (err: any) {
+        setError(`Failed to re-load document: ${err.message}`);
+      } finally {
+        setIsPickerLoading(false);
+      }
+    }
+  };
+
+  const handleDashboard = () => {
+    newBatch();
+    setCurrentStep(AppMode.DASHBOARD);
   };
 
   const handleDashboard = () => {
@@ -298,7 +357,7 @@ export const Part1Rubric: React.FC = () => {
         </p>
       </div>
 
-      <div className="bg-white p-10 rounded-3xl shadow-2xl border border-gray-100 max-w-2xl w-full">
+      <div className={`bg-white p-10 rounded-3xl shadow-2xl border border-gray-100 w-full transition-all duration-300 ${showComparison && state.rubric ? 'max-w-5xl' : 'max-w-2xl'}`}>
         {!state.rubric ? (
           <>
             <h2 className="text-2xl font-black text-gray-900 mb-2">Create Draft Rubric</h2>
@@ -432,8 +491,8 @@ export const Part1Rubric: React.FC = () => {
                   : 'bg-gray-50 border-gray-200 hover:border-blue-300'
               }`}
             >
-              <FileText className="w-8 h-8 text-gray-400" />
-              <p className="text-sm font-bold text-gray-700">
+              <FileText className="w-8 h-8 text-gray-500" />
+              <p className="text-sm font-bold text-gray-800">
                 Drop a .txt, .docx, or .pdf file here or click to browse
               </p>
               <input
@@ -451,7 +510,7 @@ export const Part1Rubric: React.FC = () => {
             </div>
 
             {/* Text Extraction Label */}
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mt-6 mb-2">
+            <p className="text-xs font-bold text-gray-700 uppercase tracking-wider mt-6 mb-2">
               Text Extraction
             </p>
 
@@ -502,7 +561,7 @@ export const Part1Rubric: React.FC = () => {
                 ) : (
                   <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-6">
                     <p className="text-sm font-bold text-gray-700 mb-2">Google sign-in required</p>
-                    <p className="text-xs text-gray-500 mb-3">Sign in to access Google Docs directly from your Drive.</p>
+                    <p className="text-xs text-gray-700 mb-3">Sign in to access Google Docs directly from your Drive.</p>
                     <button
                       onClick={() => startGoogleAuth()}
                       className="w-full py-2.5 px-4 bg-white border border-gray-300 rounded-lg font-bold text-sm text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all flex items-center justify-center gap-2"
@@ -534,10 +593,55 @@ export const Part1Rubric: React.FC = () => {
                   {isPickerLoading ? 'Opening Drive...' : fetchingGoogleDoc ? 'Fetching Document...' : 'Browse Google Drive'}
                 </button>
 
+                {/* Picked file feedback chip */}
+                {pickedFileName && (
+                  <div className="flex items-center gap-2 mb-4 mt-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl">
+                    <FileText className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                    <span className="text-sm font-bold text-blue-800 truncate flex-1">{pickedFileName}</span>
+                    <button onClick={() => setPickedFileName(null)} className="text-blue-400 hover:text-blue-600 flex-shrink-0 transition-colors">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Recent Documents */}
+                {recentDocs.length > 0 && (
+                  <div className="mb-6">
+                    <button
+                      onClick={() => setShowRecentDocs(!showRecentDocs)}
+                      className="flex items-center gap-2 text-sm font-bold text-gray-700 hover:text-gray-900 transition-colors mb-2"
+                    >
+                      <Clock className="w-4 h-4" />
+                      Recent Documents
+                      {showRecentDocs ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
+                    {showRecentDocs && (
+                      <div className="border border-gray-200 rounded-xl overflow-hidden">
+                        {recentDocs.map((doc, i) => (
+                          <button
+                            key={i}
+                            onClick={() => handleRecentDocClick(doc)}
+                            disabled={isPickerLoading}
+                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-all text-left border-b border-gray-100 last:border-0 disabled:opacity-50"
+                          >
+                            <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-gray-900 truncate">{doc.name}</p>
+                              <p className="text-xs text-gray-600">
+                                {doc.source === 'picker' ? 'Drive Picker' : 'URL'} · {new Date(doc.timestamp).toLocaleDateString()}
+                              </p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Divider */}
                 <div className="flex items-center gap-3 mb-6">
                   <div className="flex-1 h-px bg-gray-200" />
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">or paste a URL</span>
+                  <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">or paste a URL</span>
                   <div className="flex-1 h-px bg-gray-200" />
                 </div>
 
@@ -553,7 +657,7 @@ export const Part1Rubric: React.FC = () => {
                     placeholder="Paste your shared Google Docs link (docs.google.com/document/d/...)"
                     className="w-full px-4 py-3 border rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none mb-3"
                   />
-                  <p className="text-xs text-gray-500 mb-4">
+                  <p className="text-xs text-gray-700 mb-4">
                     The document must be shared with you. Shared Google Docs links work with this feature.
                   </p>
                   <button
@@ -587,81 +691,110 @@ export const Part1Rubric: React.FC = () => {
         ) : (
           <>
             {/* Inline Success Banner */}
-            <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-2xl p-4 mb-6">
-              <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0" />
-              <div>
-                <p className="font-black text-green-900">✓ Draft Rubric Created!</p>
-                <p className="text-sm text-green-700">Your draft rubric has been generated successfully.</p>
+            <div className="flex items-center justify-between gap-3 bg-green-50 border border-green-200 rounded-2xl p-4 mb-6">
+              <div className="flex items-center gap-3">
+                <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0" />
+                <div>
+                  <p className="font-black text-green-900">✓ Draft Rubric Created!</p>
+                  <p className="text-sm text-green-700">Your draft rubric has been generated successfully.</p>
+                </div>
               </div>
+              {snapshotDescription && (
+                <button
+                  onClick={() => setShowComparison(!showComparison)}
+                  className={`flex items-center gap-2 text-sm font-bold px-3 py-1.5 rounded-lg border transition-all flex-shrink-0 ${
+                    showComparison
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-blue-600 border-blue-300 hover:bg-blue-50'
+                  }`}
+                >
+                  <Columns className="w-4 h-4" />
+                  {showComparison ? 'Hide Source' : 'View Source'}
+                </button>
+              )}
             </div>
 
-            {/* Display Generated Rubric */}
-            <div>
-              <h3 className="text-xl font-black text-gray-900 mb-2">
-                {state.rubric.title}
-              </h3>
-              <p className="text-sm text-gray-600 mb-6">
-                {state.rubric.criteria.length} criteria • {state.rubric.totalPoints} points
-              </p>
+            {/* Display Generated Rubric — comparison layout */}
+            <div className={showComparison ? 'grid grid-cols-2 gap-8' : ''}>
 
-              {/* Preview Table */}
-              <div className="overflow-x-auto mb-6 border rounded-2xl">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-100">
-                    <tr>
-                      <th className="px-4 py-2 text-left font-black text-gray-900">Criteria</th>
-                      <th className="px-4 py-2 text-left font-black text-gray-900">Exemplary</th>
-                      <th className="px-4 py-2 text-left font-black text-gray-900">Proficient</th>
-                      <th className="px-4 py-2 text-left font-black text-gray-900">Developing</th>
-                      <th className="px-4 py-2 text-left font-black text-gray-900">Unsatisfactory</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {state.rubric.criteria.map((criterion, i) => (
-                      <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                        <td className="px-4 py-2 font-bold text-gray-900">{criterion.category}</td>
-                        <td className="px-4 py-2 text-gray-700">{criterion.exemplary.points}</td>
-                        <td className="px-4 py-2 text-gray-700">{criterion.proficient.points}</td>
-                        <td className="px-4 py-2 text-gray-700">{criterion.developing.points}</td>
-                        <td className="px-4 py-2 text-gray-700">{criterion.unsatisfactory.points}</td>
+              {/* Left column: original assignment text */}
+              {showComparison && snapshotDescription && (
+                <div className="flex flex-col">
+                  <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Original Assignment</h3>
+                  <div className="flex-1 h-96 overflow-y-auto p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-700 whitespace-pre-wrap leading-relaxed font-mono">
+                    {snapshotDescription}
+                  </div>
+                </div>
+              )}
+
+              {/* Right column (or full width): rubric */}
+              <div>
+                <h3 className="text-xl font-black text-gray-900 mb-2">
+                  {state.rubric.title}
+                </h3>
+                <p className="text-sm text-gray-600 mb-6">
+                  {state.rubric.criteria.length} criteria • {state.rubric.totalPoints} points
+                </p>
+
+                {/* Preview Table */}
+                <div className="overflow-x-auto mb-6 border rounded-2xl">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-black text-gray-900">Criteria</th>
+                        <th className="px-4 py-2 text-left font-black text-gray-900">Exemplary</th>
+                        <th className="px-4 py-2 text-left font-black text-gray-900">Proficient</th>
+                        <th className="px-4 py-2 text-left font-black text-gray-900">Developing</th>
+                        <th className="px-4 py-2 text-left font-black text-gray-900">Unsatisfactory</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {state.rubric.criteria.map((criterion, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                          <td className="px-4 py-2 font-bold text-gray-900">{criterion.category}</td>
+                          <td className="px-4 py-2 text-gray-700">{criterion.exemplary.points}</td>
+                          <td className="px-4 py-2 text-gray-700">{criterion.proficient.points}</td>
+                          <td className="px-4 py-2 text-gray-700">{criterion.developing.points}</td>
+                          <td className="px-4 py-2 text-gray-700">{criterion.unsatisfactory.points}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
 
-              {/* Primary Action */}
-              <button
-                onClick={handleContinue}
-                className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all active:scale-95 mb-3 flex items-center justify-center gap-2"
-              >
-                <ArrowRight className="w-5 h-5" />
-                Continue to Part 2: Convert to CSV
-              </button>
+                {/* Primary Action */}
+                <button
+                  onClick={handleContinue}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all active:scale-95 mb-3 flex items-center justify-center gap-2"
+                >
+                  <ArrowRight className="w-5 h-5" />
+                  Continue to Part 2: Convert to CSV
+                </button>
 
-              {/* Secondary Actions */}
-              <div className="flex gap-3">
-                <button
-                  onClick={handleExportToWord}
-                  className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2 text-sm"
-                >
-                  <Download className="w-4 h-4" />
-                  Export to Word
-                </button>
-                <button
-                  onClick={handleReset}
-                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
-                >
-                  <RotateCw className="w-4 h-4" />
-                  Create Another
-                </button>
-                <button
-                  onClick={handleDashboard}
-                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
-                >
-                  <Home className="w-4 h-4" />
-                  Dashboard
-                </button>
+                {/* Secondary Actions */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleExportToWord}
+                    className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2 text-sm"
+                  >
+                    <Download className="w-4 h-4" />
+                    Export to Word
+                  </button>
+                  <button
+                    onClick={handleReset}
+                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
+                  >
+                    <RotateCw className="w-4 h-4" />
+                    Create Another
+                  </button>
+                  <button
+                    onClick={handleDashboard}
+                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
+                  >
+                    <Home className="w-4 h-4" />
+                    Dashboard
+                  </button>
+                </div>
               </div>
             </div>
           </>

@@ -93,12 +93,14 @@ export const pushRubricToCanvas = async (
     instanceUrl = `${parsedUrl.protocol}//${parsedUrl.host}`;
     courseId = courseMatch[1];
 
-    // In development the Vite dev server proxies /canvas-proxy/* to the
-    // Canvas instance (set via x-canvas-base header), bypassing browser CORS.
-    const isDev = import.meta.env.DEV;
-    const endpoint = isDev
-      ? `/canvas-proxy/api/v1/courses/${courseId}/rubrics`
-      : `${instanceUrl}/api/v1/courses/${courseId}/rubrics`;
+    // Always route through the Canvas proxy (/canvas-proxy/*) so that:
+    //   • In development: Vite's canvasProxyPlugin forwards the request server-side,
+    //     bypassing browser CORS restrictions.
+    //   • In production: Vercel's rewrite rule maps /canvas-proxy/* to the
+    //     /api/canvas-proxy serverless function, which forwards server-side.
+    // A direct browser→Canvas call would fail with CORS on every modern Canvas
+    // instance, so the proxy is required in both environments.
+    const endpoint = `/canvas-proxy/api/v1/courses/${courseId}/rubrics`;
 
     const data = parseCSV(csvContent);
     if (data.length < 2) {
@@ -193,8 +195,9 @@ export const pushRubricToCanvas = async (
       "Content-Type": "application/json",
       Accept: "application/json",
       "X-Requested-With": "XMLHttpRequest",
+      // Tell the proxy which Canvas instance to forward to.
+      "x-canvas-base": instanceUrl,
     };
-    if (isDev) fetchHeaders["x-canvas-base"] = instanceUrl;
 
     const response = await fetch(endpoint, {
       method: "POST",

@@ -23,8 +23,10 @@ import {
   Zap,
   ChevronDown,
   ChevronUp,
+  FolderOpen,
 } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
+import { googleDriveService } from '../services/googleDriveService';
 
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -88,6 +90,7 @@ export const Part2WordToCsv: React.FC = () => {
   const [inputMode, setInputMode] = useState<'file' | 'google-sheet'>('file');
   const [googleSheetUrl, setGoogleSheetUrl] = useState('');
   const [fetchingGoogleSheet, setFetchingGoogleSheet] = useState(false);
+  const [pickingFromDrive, setPickingFromDrive] = useState(false);
 
   // ── Single-rubric editable fields ────────────────────────────────────
   const [processingType, setProcessingType] = useState<ProcessingType>(
@@ -202,9 +205,12 @@ export const Part2WordToCsv: React.FC = () => {
   const handleGenerateFromPhase1 = () => {
     if (!state.rubric) return;
     const csv = generateCsvFromRubricObject(state.rubric, editableScoringMethod);
-    const fileName = `${editableRubricName || state.rubric.title}.csv`;
+    const name = editableRubricName || state.rubric.title;
+    const fileName = `${name}.csv`;
     setSingleCsvContent(csv);
     setCsvOutput(csv, fileName);
+    setProcessingType(ProcessingType.SINGLE); // ensure result view always shows
+    if (!editableRubricName) setEditableRubricName(name);
   };
 
   // ── File handling ─────────────────────────────────────────────────────
@@ -279,6 +285,7 @@ export const Part2WordToCsv: React.FC = () => {
 
       setSingleCsvContent(csv);
       setCsvOutput(csv, `${editableRubricName}.csv`);
+      setProcessingType(ProcessingType.SINGLE); // ensure result view always shows
       setProgress({ percentage: 1, itemsProcessed: 1 });
       setTimeout(() => {
         stopProgress();
@@ -448,6 +455,38 @@ export const Part2WordToCsv: React.FC = () => {
     }
   };
 
+  /** Open the Google Drive file picker filtered to Sheets, fetch the chosen sheet as CSV. */
+  const handlePickerOpen = async () => {
+    if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+      setError('Please sign in with Google first.');
+      return;
+    }
+    setPickingFromDrive(true);
+    setError(null);
+    try {
+      const result = await googleDriveService.openPicker(
+        state.googleAccessToken,
+        ['application/vnd.google-apps.spreadsheet'],
+      );
+      if (result) {
+        setFetchingGoogleSheet(true);
+        const csvData = await googleDriveService.getGoogleSheetContent(
+          result.fileId,
+          state.googleAccessToken,
+        );
+        setSingleCsvContent(csvData);
+        setCsvOutput(csvData, `${result.name}.csv`);
+        setProcessingType(ProcessingType.SINGLE);
+        setInputMode('file'); // switch back so the result panel shows
+      }
+    } catch (err: any) {
+      setError(`Google Drive: ${err.message}`);
+    } finally {
+      setPickingFromDrive(false);
+      setFetchingGoogleSheet(false);
+    }
+  };
+
   // ── Derived values ────────────────────────────────────────────────────
 
   const doneCount = rubricResults.filter((r) => r.status === 'done').length;
@@ -485,14 +524,30 @@ export const Part2WordToCsv: React.FC = () => {
       </div>
 
       <div className="bg-white p-10 rounded-3xl shadow-2xl border border-gray-100 max-w-2xl w-full">
-        <h2 className="text-2xl font-black text-gray-900 mb-1">Rubric Setup</h2>
-        <p className="text-gray-500 text-sm mb-8">
-          Please provide the details for your rubric.
-        </p>
 
         {/* ══ SINGLE-RUBRIC RESULT VIEW ══════════════════════════════════ */}
         {singleCsvContent && processingType === ProcessingType.SINGLE ? (
           <>
+            {/* Success banner — matches Phase 1 style */}
+            <div className="flex items-center justify-between gap-3 bg-green-50 border border-green-200 rounded-2xl p-4 mb-6">
+              <div className="flex items-center gap-3">
+                <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0" />
+                <div>
+                  <p className="font-black text-green-900">✓ Canvas CSV Generated!</p>
+                  <p className="text-sm text-green-700">Your CSV rubric is ready to download and upload to Canvas.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Rubric name — prefer editable name, fall back to CSV filename */}
+            {(editableRubricName || state.csvFileName) && (
+              <div className="mb-4">
+                <h3 className="text-xl font-black text-gray-900">
+                  {editableRubricName || state.csvFileName?.replace(/\.csv$/i, '')}
+                </h3>
+              </div>
+            )}
+
             <div className="mb-6">
               <label className="block text-sm font-bold text-gray-700 mb-2">
                 Generated CSV
@@ -525,7 +580,7 @@ export const Part2WordToCsv: React.FC = () => {
                 onClick={handleContinuePart3}
                 className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all"
               >
-                Continue to Part 3
+                Continue to Phase 3
               </button>
             </div>
 
@@ -539,6 +594,11 @@ export const Part2WordToCsv: React.FC = () => {
         ) : (
           /* ══ UPLOAD / GENERATION FORM ══════════════════════════════════ */
           <>
+            <h2 className="text-2xl font-black text-gray-900 mb-1">Rubric Setup</h2>
+            <p className="text-gray-500 text-sm mb-8">
+              Please provide the details for your rubric.
+            </p>
+
             {/* ── Phase 1 carry-forward panel ────────────────────────────── */}
             {fromPhase1 && (
               <div className="mb-8">
@@ -1100,27 +1160,57 @@ export const Part2WordToCsv: React.FC = () => {
                 )}
               </>
             ) : (
-              /* ── Google Sheets input ────────────────────────────────── */
+              /* ── Google Drive / Sheets input ─────────────────────────── */
               <>
+                {/* Primary: Drive Picker */}
+                <button
+                  onClick={handlePickerOpen}
+                  disabled={pickingFromDrive || fetchingGoogleSheet || !state.isGoogleAuthenticated}
+                  className="w-full py-3 px-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 transition-all flex items-center justify-center gap-2"
+                >
+                  {(pickingFromDrive || fetchingGoogleSheet) ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <FolderOpen className="w-4 h-4" />
+                  )}
+                  {pickingFromDrive
+                    ? 'Opening Drive…'
+                    : fetchingGoogleSheet
+                    ? 'Fetching Sheet…'
+                    : 'Pick from Google Drive'}
+                </button>
+
+                {!state.isGoogleAuthenticated && (
+                  <p className="text-xs text-red-600 mt-2 font-bold text-center">
+                    Please sign in with Google on the Dashboard first.
+                  </p>
+                )}
+
+                {/* Divider */}
+                <div className="flex items-center gap-3 my-4">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-xs text-gray-400 font-semibold">OR</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+
+                {/* Fallback: URL input */}
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Google Sheets URL
+                    Paste Google Sheets URL
                   </label>
                   <input
                     type="url"
                     value={googleSheetUrl}
                     onChange={(e) => setGoogleSheetUrl(e.target.value)}
-                    placeholder="Paste your shared Google Sheets link (docs.google.com/spreadsheets/d/...)"
+                    placeholder="docs.google.com/spreadsheets/d/…"
                     className="w-full px-4 py-3 border rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none mb-3"
                   />
-                  <p className="text-xs text-gray-500 mb-4">
-                    The sheet must be shared with your Google account.
-                  </p>
                   <button
                     onClick={handleFetchGoogleSheet}
                     disabled={
                       !googleSheetUrl.trim() ||
                       fetchingGoogleSheet ||
+                      pickingFromDrive ||
                       !state.isGoogleAuthenticated
                     }
                     className="w-full py-3 px-4 bg-blue-100 text-blue-700 rounded-xl font-bold hover:bg-blue-200 disabled:bg-gray-100 disabled:text-gray-400 transition-all text-sm flex items-center justify-center gap-2"
@@ -1128,21 +1218,8 @@ export const Part2WordToCsv: React.FC = () => {
                     {fetchingGoogleSheet && (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     )}
-                    {fetchingGoogleSheet ? 'Fetching Sheet…' : 'Fetch Sheet'}
+                    {fetchingGoogleSheet ? 'Fetching…' : 'Fetch Sheet'}
                   </button>
-
-                  {fetchingGoogleSheet && (
-                    <p className="text-xs text-center text-gray-500 mt-2 animate-pulse">
-                      ⏱ Fetching sheet data — this usually takes 5–10 seconds
-                    </p>
-                  )}
-
-                  {!state.isGoogleAuthenticated && (
-                    <p className="text-xs text-red-600 mt-3 font-bold">
-                      Please sign in with Google on the Dashboard first to use this
-                      feature.
-                    </p>
-                  )}
                 </div>
 
                 {state.error && (
