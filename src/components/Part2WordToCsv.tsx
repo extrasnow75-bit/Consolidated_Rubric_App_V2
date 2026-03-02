@@ -520,20 +520,18 @@ export const Part2WordToCsv: React.FC = () => {
       </div>
 
       <div className="bg-white p-10 rounded-3xl shadow-2xl border border-gray-100 max-w-2xl w-full">
-        <h2 className="text-2xl font-black text-gray-900 mb-1">Rubric Setup</h2>
-        <p className="text-gray-500 text-sm mb-8">
-          Please provide the details for your rubric.
-        </p>
 
         {/* ══ SINGLE-RUBRIC RESULT VIEW ══════════════════════════════════ */}
         {singleCsvContent && processingType === ProcessingType.SINGLE ? (
           <>
-            {/* Success banner */}
-            <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-2xl p-4 mb-6">
-              <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0" />
-              <div>
-                <p className="font-black text-green-900">✓ Canvas CSV Generated!</p>
-                <p className="text-sm text-green-700">Your CSV file is ready to download and upload to Canvas.</p>
+            {/* Success banner — matches Phase 1 style */}
+            <div className="flex items-center justify-between gap-3 bg-green-50 border border-green-200 rounded-2xl p-4 mb-6">
+              <div className="flex items-center gap-3">
+                <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0" />
+                <div>
+                  <p className="font-black text-green-900">✓ Canvas CSV Generated!</p>
+                  <p className="text-sm text-green-700">Your CSV rubric is ready to download and upload to Canvas.</p>
+                </div>
               </div>
             </div>
 
@@ -589,6 +587,11 @@ export const Part2WordToCsv: React.FC = () => {
         ) : (
           /* ══ UPLOAD / GENERATION FORM ══════════════════════════════════ */
           <>
+            <h2 className="text-2xl font-black text-gray-900 mb-1">Rubric Setup</h2>
+            <p className="text-gray-500 text-sm mb-8">
+              Please provide the details for your rubric.
+            </p>
+
             {/* ── Phase 1 carry-forward panel ────────────────────────────── */}
             {fromPhase1 && (
               <div className="mb-8">
