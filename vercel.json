@@ -5,7 +5,7 @@
   "rewrites": [
     {
       "source": "/canvas-proxy/:path*",
-      "destination": "/api/canvas-proxy/:path*"
+      "destination": "/api/canvas-proxy?url=:path*"
     }
   ]
 }

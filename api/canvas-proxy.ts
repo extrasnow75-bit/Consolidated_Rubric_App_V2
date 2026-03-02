@@ -54,17 +54,26 @@ export default async (req: VercelRequest, res: VercelResponse) => {
       });
   }
 
-  // Reconstruct the target URL from the path (remove /api/canvas-proxy prefix)
-  const fullPath = req.url || '/api/canvas-proxy';
-  // Strip either /canvas-proxy or /api/canvas-proxy from the front.
-  // Vercel passes the original (pre-rewrite) path in req.url, so the prefix
-  // will be /canvas-proxy (not /api/canvas-proxy) when accessed via the
-  // vercel.json rewrite rule.
-  const urlPath = fullPath.replace(/^\/(api\/)?canvas-proxy/, '') || '/';
-  // Remove query string from urlPath if present (fetch will use query params separately)
-  const pathWithoutQuery = urlPath.split('?')[0];
-  const queryString = urlPath.includes('?') ? '?' + urlPath.split('?')[1] : '';
-  const targetUrl = `${canvasBase.replace(/\/$/, '')}${pathWithoutQuery}${queryString}`;
+  // Reconstruct the Canvas API path.
+  // In production: vercel.json rewrite passes it as ?url=:path*  (e.g. ?url=api/v1/courses/82)
+  // In dev:        handled by Vite's canvasProxyPlugin — this function is never called.
+  const urlParam = req.query?.url;
+  let urlPath: string;
+  if (urlParam) {
+    // Vercel substitutes the :path* wildcard into the query string without encoding slashes,
+    // so urlParam is e.g. "api/v1/courses/82" (no leading slash).
+    const raw = Array.isArray(urlParam) ? urlParam.join('/') : String(urlParam);
+    urlPath = raw.startsWith('/') ? raw : '/' + raw;
+  } else {
+    // Fallback for any direct calls to /api/canvas-proxy (e.g. local serverless testing).
+    const fullPath = req.url || '';
+    urlPath = fullPath.replace(/^\/(api\/)?canvas-proxy/, '').split('?')[0] || '/';
+  }
+  // Preserve any additional query params from the original request (minus the proxy 'url' param).
+  const reqUrlObj = new URL(req.url || '', 'http://localhost');
+  reqUrlObj.searchParams.delete('url');
+  const queryString = reqUrlObj.search; // '' or '?...'
+  const targetUrl = `${canvasBase.replace(/\/$/, '')}${urlPath}${queryString}`;
 
   // Collect request body
   let body: Buffer | undefined;
