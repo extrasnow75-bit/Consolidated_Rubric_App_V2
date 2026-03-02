@@ -57,7 +57,7 @@ export const setGeminiApiKey = (apiKey: string): void => {
  *   queued caller can proceed without waiting.
  */
 let pendingThrottle: Promise<void> = Promise.resolve();
-const MIN_REQUEST_INTERVAL_MS = 15000; // 15 s — governor for batch-then-split architecture
+const MIN_REQUEST_INTERVAL_MS = 2000; // 2 s between API calls — enough to respect rate limits without adding noticeable delay
 
 async function throttle(signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) throw new Error('Request cancelled');

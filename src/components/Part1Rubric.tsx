@@ -497,8 +497,8 @@ export const Part1Rubric: React.FC = () => {
                   : 'bg-gray-50 border-gray-200 hover:border-blue-300'
               }`}
             >
-              <FileText className="w-8 h-8 text-gray-400" />
-              <p className="text-sm font-bold text-gray-700">
+              <FileText className="w-8 h-8 text-gray-500" />
+              <p className="text-sm font-bold text-gray-800">
                 Drop a .txt, .docx, or .pdf file here or click to browse
               </p>
               <input
@@ -516,7 +516,7 @@ export const Part1Rubric: React.FC = () => {
             </div>
 
             {/* Text Extraction Label */}
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mt-6 mb-2">
+            <p className="text-xs font-bold text-gray-700 uppercase tracking-wider mt-6 mb-2">
               Text Extraction
             </p>
 
@@ -567,7 +567,7 @@ export const Part1Rubric: React.FC = () => {
                 ) : (
                   <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-6">
                     <p className="text-sm font-bold text-gray-700 mb-2">Google sign-in required</p>
-                    <p className="text-xs text-gray-500 mb-3">Sign in to access Google Docs directly from your Drive.</p>
+                    <p className="text-xs text-gray-700 mb-3">Sign in to access Google Docs directly from your Drive.</p>
                     <button
                       onClick={() => startGoogleAuth()}
                       className="w-full py-2.5 px-4 bg-white border border-gray-300 rounded-lg font-bold text-sm text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all flex items-center justify-center gap-2"
@@ -615,7 +615,7 @@ export const Part1Rubric: React.FC = () => {
                   <div className="mb-6">
                     <button
                       onClick={() => setShowRecentDocs(!showRecentDocs)}
-                      className="flex items-center gap-2 text-sm font-bold text-gray-500 hover:text-gray-800 transition-colors mb-2"
+                      className="flex items-center gap-2 text-sm font-bold text-gray-700 hover:text-gray-900 transition-colors mb-2"
                     >
                       <Clock className="w-4 h-4" />
                       Recent Documents
@@ -630,10 +630,10 @@ export const Part1Rubric: React.FC = () => {
                             disabled={isPickerLoading}
                             className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-all text-left border-b border-gray-100 last:border-0 disabled:opacity-50"
                           >
-                            <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                            <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-bold text-gray-800 truncate">{doc.name}</p>
-                              <p className="text-xs text-gray-400">
+                              <p className="text-sm font-bold text-gray-900 truncate">{doc.name}</p>
+                              <p className="text-xs text-gray-600">
                                 {doc.source === 'picker' ? 'Drive Picker' : 'URL'} · {new Date(doc.timestamp).toLocaleDateString()}
                               </p>
                             </div>
@@ -647,7 +647,7 @@ export const Part1Rubric: React.FC = () => {
                 {/* Divider */}
                 <div className="flex items-center gap-3 mb-6">
                   <div className="flex-1 h-px bg-gray-200" />
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">or paste a URL</span>
+                  <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">or paste a URL</span>
                   <div className="flex-1 h-px bg-gray-200" />
                 </div>
 
@@ -663,7 +663,7 @@ export const Part1Rubric: React.FC = () => {
                     placeholder="Paste your shared Google Docs link (docs.google.com/document/d/...)"
                     className="w-full px-4 py-3 border rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none mb-3"
                   />
-                  <p className="text-xs text-gray-500 mb-4">
+                  <p className="text-xs text-gray-700 mb-4">
                     The document must be shared with you. Shared Google Docs links work with this feature.
                   </p>
                   <button
