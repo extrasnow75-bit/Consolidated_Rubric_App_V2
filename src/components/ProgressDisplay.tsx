@@ -62,7 +62,7 @@ const ProgressDisplay: React.FC<ProgressDisplayProps> = ({ progress, onStop }) =
                 <span>Est. total: {formatTime(progress.timeElapsed + progress.timeRemaining)}</span>
               </div>
             ) : (
-              <span className="text-xs text-gray-500 italic">This usually takes under a minute</span>
+              <span className="text-xs text-gray-700 italic">This usually takes under a minute</span>
             )}
           </div>
 

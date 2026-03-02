@@ -534,7 +534,7 @@ export const Part2WordToCsv: React.FC = () => {
                 onClick={handleContinuePart3}
                 className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all"
               >
-                Continue to Part 3
+                Continue to Phase 3
               </button>
             </div>
 
