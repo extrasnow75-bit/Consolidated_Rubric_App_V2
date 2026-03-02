@@ -205,9 +205,12 @@ export const Part2WordToCsv: React.FC = () => {
   const handleGenerateFromPhase1 = () => {
     if (!state.rubric) return;
     const csv = generateCsvFromRubricObject(state.rubric, editableScoringMethod);
-    const fileName = `${editableRubricName || state.rubric.title}.csv`;
+    const name = editableRubricName || state.rubric.title;
+    const fileName = `${name}.csv`;
     setSingleCsvContent(csv);
     setCsvOutput(csv, fileName);
+    setProcessingType(ProcessingType.SINGLE); // ensure result view always shows
+    if (!editableRubricName) setEditableRubricName(name);
   };
 
   // ── File handling ─────────────────────────────────────────────────────
@@ -282,6 +285,7 @@ export const Part2WordToCsv: React.FC = () => {
 
       setSingleCsvContent(csv);
       setCsvOutput(csv, `${editableRubricName}.csv`);
+      setProcessingType(ProcessingType.SINGLE); // ensure result view always shows
       setProgress({ percentage: 1, itemsProcessed: 1 });
       setTimeout(() => {
         stopProgress();
@@ -535,9 +539,12 @@ export const Part2WordToCsv: React.FC = () => {
               </div>
             </div>
 
-            {editableRubricName && (
+            {/* Rubric name — prefer editable name, fall back to CSV filename */}
+            {(editableRubricName || state.csvFileName) && (
               <div className="mb-4">
-                <h3 className="text-xl font-black text-gray-900">{editableRubricName}</h3>
+                <h3 className="text-xl font-black text-gray-900">
+                  {editableRubricName || state.csvFileName?.replace(/\.csv$/i, '')}
+                </h3>
               </div>
             )}
 
