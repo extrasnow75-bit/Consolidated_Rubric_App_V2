@@ -431,12 +431,12 @@ export const Part3Upload: React.FC = () => {
 
         {/* Header */}
         <div className="mb-6">
-          <h2 className="text-2xl font-black text-gray-900 mb-2">Upload to Canvas</h2>
+          <h2 className="text-2xl font-black text-gray-900 mb-2">Deploy to Canvas</h2>
           <p className="text-gray-600 font-medium mb-6">
             {uploadMode === 'single'
               ? 'Enter your Canvas credentials to upload the rubric'
               : uploadMode === 'google-drive'
-              ? 'Pick a CSV from Google Drive and upload to Canvas'
+              ? 'Upload CSV rubric(s) to Canvas'
               : 'Upload multiple CSV files to Canvas LMS'}
           </p>
 

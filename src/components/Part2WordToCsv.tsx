@@ -87,7 +87,7 @@ export const Part2WordToCsv: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Input mode (file upload vs Google Sheets) ────────────────────────
-  const [inputMode, setInputMode] = useState<'file' | 'google-sheet'>('file');
+  const [inputMode, setInputMode] = useState<'from-phase1' | 'file' | 'google-sheet'>(state.rubric ? 'from-phase1' : 'file');
   const [googleSheetUrl, setGoogleSheetUrl] = useState('');
   const [fetchingGoogleSheet, setFetchingGoogleSheet] = useState(false);
   const [pickingFromDrive, setPickingFromDrive] = useState(false);
@@ -182,8 +182,6 @@ export const Part2WordToCsv: React.FC = () => {
 
   /** True when the user arrived here via "Continue to Part 2" from Phase 1. */
   const fromPhase1 = Boolean(state.rubric);
-  /** When fromPhase1 is true, file-upload section starts hidden; toggle via "or use a different file". */
-  const [showAlternativeInput, setShowAlternativeInput] = useState(!fromPhase1);
 
   /** Infer scoring method from Phase 1 point strings (e.g. "40-50" = ranges). */
   const inferScoringMethod = (): 'ranges' | 'fixed' => {
@@ -594,113 +592,110 @@ export const Part2WordToCsv: React.FC = () => {
         ) : (
           /* ══ UPLOAD / GENERATION FORM ══════════════════════════════════ */
           <>
-            <h2 className="text-2xl font-black text-gray-900 mb-1">Rubric Setup</h2>
-            <p className="text-gray-500 text-sm mb-8">
-              Please provide the details for your rubric.
-            </p>
+            <h2 className="text-2xl font-black text-gray-900 mb-6">Convert to CSV</h2>
 
-            {/* ── Phase 1 carry-forward panel ────────────────────────────── */}
-            {fromPhase1 && (
-              <div className="mb-8">
-                {/* Banner */}
-                <div className="bg-green-50 border border-green-200 rounded-2xl p-4 mb-4">
-                  <p className="font-bold text-green-900 text-sm">Rubric from Phase 1 is ready</p>
-                  <p className="text-xs text-green-800 mt-0.5">
-                    Review the settings below and click Generate — no file upload needed.
-                  </p>
-                </div>
-
-                {/* Pre-filled form */}
-                <div className="p-5 bg-gray-50 border border-gray-200 rounded-2xl space-y-4">
-                  <div>
-                    <label className="text-sm font-bold text-gray-700 block mb-1">Rubric Name</label>
-                    <input
-                      value={editableRubricName}
-                      onChange={(e) => setEditableRubricName(e.target.value)}
-                      className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-bold text-gray-700 block mb-2">Scoring Method</label>
-                    <div className="flex gap-4">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          value="ranges"
-                          checked={editableScoringMethod === 'ranges'}
-                          onChange={() => setEditableScoringMethod('ranges')}
-                          className="w-4 h-4 accent-blue-600"
-                        />
-                        <span className="text-sm text-gray-700">Point Ranges</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          value="fixed"
-                          checked={editableScoringMethod === 'fixed'}
-                          onChange={() => setEditableScoringMethod('fixed')}
-                          className="w-4 h-4 accent-blue-600"
-                        />
-                        <span className="text-sm text-gray-700">Fixed Points</span>
-                      </label>
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleGenerateFromPhase1}
-                    disabled={!editableRubricName.trim()}
-                    className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 transition-all flex items-center justify-center gap-2"
-                  >
-                    <Zap className="w-4 h-4" />
-                    Generate Canvas CSV from Phase 1 Rubric
-                  </button>
-                </div>
-
-                {/* Collapsible toggle to file upload escape hatch */}
-                <button
-                  onClick={() => setShowAlternativeInput((v) => !v)}
-                  className="flex items-center gap-3 mt-6 mb-2 w-full group"
-                >
-                  <div className="flex-1 h-px bg-blue-200 group-hover:bg-blue-300 transition-colors" />
-                  <span className="text-xs font-bold text-blue-500 group-hover:text-blue-700 uppercase tracking-wider transition-colors flex items-center gap-1">
-                    or use a different file
-                    {showAlternativeInput ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                  </span>
-                  <div className="flex-1 h-px bg-blue-200 group-hover:bg-blue-300 transition-colors" />
-                </button>
-              </div>
-            )}
-
-            {/* Tab bar ──────────────────────────────────────────────────── */}
-            {(!fromPhase1 || showAlternativeInput) && (<>
-            <div className="flex gap-3 mb-6 border-b border-gray-200">
+            {/* Upload Mode Tabs */}
+            <div className="mb-6 border-b border-gray-200 flex gap-0">
               <button
-                onClick={() => {
-                  setInputMode('file');
-                  setGoogleSheetUrl('');
-                  setError(null);
-                }}
-                className={`px-4 py-3 font-bold border-b-2 transition-all ${
+                onClick={() => setInputMode('from-phase1')}
+                className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
+                  inputMode === 'from-phase1'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                From Phase 1
+              </button>
+              <button
+                onClick={() => { setInputMode('file'); setGoogleSheetUrl(''); setError(null); }}
+                className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
                   inputMode === 'file'
                     ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
                 Local Drive
               </button>
               <button
-                onClick={() => {
-                  setInputMode('google-sheet');
-                  setError(null);
-                }}
-                className={`px-4 py-3 font-bold border-b-2 transition-all ${
+                onClick={() => { setInputMode('google-sheet'); setError(null); }}
+                className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
                   inputMode === 'google-sheet'
                     ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
                 Google Drive
               </button>
             </div>
+
+            {/* From Phase 1 tab content */}
+            {inputMode === 'from-phase1' && (
+              fromPhase1 ? (
+                <div>
+                  {/* Banner */}
+                  <div className="bg-green-50 border border-green-200 rounded-2xl p-4 mb-4">
+                    <p className="font-bold text-green-900 text-sm">Rubric from Phase 1 is ready</p>
+                    <p className="text-xs text-green-800 mt-0.5">
+                      Review the settings below and click Generate — no file upload needed.
+                    </p>
+                  </div>
+                  {/* Pre-filled form */}
+                  <div className="p-5 bg-gray-50 border border-gray-200 rounded-2xl space-y-4">
+                    <div>
+                      <label className="text-sm font-bold text-gray-700 block mb-1">Rubric Name</label>
+                      <input
+                        value={editableRubricName}
+                        onChange={(e) => setEditableRubricName(e.target.value)}
+                        className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-bold text-gray-700 block mb-2">Scoring Method</label>
+                      <div className="flex gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            value="ranges"
+                            checked={editableScoringMethod === 'ranges'}
+                            onChange={() => setEditableScoringMethod('ranges')}
+                            className="w-4 h-4 accent-blue-600"
+                          />
+                          <span className="text-sm text-gray-700">Point Ranges</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            value="fixed"
+                            checked={editableScoringMethod === 'fixed'}
+                            onChange={() => setEditableScoringMethod('fixed')}
+                            className="w-4 h-4 accent-blue-600"
+                          />
+                          <span className="text-sm text-gray-700">Fixed Points</span>
+                        </label>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleGenerateFromPhase1}
+                      disabled={!editableRubricName.trim()}
+                      className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 transition-all flex items-center justify-center gap-2"
+                    >
+                      <Zap className="w-4 h-4" />
+                      Generate Canvas CSV from Phase 1 Rubric
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-5 bg-yellow-50 border border-yellow-200 rounded-2xl text-center">
+                  <p className="text-sm font-bold text-yellow-900">No content from Phase 1 yet.</p>
+                  <p className="text-xs text-yellow-700 mt-2">
+                    Go to Phase 1 first to create a draft rubric, then return here to convert it.
+                  </p>
+                </div>
+              )
+            )}
+
+            {/* Local Drive / Google Drive tab content */}
+            {(inputMode === 'file' || inputMode === 'google-sheet') && (<>
 
             {inputMode === 'file' ? (
               <>

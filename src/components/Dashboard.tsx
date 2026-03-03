@@ -228,7 +228,7 @@ export const Dashboard: React.FC = () => {
                 </div>
               </div>
               <div className="flex-1">
-                <h3 className="font-black text-lg text-gray-900">Upload to Canvas</h3>
+                <h3 className="font-black text-lg text-gray-900">Deploy to Canvas</h3>
                 <p className="text-sm text-gray-600 mt-2">Automatically upload one or more rubrics (CSV files) to a Canvas course at once.</p>
                 <p className="text-xs text-gray-600 mt-1 italic">*Requires a Canvas Token</p>
                 <p className="text-xs text-gray-600 mt-1 italic">Click the Help Center button to learn how to generate a token or how to complete this step manually.</p>

@@ -104,7 +104,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           <div className={baseClasses}>
             <IconBox><CanvasLogo /></IconBox>
             <span className="text-sm font-black uppercase tracking-widest ml-2">
-              <span className="text-[#E64C3C]">Phase 3: </span><span className="text-gray-900">Upload to Canvas</span>
+              <span className="text-[#E64C3C]">Phase 3: </span><span className="text-gray-900">Deploy to Canvas</span>
             </span>
           </div>
         );
