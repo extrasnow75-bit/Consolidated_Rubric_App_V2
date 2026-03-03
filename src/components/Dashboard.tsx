@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode } from '../types';
-import { Lightbulb, FileText, Upload, Camera, ArrowRight, LogOut, Key, Check, X, Loader2, ExternalLink, Trash2, Eye, EyeOff } from 'lucide-react';
+import { Lightbulb, FileText, Upload, Camera, ArrowRight, LogOut, Key, Check, X, Loader2, ExternalLink, Eye, EyeOff } from 'lucide-react';
 import { validateGeminiApiKey } from '../services/geminiService';
 
 const GoogleIcon = () => (
@@ -291,9 +291,9 @@ export const Dashboard: React.FC = () => {
                 </p>
                 <button
                   onClick={handleRemoveApiKey}
-                  className="w-full px-4 py-2 bg-red-50 text-red-600 rounded-lg font-bold hover:bg-red-100 transition-all text-sm flex items-center justify-center gap-2"
+                  className="w-full px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-sm flex items-center justify-center gap-2"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <LogOut className="w-4 h-4" />
                   Remove Key
                 </button>
               </div>
@@ -432,9 +432,9 @@ export const Dashboard: React.FC = () => {
                 </p>
                 <button
                   onClick={handleRemoveCanvasToken}
-                  className="w-full px-4 py-2 bg-red-50 text-red-600 rounded-lg font-bold hover:bg-red-100 transition-all text-sm flex items-center justify-center gap-2"
+                  className="w-full px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-sm flex items-center justify-center gap-2"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <LogOut className="w-4 h-4" />
                   Remove Token
                 </button>
               </div>
