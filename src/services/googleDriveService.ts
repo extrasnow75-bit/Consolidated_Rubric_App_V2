@@ -31,9 +31,29 @@ class GoogleDriveService {
    *                     to restrict to Google Sheets.
    */
   openPicker(accessToken: string, mimeTypes?: string[]): Promise<PickerResult | null> {
+    // Fast-fail with a clear message if the API key is missing — avoids
+    // the unescapable Google 403 overlay that appears without a developer key.
+    if (!this.pickerApiKey) {
+      return Promise.reject(new Error(
+        'Google Drive Picker API key is not configured. ' +
+        'Please add VITE_GOOGLE_PICKER_API_KEY to your Vercel environment variables and redeploy.'
+      ));
+    }
+
     return new Promise((resolve, reject) => {
+      // Safety timeout: if the picker never calls back (e.g. blocked by a
+      // 403 error overlay), reject after 60 s so callers can clean up state.
+      const timeoutId = setTimeout(() => {
+        reject(new Error(
+          'Google Drive Picker timed out. ' +
+          'This usually means the Picker API is not enabled in your Google Cloud project, ' +
+          'or the API key is restricted. Please refresh and try again.'
+        ));
+      }, 60_000);
+
       const gapi = (window as any).gapi;
       if (!gapi) {
+        clearTimeout(timeoutId);
         reject(new Error('Google API library is not loaded. Please refresh the page and try again.'));
         return;
       }
@@ -42,6 +62,7 @@ class GoogleDriveService {
         callback: () => {
           const google = (window as any).google;
           if (!google?.picker) {
+            clearTimeout(timeoutId);
             reject(new Error('Google Picker failed to load. Please refresh and try again.'));
             return;
           }
@@ -62,22 +83,24 @@ class GoogleDriveService {
           const builder = new google.picker.PickerBuilder()
             .addView(view)
             .setOAuthToken(accessToken)
+            .setDeveloperKey(this.pickerApiKey)
+            .setAppId(this.pickerApiKey.split(':')[0] ?? '')
+            .setOrigin(window.location.protocol + '//' + window.location.host)
             .setCallback((data: any) => {
               if (data.action === google.picker.Action.PICKED) {
+                clearTimeout(timeoutId);
                 const doc = data.docs[0];
                 resolve({ fileId: doc.id, mimeType: doc.mimeType, name: doc.name });
               } else if (data.action === google.picker.Action.CANCEL) {
+                clearTimeout(timeoutId);
                 resolve(null);
               }
             });
 
-          if (this.pickerApiKey) {
-            builder.setDeveloperKey(this.pickerApiKey);
-          }
-
           builder.build().setVisible(true);
         },
         onerror: () => {
+          clearTimeout(timeoutId);
           reject(new Error('Failed to load Google Picker. Check that the Picker API is enabled in your Google Cloud project.'));
         },
       });
