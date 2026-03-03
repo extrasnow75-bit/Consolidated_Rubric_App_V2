@@ -464,10 +464,7 @@ export const Part3Upload: React.FC = () => {
             From Phase 2
           </button>
           <button
-            onClick={() => {
-              setUploadMode('google-drive');
-              clearBatchFiles();
-            }}
+            onClick={() => setUploadMode('google-drive')}
             className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
               uploadMode === 'google-drive'
                 ? 'border-blue-600 text-blue-600'
