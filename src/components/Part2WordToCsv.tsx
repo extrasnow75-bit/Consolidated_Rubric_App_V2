@@ -24,7 +24,6 @@ import {
   ChevronDown,
   ChevronUp,
   FolderOpen,
-  CloudUpload,
 } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import { googleDriveService } from '../services/googleDriveService';
@@ -639,8 +638,13 @@ export const Part2WordToCsv: React.FC = () => {
                 disabled={savingToDrive || !state.isGoogleAuthenticated}
                 className="flex-1 px-4 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold hover:bg-gray-50 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
               >
-                {savingToDrive ? <Loader2 className="w-5 h-5 animate-spin" /> : <CloudUpload className="w-5 h-5" />}
-                {savingToDrive ? 'Saving…' : 'Save to Drive'}
+                {savingToDrive ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+                  <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M11 3L2.5 18.5H19.5L11 3Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round"/>
+                    <path d="M15 13.5v4M13 15.5h4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
+                  </svg>
+                )}
+                {savingToDrive ? 'Adding…' : 'Add to Drive'}
               </button>
               <button
                 onClick={handleContinuePart3}
@@ -1029,8 +1033,13 @@ export const Part2WordToCsv: React.FC = () => {
                                     disabled={savingAllToDrive || !state.isGoogleAuthenticated}
                                     className="flex-1 py-3 bg-white border border-gray-300 text-gray-700 rounded-2xl font-black uppercase tracking-widest hover:bg-gray-50 disabled:opacity-50 transition-all active:scale-95 flex items-center justify-center gap-2"
                                   >
-                                    {savingAllToDrive ? <Loader2 className="w-5 h-5 animate-spin" /> : <CloudUpload className="w-5 h-5" />}
-                                    {savingAllToDrive ? 'Saving…' : `Save All ${doneCount} to Drive`}
+                                    {savingAllToDrive ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+                                      <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M11 3L2.5 18.5H19.5L11 3Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round"/>
+                                        <path d="M15 13.5v4M13 15.5h4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
+                                      </svg>
+                                    )}
+                                    {savingAllToDrive ? 'Adding…' : `Add All ${doneCount} to Drive`}
                                   </button>
                                 </div>
                                 {driveAllSaveSuccess && (

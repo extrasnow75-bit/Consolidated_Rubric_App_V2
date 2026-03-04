@@ -3,7 +3,7 @@ import { useSession } from '../contexts/SessionContext';
 import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
 import { generateRubricFromDescription } from '../services/geminiService';
 import { exportToWord } from '../services/wordExportService';
-import { Loader2, Download, FileText, CheckCircle, ArrowRight, RotateCw, Home, Columns, X, Clock, ChevronDown, ChevronUp, CloudUpload } from 'lucide-react';
+import { Loader2, Download, FileText, CheckCircle, ArrowRight, RotateCw, Home, Columns, X, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { googleDriveService } from '../services/googleDriveService';
 import ErrorDisplay from './ErrorDisplay';
 import mammoth from 'mammoth';
@@ -831,8 +831,13 @@ export const Part1Rubric: React.FC = () => {
                     disabled={savingToDrive || !state.isGoogleAuthenticated}
                     className="flex-1 px-4 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold hover:bg-gray-50 disabled:opacity-50 transition-all text-sm flex items-center justify-center gap-2"
                   >
-                    {savingToDrive ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
-                    {savingToDrive ? 'Saving…' : 'Save to Drive'}
+                    {savingToDrive ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+                      <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M11 3L2.5 18.5H19.5L11 3Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round"/>
+                        <path d="M15 13.5v4M13 15.5h4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
+                      </svg>
+                    )}
+                    {savingToDrive ? 'Adding…' : 'Add to Drive'}
                   </button>
                   <button
                     onClick={handleReset}
@@ -853,7 +858,7 @@ export const Part1Rubric: React.FC = () => {
                   <p className="text-xs text-green-700 font-bold text-center mt-2">✓ {driveSaveSuccess}</p>
                 )}
                 {!state.isGoogleAuthenticated && (
-                  <p className="text-xs text-gray-400 text-center mt-2">Sign in with Google on the Dashboard to enable Save to Drive.</p>
+                  <p className="text-xs text-gray-400 text-center mt-2">Sign in with Google on the Dashboard to enable Add to Drive.</p>
                 )}
               </div>
             </div>
