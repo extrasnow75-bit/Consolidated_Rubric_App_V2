@@ -8,6 +8,16 @@ export interface PickerResult {
   name: string;
 }
 
+export interface FolderPickerResult {
+  folderId: string;
+  folderName: string;
+}
+
+export interface UploadResult {
+  fileId: string;
+  webViewLink: string;
+}
+
 export interface GoogleUser {
   id: string;
   email: string;
@@ -302,6 +312,143 @@ class GoogleDriveService {
       }
       throw new Error(`Failed to fetch Google Sheet: ${error.message}`);
     }
+  }
+
+  /**
+   * Open a folder-only Google Picker so the user can choose a save destination.
+   * Returns the selected folder's ID and name, or null if cancelled.
+   */
+  openFolderPicker(accessToken: string): Promise<FolderPickerResult | null> {
+    if (!this.pickerApiKey) {
+      return Promise.reject(new Error(
+        'Google Drive Picker API key is not configured. ' +
+        'Please add VITE_GOOGLE_PICKER_API_KEY to your Vercel environment variables and redeploy.'
+      ));
+    }
+
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error('Google Drive folder picker timed out. Please refresh and try again.'));
+      }, 60_000);
+
+      const gapi = (window as any).gapi;
+      if (!gapi) {
+        clearTimeout(timeoutId);
+        reject(new Error('Google API library is not loaded. Please refresh the page and try again.'));
+        return;
+      }
+
+      gapi.load('picker', {
+        callback: () => {
+          const google = (window as any).google;
+          if (!google?.picker) {
+            clearTimeout(timeoutId);
+            reject(new Error('Google Picker failed to load. Please refresh and try again.'));
+            return;
+          }
+
+          const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+            .setSelectFolderEnabled(true);
+
+          const builder = new google.picker.PickerBuilder()
+            .addView(view)
+            .setOAuthToken(accessToken)
+            .setDeveloperKey(this.pickerApiKey)
+            .setOrigin(window.location.protocol + '//' + window.location.host)
+            .setTitle('Choose a folder to save to')
+            .setCallback((data: any) => {
+              if (data.action === google.picker.Action.PICKED) {
+                clearTimeout(timeoutId);
+                const doc = data.docs[0];
+                resolve({ folderId: doc.id, folderName: doc.name });
+              } else if (data.action === google.picker.Action.CANCEL) {
+                clearTimeout(timeoutId);
+                resolve(null);
+              }
+            });
+
+          builder.build().setVisible(true);
+        },
+        onerror: () => {
+          clearTimeout(timeoutId);
+          reject(new Error('Failed to load Google Picker. Check that the Picker API is enabled in your Google Cloud project.'));
+        },
+      });
+    });
+  }
+
+  /**
+   * Upload a text/CSV string to Google Drive, optionally converting it to a
+   * native Google format (Doc or Sheet).
+   *
+   * @param accessToken    OAuth access token.
+   * @param content        UTF-8 string content to upload.
+   * @param filename       Name for the file (without extension).
+   * @param sourceMimeType MIME type of the content, e.g. 'text/plain' or 'text/csv'.
+   * @param targetMimeType Google MIME type to convert to, e.g.
+   *                       'application/vnd.google-apps.document' or
+   *                       'application/vnd.google-apps.spreadsheet'.
+   * @param folderId       Optional parent folder ID. Defaults to My Drive root.
+   */
+  async uploadFileToDrive(
+    accessToken: string,
+    content: string,
+    filename: string,
+    sourceMimeType: string,
+    targetMimeType: string,
+    folderId?: string,
+  ): Promise<UploadResult> {
+    const metadata: Record<string, any> = {
+      name: filename,
+      mimeType: targetMimeType,
+    };
+    if (folderId) {
+      metadata.parents = [folderId];
+    }
+
+    const metadataPart = JSON.stringify(metadata);
+    const boundary = '-------314159265358979323846';
+    const body = [
+      `--${boundary}`,
+      'Content-Type: application/json; charset=UTF-8',
+      '',
+      metadataPart,
+      `--${boundary}`,
+      `Content-Type: ${sourceMimeType}`,
+      '',
+      content,
+      `--${boundary}--`,
+    ].join('\r\n');
+
+    const response = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': `multipart/related; boundary="${boundary}"`,
+        },
+        body,
+      }
+    );
+
+    if (response.status === 401) {
+      throw new Error('Your Google session has expired. Please sign out and sign in again.');
+    }
+    if (response.status === 403) {
+      const detail = await this.parseGoogleErrorBody(response);
+      throw new Error(
+        'Google Drive upload failed — insufficient permissions. ' +
+        'Please sign out and sign in again, making sure to allow Drive access.' +
+        (detail ? ` (${detail})` : '')
+      );
+    }
+    if (!response.ok) {
+      const detail = await this.parseGoogleErrorBody(response);
+      throw new Error(`Failed to upload to Google Drive (HTTP ${response.status}${detail ? `: ${detail}` : ''})`);
+    }
+
+    return await response.json() as UploadResult;
   }
 
   /**

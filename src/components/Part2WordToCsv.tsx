@@ -24,6 +24,7 @@ import {
   ChevronDown,
   ChevronUp,
   FolderOpen,
+  CloudUpload,
 } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import { googleDriveService } from '../services/googleDriveService';
@@ -427,6 +428,34 @@ export const Part2WordToCsv: React.FC = () => {
     setCurrentStep(AppMode.PART_3);
   };
 
+  const [savingToDrive, setSavingToDrive] = useState(false);
+  const [driveSaveSuccess, setDriveSaveSuccess] = useState<string | null>(null);
+
+  const handleSaveToDrive = async () => {
+    if (!singleCsvContent || !state.googleAccessToken) return;
+    setSavingToDrive(true);
+    setDriveSaveSuccess(null);
+    try {
+      const folder = await googleDriveService.openFolderPicker(state.googleAccessToken);
+      if (!folder) { setSavingToDrive(false); return; }
+
+      const filename = editableRubricName || state.csvFileName?.replace(/\.csv$/i, '') || 'rubric';
+      await googleDriveService.uploadFileToDrive(
+        state.googleAccessToken,
+        singleCsvContent,
+        filename,
+        'text/csv',
+        'application/vnd.google-apps.spreadsheet',
+        folder.folderId,
+      );
+      setDriveSaveSuccess(`Saved to "${folder.folderName}"`);
+    } catch (err: any) {
+      setError(`Google Drive save failed: ${err.message}`);
+    } finally {
+      setSavingToDrive(false);
+    }
+  };
+
   const handleFetchGoogleSheet = async () => {
     if (!state.isGoogleAuthenticated) {
       setError('Please sign in with Google first');
@@ -576,12 +605,23 @@ export const Part2WordToCsv: React.FC = () => {
                 Download
               </button>
               <button
+                onClick={handleSaveToDrive}
+                disabled={savingToDrive || !state.isGoogleAuthenticated}
+                className="flex-1 px-4 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold hover:bg-gray-50 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+              >
+                {savingToDrive ? <Loader2 className="w-5 h-5 animate-spin" /> : <CloudUpload className="w-5 h-5" />}
+                {savingToDrive ? 'Saving…' : 'Save to Drive'}
+              </button>
+              <button
                 onClick={handleContinuePart3}
                 className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all"
               >
                 Carry CSV to Phase 3
               </button>
             </div>
+            {driveSaveSuccess && (
+              <p className="text-xs text-green-700 font-bold text-center mt-2">✓ {driveSaveSuccess}</p>
+            )}
 
             <button
               onClick={resetForNewFile}

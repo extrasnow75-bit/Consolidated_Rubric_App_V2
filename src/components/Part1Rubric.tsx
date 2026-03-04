@@ -3,7 +3,8 @@ import { useSession } from '../contexts/SessionContext';
 import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
 import { generateRubricFromDescription } from '../services/geminiService';
 import { exportToWord } from '../services/wordExportService';
-import { Loader2, Download, FileText, CheckCircle, ArrowRight, RotateCw, Home, Columns, X, Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, Download, FileText, CheckCircle, ArrowRight, RotateCw, Home, Columns, X, Clock, ChevronDown, ChevronUp, CloudUpload } from 'lucide-react';
+import { googleDriveService } from '../services/googleDriveService';
 import ErrorDisplay from './ErrorDisplay';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -272,6 +273,51 @@ export const Part1Rubric: React.FC = () => {
       await exportToWord(state.rubric);
     } catch (err: any) {
       setError(`Failed to export: ${err.message}`);
+    }
+  };
+
+  const [savingToDrive, setSavingToDrive] = useState(false);
+  const [driveSaveSuccess, setDriveSaveSuccess] = useState<string | null>(null);
+
+  const handleSaveToDrive = async () => {
+    if (!state.rubric || !state.googleAccessToken) return;
+    setSavingToDrive(true);
+    setDriveSaveSuccess(null);
+    try {
+      const folder = await googleDriveService.openFolderPicker(state.googleAccessToken);
+      if (!folder) { setSavingToDrive(false); return; }
+
+      // Format the rubric as readable plain text for a Google Doc
+      const rubric = state.rubric;
+      const lines: string[] = [
+        rubric.title,
+        '',
+        ...rubric.criteria.flatMap(c => [
+          `${c.category}`,
+          c.description ? `  ${c.description}` : '',
+          `  Exemplary (${c.exemplary.points} pts): ${c.exemplary.text}`,
+          `  Proficient (${c.proficient.points} pts): ${c.proficient.text}`,
+          `  Developing (${c.developing.points} pts): ${c.developing.text}`,
+          `  Unsatisfactory (${c.unsatisfactory.points} pts): ${c.unsatisfactory.text}`,
+          '',
+        ]),
+        `Total Points: ${rubric.totalPoints}`,
+      ];
+      const text = lines.join('\n');
+
+      await googleDriveService.uploadFileToDrive(
+        state.googleAccessToken,
+        text,
+        rubric.title,
+        'text/plain',
+        'application/vnd.google-apps.document',
+        folder.folderId,
+      );
+      setDriveSaveSuccess(`Saved to "${folder.folderName}"`);
+    } catch (err: any) {
+      setError(`Google Drive save failed: ${err.message}`);
+    } finally {
+      setSavingToDrive(false);
     }
   };
 
@@ -781,6 +827,14 @@ export const Part1Rubric: React.FC = () => {
                     Export to Word
                   </button>
                   <button
+                    onClick={handleSaveToDrive}
+                    disabled={savingToDrive || !state.isGoogleAuthenticated}
+                    className="flex-1 px-4 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold hover:bg-gray-50 disabled:opacity-50 transition-all text-sm flex items-center justify-center gap-2"
+                  >
+                    {savingToDrive ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
+                    {savingToDrive ? 'Saving…' : 'Save to Drive'}
+                  </button>
+                  <button
                     onClick={handleReset}
                     className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
                   >
@@ -795,6 +849,12 @@ export const Part1Rubric: React.FC = () => {
                     Dashboard
                   </button>
                 </div>
+                {driveSaveSuccess && (
+                  <p className="text-xs text-green-700 font-bold text-center mt-2">✓ {driveSaveSuccess}</p>
+                )}
+                {!state.isGoogleAuthenticated && (
+                  <p className="text-xs text-gray-400 text-center mt-2">Sign in with Google on the Dashboard to enable Save to Drive.</p>
+                )}
               </div>
             </div>
           </>
