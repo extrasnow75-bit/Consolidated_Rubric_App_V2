@@ -430,6 +430,36 @@ export const Part2WordToCsv: React.FC = () => {
 
   const [savingToDrive, setSavingToDrive] = useState(false);
   const [driveSaveSuccess, setDriveSaveSuccess] = useState<string | null>(null);
+  const [savingAllToDrive, setSavingAllToDrive] = useState(false);
+  const [driveAllSaveSuccess, setDriveAllSaveSuccess] = useState<string | null>(null);
+
+  const handleSaveAllToDrive = async () => {
+    if (!state.googleAccessToken) return;
+    const completed = rubricResults.filter(r => r.status === 'done' && r.csvContent);
+    if (completed.length === 0) return;
+    setSavingAllToDrive(true);
+    setDriveAllSaveSuccess(null);
+    try {
+      const folder = await googleDriveService.openFolderPicker(state.googleAccessToken);
+      if (!folder) { setSavingAllToDrive(false); return; }
+
+      for (const result of completed) {
+        await googleDriveService.uploadFileToDrive(
+          state.googleAccessToken,
+          result.csvContent!,
+          result.rubric.name,
+          'text/csv',
+          'application/vnd.google-apps.spreadsheet',
+          folder.folderId,
+        );
+      }
+      setDriveAllSaveSuccess(`${completed.length} file${completed.length !== 1 ? 's' : ''} saved to "${folder.folderName}"`);
+    } catch (err: any) {
+      setError(`Google Drive save failed: ${err.message}`);
+    } finally {
+      setSavingAllToDrive(false);
+    }
+  };
 
   const handleSaveToDrive = async () => {
     if (!singleCsvContent || !state.googleAccessToken) return;
@@ -983,15 +1013,30 @@ export const Part2WordToCsv: React.FC = () => {
                               </p>
                             </div>
 
-                            {/* Download All ZIP — sits above the cards once at least one is done */}
+                            {/* Download All ZIP + Save All to Drive — sits above the cards once at least one is done */}
                             {doneCount > 0 && (
-                              <button
-                                onClick={handleDownloadAllZip}
-                                className="w-full mb-4 py-3 bg-green-600 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-green-700 transition-all active:scale-95 flex items-center justify-center gap-2"
-                              >
-                                <PackageOpen className="w-5 h-5" />
-                                Download All {doneCount} CSV{doneCount !== 1 ? 's' : ''} as ZIP
-                              </button>
+                              <>
+                                <div className="flex gap-3 mb-4">
+                                  <button
+                                    onClick={handleDownloadAllZip}
+                                    className="flex-1 py-3 bg-green-600 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-green-700 transition-all active:scale-95 flex items-center justify-center gap-2"
+                                  >
+                                    <PackageOpen className="w-5 h-5" />
+                                    Download All {doneCount} as ZIP
+                                  </button>
+                                  <button
+                                    onClick={handleSaveAllToDrive}
+                                    disabled={savingAllToDrive || !state.isGoogleAuthenticated}
+                                    className="flex-1 py-3 bg-white border border-gray-300 text-gray-700 rounded-2xl font-black uppercase tracking-widest hover:bg-gray-50 disabled:opacity-50 transition-all active:scale-95 flex items-center justify-center gap-2"
+                                  >
+                                    {savingAllToDrive ? <Loader2 className="w-5 h-5 animate-spin" /> : <CloudUpload className="w-5 h-5" />}
+                                    {savingAllToDrive ? 'Saving…' : `Save All ${doneCount} to Drive`}
+                                  </button>
+                                </div>
+                                {driveAllSaveSuccess && (
+                                  <p className="text-xs text-green-700 font-bold text-center -mt-2 mb-3">✓ {driveAllSaveSuccess}</p>
+                                )}
+                              </>
                             )}
 
                             {/* Per-rubric result cards */}
