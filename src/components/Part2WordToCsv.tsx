@@ -639,10 +639,9 @@ export const Part2WordToCsv: React.FC = () => {
                 className="flex-1 px-4 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold hover:bg-gray-50 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
               >
                 {savingToDrive ? <Loader2 className="w-5 h-5 animate-spin" /> : (
-                  <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 3 Q13 1.5 14 3 L21.5 17.5 Q22.5 19.5 20.5 19.5 L3.5 19.5 Q1.5 19.5 2.5 17.5 L10 3 Q11 1.5 12 3 Z" stroke="currentColor" strokeWidth="1.4"/>
-                    <path d="M12 7 Q12.7 6 13.4 7 L18.5 16.5 Q19 17.5 18 17.5 L6 17.5 Q5 17.5 5.5 16.5 L10.6 7 Q11.3 6 12 7 Z" stroke="currentColor" strokeWidth="1"/>
-                    <path d="M12 13v3M10.5 14.5h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                  <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 28 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M10 2L19.5 19H0.5Z" stroke="currentColor" strokeWidth="3.5" strokeLinejoin="round" strokeLinecap="round"/>
+                    <path d="M23 13.5v7M19.5 17h7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
                   </svg>
                 )}
                 {savingToDrive ? 'Adding…' : 'Add to Drive'}
@@ -1035,10 +1034,9 @@ export const Part2WordToCsv: React.FC = () => {
                                     className="flex-1 py-3 bg-white border border-gray-300 text-gray-700 rounded-2xl font-black uppercase tracking-widest hover:bg-gray-50 disabled:opacity-50 transition-all active:scale-95 flex items-center justify-center gap-2"
                                   >
                                     {savingAllToDrive ? <Loader2 className="w-5 h-5 animate-spin" /> : (
-                                      <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M12 3 Q13 1.5 14 3 L21.5 17.5 Q22.5 19.5 20.5 19.5 L3.5 19.5 Q1.5 19.5 2.5 17.5 L10 3 Q11 1.5 12 3 Z" stroke="currentColor" strokeWidth="1.4"/>
-                                        <path d="M12 7 Q12.7 6 13.4 7 L18.5 16.5 Q19 17.5 18 17.5 L6 17.5 Q5 17.5 5.5 16.5 L10.6 7 Q11.3 6 12 7 Z" stroke="currentColor" strokeWidth="1"/>
-                                        <path d="M12 13v3M10.5 14.5h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                                      <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 28 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M10 2L19.5 19H0.5Z" stroke="currentColor" strokeWidth="3.5" strokeLinejoin="round" strokeLinecap="round"/>
+                                        <path d="M23 13.5v7M19.5 17h7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
                                       </svg>
                                     )}
                                     {savingAllToDrive ? 'Adding…' : `Add All ${doneCount} to Drive`}
