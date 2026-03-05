@@ -247,6 +247,15 @@ export const Part2WordToCsv: React.FC = () => {
 
       const attachment: Attachment = { name: file.name, mimeType, data: base64Data };
       setAttachments([attachment]);
+
+      // Pre-fill rubric name from filename (strip extension + clean up separators)
+      const nameFromFile = file.name
+        .replace(/\.(docx?|pdf)$/i, '')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      setEditableRubricName(nameFromFile);
+
       // No Gemini call on upload — batch generation happens when the user
       // clicks "Generate All CSVs" (MULTIPLE mode) or "Generate Canvas CSV" (SINGLE mode).
     } catch (err: any) {
