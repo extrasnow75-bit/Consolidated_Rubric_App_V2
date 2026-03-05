@@ -626,13 +626,6 @@ export const Part2WordToCsv: React.FC = () => {
 
             <div className="flex gap-3">
               <button
-                onClick={handleCopyToClipboard}
-                className="flex-1 px-4 py-3 bg-gray-600 text-white rounded-xl font-bold hover:bg-gray-700 transition-all flex items-center justify-center gap-2"
-              >
-                {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
-                {copied ? 'Copied!' : 'Copy'}
-              </button>
-              <button
                 onClick={() =>
                   downloadCsv(singleCsvContent, editableRubricName || 'rubric')
                 }
