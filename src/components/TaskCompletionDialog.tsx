@@ -33,7 +33,7 @@ const TaskCompletionDialog: React.FC<TaskCompletionDialogProps> = ({
           message: 'Your draft rubric has been generated successfully.',
           primaryAction: { label: 'Continue to Part 2: Convert to CSV', onClick: onContinue, icon: ArrowRight },
           secondaryActions: [
-            { label: 'Export to Word & Stop', onClick: onExport, icon: 'download' },
+            { label: 'Download as .docx & Stop', onClick: onExport, icon: 'download' },
             { label: 'Create Another Rubric', onClick: onNewBatch, icon: RotateCw },
             { label: 'Return to Dashboard', onClick: onNewSession, icon: Home },
           ],

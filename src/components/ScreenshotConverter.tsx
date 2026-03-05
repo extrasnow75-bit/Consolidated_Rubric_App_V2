@@ -267,7 +267,7 @@ export const ScreenshotConverter: React.FC = () => {
                 className="w-full px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2 mb-3"
               >
                 <Download className="w-5 h-5" />
-                Export to Word
+                Download as .docx
               </button>
 
               {/* Reset Button */}
