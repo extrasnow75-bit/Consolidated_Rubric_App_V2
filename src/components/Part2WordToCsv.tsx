@@ -639,7 +639,7 @@ export const Part2WordToCsv: React.FC = () => {
                 className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2"
               >
                 <Download className="w-5 h-5" />
-                Download
+                Download as .csv
               </button>
               <button
                 onClick={handleSaveToDrive}
