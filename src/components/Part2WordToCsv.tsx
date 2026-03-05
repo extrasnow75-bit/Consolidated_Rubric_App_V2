@@ -288,7 +288,6 @@ export const Part2WordToCsv: React.FC = () => {
       setProgress({ percentage: 1, itemsProcessed: 1 });
       setTimeout(() => {
         stopProgress();
-        setTaskCompletionOpen(true);
       }, 500);
     } catch (err: any) {
       if (!controller.signal.aborted) {
