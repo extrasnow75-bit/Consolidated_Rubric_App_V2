@@ -1,6 +1,7 @@
 // Google Drive API endpoints
 const GOOGLE_DRIVE_API = 'https://www.googleapis.com/drive/v3/files';
 const GOOGLE_EXPORT_API = 'https://www.googleapis.com/drive/v3/files';
+const GOOGLE_DOCS_API = 'https://docs.googleapis.com/v1/documents';
 
 export interface PickerResult {
   fileId: string;
@@ -156,12 +157,58 @@ class GoogleDriveService {
   }
 
   /**
-   * Get Google Docs content as plain text
+   * Recursively extract plain text from a Google Docs API body content array.
+   * Handles paragraphs (including text runs) and tables.
+   */
+  private extractTextFromDocContent(content: any[]): string {
+    let text = '';
+    for (const element of content || []) {
+      if (element.paragraph) {
+        for (const el of element.paragraph.elements || []) {
+          if (el.textRun?.content) {
+            text += el.textRun.content;
+          }
+        }
+      } else if (element.table) {
+        for (const row of element.table.tableRows || []) {
+          for (const cell of row.tableCells || []) {
+            text += this.extractTextFromDocContent(cell.content || []);
+          }
+        }
+      }
+    }
+    return text;
+  }
+
+  /**
+   * Recursively collect text from a tab and all its child tabs.
+   * Returns an array of { title, text } objects, one per tab.
+   */
+  private collectTabTexts(tab: any, parentTitle?: string): Array<{ title: string; text: string }> {
+    const rawTitle: string = tab.tabProperties?.title || `Tab ${(tab.tabProperties?.index ?? 0) + 1}`;
+    const title = parentTitle ? `${parentTitle} > ${rawTitle}` : rawTitle;
+    const content: any[] = tab.documentTab?.body?.content || [];
+    const text = this.extractTextFromDocContent(content);
+
+    const results: Array<{ title: string; text: string }> = [{ title, text }];
+
+    for (const child of tab.childTabs || []) {
+      results.push(...this.collectTabTexts(child, title));
+    }
+
+    return results;
+  }
+
+  /**
+   * Get Google Docs content as plain text, supporting documents with multiple tabs.
+   * Uses the Docs API (docs.googleapis.com) with includeTabsContent=true so that
+   * all tabs are returned in a single request. Falls back gracefully to the legacy
+   * body.content field for older single-body documents.
    */
   async getGoogleDocContent(fileId: string, accessToken: string): Promise<string> {
     try {
       const response = await fetch(
-        `${GOOGLE_EXPORT_API}/${fileId}/export?mimeType=text/plain`,
+        `${GOOGLE_DOCS_API}/${fileId}?includeTabsContent=true`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -200,7 +247,26 @@ class GoogleDriveService {
         throw new Error(`Failed to fetch document (HTTP ${response.status}${detail ? `: ${detail}` : ''})`);
       }
 
-      return await response.text();
+      const doc = await response.json();
+
+      // Multi-tab documents: doc.tabs[] is present and non-empty
+      const tabs: any[] = doc.tabs || [];
+      if (tabs.length > 0) {
+        const allTabTexts = tabs.flatMap((tab: any) => this.collectTabTexts(tab));
+        if (allTabTexts.length === 1) {
+          // Single tab — return text directly without a header
+          return allTabTexts[0].text;
+        }
+        // Multiple tabs — prefix each section with the tab name so the AI
+        // can distinguish rubrics that live on different tabs
+        return allTabTexts
+          .map(({ title, text }) => `=== Tab: ${title} ===\n${text}`)
+          .join('\n\n');
+      }
+
+      // Legacy single-body document (no tabs field)
+      return this.extractTextFromDocContent(doc.body?.content || []);
+
     } catch (error: any) {
       if (
         error.message.includes('Document not found') ||

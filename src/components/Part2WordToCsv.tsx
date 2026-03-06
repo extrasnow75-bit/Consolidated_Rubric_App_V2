@@ -23,6 +23,7 @@ import {
   Zap,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
   FolderOpen,
 } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
@@ -657,12 +658,21 @@ export const Part2WordToCsv: React.FC = () => {
               <p className="text-xs text-green-700 font-bold text-center mt-2">✓ {driveSaveSuccess}</p>
             )}
 
-            <button
-              onClick={resetForNewFile}
-              className="w-full mt-3 py-2 text-gray-700 rounded-xl font-bold hover:bg-gray-100 transition-all"
-            >
-              Convert Another File
-            </button>
+            <div className="flex flex-col gap-2 mt-3">
+              <button
+                onClick={resetForNewFile}
+                className="w-full py-2 text-gray-700 rounded-xl font-bold hover:bg-gray-100 hover:brightness-110 transition-all"
+              >
+                Convert Another File
+              </button>
+              <button
+                onClick={() => setCurrentStep(AppMode.PART_1)}
+                className="w-full py-2 px-4 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 hover:brightness-110 transition-all flex items-center justify-center gap-2"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Back to Phase 1
+              </button>
+            </div>
           </>
         ) : (
           /* ══ UPLOAD / GENERATION FORM ══════════════════════════════════ */
@@ -1236,13 +1246,22 @@ export const Part2WordToCsv: React.FC = () => {
                           </>
                         )}
 
-                        {/* Choose different file */}
-                        <button
-                          onClick={resetForNewFile}
-                          className="w-full mt-3 py-2 text-gray-500 rounded-xl font-bold hover:bg-gray-100 transition-all text-sm"
-                        >
-                          Choose Different File
-                        </button>
+                        {/* Choose different file / Back to Phase 1 */}
+                        <div className="flex flex-col gap-2 mt-3">
+                          <button
+                            onClick={resetForNewFile}
+                            className="w-full py-2 text-gray-500 rounded-xl font-bold hover:bg-gray-100 hover:brightness-110 transition-all text-sm"
+                          >
+                            Choose Different File
+                          </button>
+                          <button
+                            onClick={() => setCurrentStep(AppMode.PART_1)}
+                            className="w-full py-2 px-4 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 hover:brightness-110 transition-all flex items-center justify-center gap-2"
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                            Back to Phase 1
+                          </button>
+                        </div>
                       </>
                     )}
                   </>
