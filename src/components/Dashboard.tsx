@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode } from '../types';
-import { Lightbulb, FileText, Upload, Camera, ArrowRight, LogOut, Key, Check, X, Loader2, ExternalLink, Eye, EyeOff } from 'lucide-react';
+import { Lightbulb, FileText, Upload, Camera, ArrowRight, LogOut, Key, Check, X, Loader2, ExternalLink, Eye, EyeOff, Settings2, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import { validateGeminiApiKey } from '../services/geminiService';
 
 const GoogleIcon = () => (
@@ -35,6 +35,18 @@ export const Dashboard: React.FC = () => {
   const [canvasTokenInput, setCanvasTokenInput] = useState('');
   const [showCanvasToken, setShowCanvasToken] = useState(false);
   const [canvasTokenError, setCanvasTokenError] = useState<string | null>(null);
+
+  // Initial Setup panel
+  const [setupOpen, setSetupOpen] = useState(true);
+
+  // Missing-key warning modal
+  const [modal, setModal] = useState<{ pendingStep: AppMode; missingGemini: boolean; missingCanvas: boolean } | null>(null);
+  const [dontShowAgain, setDontShowAgain] = useState(() => localStorage.getItem('skipSetupWarning') === 'true');
+
+  const handleDontShowChange = (checked: boolean) => {
+    setDontShowAgain(checked);
+    localStorage.setItem('skipSetupWarning', checked ? 'true' : 'false');
+  };
 
   const handleSaveApiKey = async () => {
     if (!apiKeyInput.trim()) return;
@@ -94,6 +106,12 @@ export const Dashboard: React.FC = () => {
   };
 
   const handleStartPart = (part: AppMode) => {
+    const missingGemini = !state.geminiApiKey;
+    const missingCanvas = part === AppMode.PART_3 && !state.canvasApiToken;
+    if (!dontShowAgain && (missingGemini || missingCanvas)) {
+      setModal({ pendingStep: part, missingGemini, missingCanvas });
+      return;
+    }
     setCurrentStep(part);
   };
 
@@ -271,6 +289,29 @@ export const Dashboard: React.FC = () => {
         {/* Right Sidebar */}
         <div className="w-80 flex-shrink-0">
           <div className="bg-[#e5eff6] rounded-3xl p-4 shadow-2xl border border-blue-100 space-y-4">
+
+          {/* Initial Setup heading + collapsible explainer */}
+          <div className="bg-gradient-to-r from-amber-400 to-orange-400 rounded-2xl p-4 shadow">
+            <button
+              onClick={() => setSetupOpen(o => !o)}
+              className="w-full flex items-center gap-3 text-left"
+            >
+              <div className="w-9 h-9 bg-white rounded-xl flex items-center justify-center shadow flex-shrink-0">
+                <Settings2 className="w-5 h-5 text-orange-500" />
+              </div>
+              <span className="font-black text-white text-lg flex-1">Initial Setup</span>
+              {setupOpen
+                ? <ChevronUp className="w-5 h-5 text-white flex-shrink-0" />
+                : <ChevronDown className="w-5 h-5 text-white flex-shrink-0" />}
+            </button>
+            {setupOpen && (
+              <div className="mt-3 pt-3 border-t border-orange-300 text-sm text-white space-y-2 leading-relaxed">
+                <p>A <span className="font-bold">Gemini API Key</span> is needed to complete any of the available tasks.</p>
+                <p><span className="font-bold">Google Login</span> is optional but allows you to choose files directly from Google Drive.</p>
+                <p>A <span className="font-bold">Canvas API Token</span> is needed if you want the app to upload rubrics directly to Canvas for you.</p>
+              </div>
+            )}
+          </div>
 
           {/* 1. Gemini API Key Card */}
           <div className="bg-white p-6 rounded-2xl shadow border border-gray-100">
@@ -481,6 +522,65 @@ export const Dashboard: React.FC = () => {
           </div>{/* end pale blue wrapper */}
         </div>
       </div>
+      {/* Missing-key warning modal */}
+      {modal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setModal(null)}
+          />
+          {/* Dialog */}
+          <div className="relative bg-white rounded-3xl shadow-2xl border border-gray-100 w-full max-w-md p-8 flex flex-col gap-5">
+            {/* Icon + title */}
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="w-6 h-6 text-amber-500" />
+              </div>
+              <div>
+                <h3 className="font-black text-xl text-gray-900 mb-1">Before you continue</h3>
+                {modal.missingGemini && (
+                  <p className="text-sm text-gray-700 leading-relaxed">
+                    For this feature to work, you will need to enter a <span className="font-bold">Gemini API Key</span>.
+                  </p>
+                )}
+                {modal.missingCanvas && (
+                  <p className="text-sm text-gray-700 leading-relaxed mt-2">
+                    You also need a <span className="font-bold">Canvas API Token</span> for me to deploy rubrics to Canvas for you.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Don't show again */}
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={dontShowAgain}
+                onChange={(e) => handleDontShowChange(e.target.checked)}
+                className="w-4 h-4 accent-blue-600 cursor-pointer"
+              />
+              <span className="text-sm text-gray-600">Don't show this pop-up again</span>
+            </label>
+
+            {/* Action buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setModal(null)}
+                className="flex-1 py-3 px-4 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm"
+              >
+                Back to Dashboard
+              </button>
+              <button
+                onClick={() => { setCurrentStep(modal.pendingStep); setModal(null); }}
+                className="flex-1 py-3 px-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all text-sm"
+              >
+                Continue Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
