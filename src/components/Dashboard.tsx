@@ -131,7 +131,7 @@ export const Dashboard: React.FC = () => {
                   <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center group-hover:bg-amber-200 transition-all">
                     <Lightbulb className="w-6 h-6 text-amber-600" />
                   </div>
-                  <ArrowRight className="w-5 h-5 text-gray-400" />
+                  <ArrowRight className="w-5 h-5 text-gray-600" />
                   <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-all">
                     <div className="text-[#2B579A] font-black text-sm">W</div>
                   </div>
@@ -156,7 +156,7 @@ export const Dashboard: React.FC = () => {
                   <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center group-hover:bg-purple-200 transition-all">
                     <Camera className="w-6 h-6 text-purple-600" />
                   </div>
-                  <ArrowRight className="w-5 h-5 text-gray-400" />
+                  <ArrowRight className="w-5 h-5 text-gray-600" />
                   <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-all">
                     <div className="text-[#2B579A] font-black text-sm">W</div>
                   </div>
@@ -180,7 +180,7 @@ export const Dashboard: React.FC = () => {
                 <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-all">
                   <div className="text-[#2B579A] font-black text-sm">W</div>
                 </div>
-                <ArrowRight className="w-5 h-5 text-gray-400" />
+                <ArrowRight className="w-5 h-5 text-gray-600" />
                 <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center group-hover:bg-green-200 transition-all">
                   <div className="text-[#107C10] font-black text-[10px]">CSV</div>
                 </div>
@@ -203,7 +203,7 @@ export const Dashboard: React.FC = () => {
                 <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center group-hover:bg-green-200 transition-all">
                   <div className="text-[#107C10] font-black text-[10px]">CSV</div>
                 </div>
-                <ArrowRight className="w-5 h-5 text-gray-400" />
+                <ArrowRight className="w-5 h-5 text-gray-600" />
                 <div className="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center group-hover:bg-red-200 transition-all">
                   <svg viewBox="0 0 100 100" className="w-6 h-6" xmlns="http://www.w3.org/2000/svg">
                     <g fill="#E63027">

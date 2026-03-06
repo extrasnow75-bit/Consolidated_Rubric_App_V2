@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode, CanvasConfig } from '../types';
 import { pushRubricToCanvas } from '../services/canvasService';
-import { Eye, EyeOff, Loader2, Upload, CheckCircle, AlertCircle, X, Zap, FolderOpen } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Upload, CheckCircle, AlertCircle, X, Zap, FolderOpen, ChevronLeft } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import JSZip from 'jszip';
 import { googleDriveService } from '../services/googleDriveService';
@@ -29,6 +29,7 @@ export const Part3Upload: React.FC = () => {
     setProgress,
     getAbortSignal,
     startGoogleAuth,
+    setCurrentStep,
   } = useSession();
 
   const [courseUrl, setCourseUrl] = useState('');
@@ -429,6 +430,15 @@ export const Part3Upload: React.FC = () => {
             </p>
           </div>
         )}
+
+        {/* Back to Phase 2 Button */}
+        <button
+          onClick={() => setCurrentStep(AppMode.PART_2)}
+          className="mb-6 px-4 py-2 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all flex items-center gap-2 inline-flex"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          Back to Phase 2
+        </button>
 
         {/* Header */}
         <div className="mb-6">
