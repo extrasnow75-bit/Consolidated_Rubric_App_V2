@@ -113,13 +113,13 @@ export const Part1Rubric: React.FC = () => {
   };
 
   const handleFetchGoogleDoc = async () => {
-    if (!state.isGoogleAuthenticated) {
+    if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
       setError('Please sign in with Google first');
       return;
     }
 
     if (!googleDocUrl.trim()) {
-      setError('Please enter a Google Docs URL');
+      setError('Please enter a Google Drive URL');
       return;
     }
 
@@ -128,14 +128,44 @@ export const Part1Rubric: React.FC = () => {
 
     try {
       const urlToSave = googleDocUrl.trim();
-      const text = await extractGoogleDocText(googleDocUrl);
+      const fileId = googleDriveService.extractFileIdFromUrl(urlToSave);
+      const meta = await googleDriveService.verifyFileAccess(fileId, state.googleAccessToken);
+      let text = '';
+
+      if (meta.mimeType === 'application/vnd.google-apps.document') {
+        text = await extractGoogleDocText(fileId);
+      } else if (
+        meta.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        meta.mimeType === 'application/msword'
+      ) {
+        const arrayBuffer = await downloadDriveFile(fileId);
+        const extracted = await mammoth.extractRawText({ arrayBuffer });
+        text = extracted.value;
+      } else if (meta.mimeType === 'application/pdf') {
+        const arrayBuffer = await downloadDriveFile(fileId);
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const pageTexts: string[] = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          pageTexts.push(content.items.map((item: any) => item.str).join(' '));
+        }
+        text = pageTexts.join('\n\n');
+      } else if (meta.mimeType === 'text/plain') {
+        const arrayBuffer = await downloadDriveFile(fileId);
+        text = new TextDecoder().decode(arrayBuffer);
+      } else {
+        setError(`"${meta.name}" is not a supported file type. Please use a Google Doc, Word document (.docx), PDF, or plain text file.`);
+        return;
+      }
+
       setAssignmentDescription(text);
-      saveRecentDoc({ name: urlToSave, url: urlToSave, source: 'url' });
+      saveRecentDoc({ name: meta.name, url: urlToSave, source: 'url' });
       setRecentDocs(getRecentDocs());
-      setInputMode('text'); // Switch to text view
-      setGoogleDocUrl(''); // Clear URL field
+      setInputMode('text');
+      setGoogleDocUrl('');
     } catch (err: any) {
-      setError(`Failed to fetch Google Doc: ${err.message}`);
+      setError(`Failed to fetch from Google Drive: ${err.message}`);
     } finally {
       setFetchingGoogleDoc(false);
     }
@@ -502,7 +532,7 @@ export const Part1Rubric: React.FC = () => {
                     : 'border-transparent text-gray-600 hover:text-gray-900'
                 }`}
               >
-                Local Drive
+                From Local Drive
               </button>
               <button
                 onClick={() => {
@@ -515,7 +545,7 @@ export const Part1Rubric: React.FC = () => {
                     : 'border-transparent text-gray-600 hover:text-gray-900'
                 }`}
               >
-                Google Drive
+                From Google Drive
               </button>
             </div>
 
@@ -691,20 +721,21 @@ export const Part1Rubric: React.FC = () => {
                   <div className="flex-1 h-px bg-gray-200" />
                 </div>
 
-                {/* Google Docs URL Input */}
+                {/* Google Drive URL Input */}
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Google Docs URL
+                    Google Drive URL
                   </label>
                   <input
                     type="url"
                     value={googleDocUrl}
                     onChange={(e) => setGoogleDocUrl(e.target.value)}
-                    placeholder="Paste your shared Google Docs link (docs.google.com/document/d/...)"
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleFetchGoogleDoc(); }}
+                    placeholder="docs.google.com/document/d/… or drive.google.com/file/d/…"
                     className="w-full px-4 py-3 border rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none mb-3"
                   />
                   <p className="text-xs text-gray-700 mb-4">
-                    The document must be shared with you. Shared Google Docs links work with this feature.
+                    Supports Google Docs, Word (.docx), and PDF files stored in Drive. The file must be accessible to your signed-in account.
                   </p>
                   <button
                     onClick={handleFetchGoogleDoc}

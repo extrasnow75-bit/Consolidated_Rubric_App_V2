@@ -47,6 +47,8 @@ export const Part3Upload: React.FC = () => {
   const [pickingFromDrive, setPickingFromDrive] = useState(false);
   const [drivePickedCsv, setDrivePickedCsv] = useState<string | null>(null);
   const [drivePickedFileName, setDrivePickedFileName] = useState('');
+  const [driveUrl, setDriveUrl] = useState('');
+  const [fetchingDriveUrl, setFetchingDriveUrl] = useState(false);
 
   const csvToUse = state.csvOutput || drivePickedCsv || manualCsv;
 
@@ -312,7 +314,26 @@ export const Part3Upload: React.FC = () => {
     setUploadMode('single');
   };
 
-  /** Open the Google Drive file picker filtered to Sheets, fetch the chosen sheet as CSV. */
+  /** Resolve a picked/fetched Drive file to CSV based on its mimeType. */
+  const resolveDriveCsv = async (fileId: string, mimeType: string, name: string): Promise<void> => {
+    let csvData: string;
+    let fileName: string;
+    if (mimeType === 'application/vnd.google-apps.spreadsheet') {
+      csvData = await googleDriveService.getGoogleSheetContent(fileId, state.googleAccessToken!);
+      fileName = `${name}.csv`;
+    } else if (mimeType === 'text/csv' || mimeType === 'text/plain') {
+      const arrayBuffer = await googleDriveService.downloadFileAsArrayBuffer(fileId, state.googleAccessToken!);
+      csvData = new TextDecoder().decode(arrayBuffer);
+      fileName = name.endsWith('.csv') ? name : `${name}.csv`;
+    } else {
+      throw new Error(`"${name}" is not a supported type. Please select a Google Sheet or a CSV file.`);
+    }
+    setDrivePickedCsv(csvData);
+    setDrivePickedFileName(fileName);
+    setCsvOutput(csvData, fileName);
+  };
+
+  /** Open the Google Drive file picker filtered to Sheets and CSV files. */
   const handleGoogleDrivePick = async () => {
     if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
       setError('Please sign in with Google on the Dashboard first.');
@@ -323,21 +344,36 @@ export const Part3Upload: React.FC = () => {
     try {
       const result = await googleDriveService.openPicker(
         state.googleAccessToken,
-        ['application/vnd.google-apps.spreadsheet'],
+        ['application/vnd.google-apps.spreadsheet', 'text/csv'],
       );
       if (result) {
-        const csvData = await googleDriveService.getGoogleSheetContent(
-          result.fileId,
-          state.googleAccessToken,
-        );
-        setDrivePickedCsv(csvData);
-        setDrivePickedFileName(`${result.name}.csv`);
-        setCsvOutput(csvData, `${result.name}.csv`);
+        await resolveDriveCsv(result.fileId, result.mimeType, result.name);
       }
     } catch (err: any) {
       setError(`Google Drive: ${err.message}`);
     } finally {
       setPickingFromDrive(false);
+    }
+  };
+
+  /** Fetch a CSV or Google Sheet from a pasted Drive URL. */
+  const handleFetchFromDriveUrl = async () => {
+    if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+      setError('Please sign in with Google on the Dashboard first.');
+      return;
+    }
+    if (!driveUrl.trim()) return;
+    setFetchingDriveUrl(true);
+    setError(null);
+    try {
+      const fileId = googleDriveService.extractFileIdFromUrl(driveUrl.trim());
+      const meta = await googleDriveService.verifyFileAccess(fileId, state.googleAccessToken);
+      await resolveDriveCsv(fileId, meta.mimeType, meta.name);
+      setDriveUrl('');
+    } catch (err: any) {
+      setError(`Google Drive: ${err.message}`);
+    } finally {
+      setFetchingDriveUrl(false);
     }
   };
 
@@ -482,7 +518,7 @@ export const Part3Upload: React.FC = () => {
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
-            Google Drive
+            From Google Drive
           </button>
           <button
             onClick={() => setUploadMode('batch')}
@@ -570,6 +606,36 @@ export const Part3Upload: React.FC = () => {
                         </button>
                       </div>
                     )}
+
+                    {/* OR divider */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 h-px bg-gray-200" />
+                      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">or paste a URL</span>
+                      <div className="flex-1 h-px bg-gray-200" />
+                    </div>
+
+                    {/* Drive URL input */}
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        Paste Google Sheets or CSV Drive URL
+                      </label>
+                      <input
+                        type="url"
+                        value={driveUrl}
+                        onChange={(e) => setDriveUrl(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleFetchFromDriveUrl(); }}
+                        placeholder="docs.google.com/spreadsheets/d/… or drive.google.com/file/d/…"
+                        className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm mb-3"
+                      />
+                      <button
+                        onClick={handleFetchFromDriveUrl}
+                        disabled={!driveUrl.trim() || fetchingDriveUrl || !state.isGoogleAuthenticated}
+                        className="w-full py-3 px-4 bg-blue-100 text-blue-700 rounded-xl font-bold hover:bg-blue-200 disabled:bg-gray-100 disabled:text-gray-400 transition-all text-sm flex items-center justify-center gap-2"
+                      >
+                        {fetchingDriveUrl && <Loader2 className="w-4 h-4 animate-spin" />}
+                        {fetchingDriveUrl ? 'Fetching…' : 'Fetch from Drive'}
+                      </button>
+                    </div>
                   </>
                 )}
               </div>
