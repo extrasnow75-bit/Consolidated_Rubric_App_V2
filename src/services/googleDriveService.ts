@@ -132,11 +132,15 @@ class GoogleDriveService {
    * Extract file ID from Google Docs/Sheets URL
    */
   extractFileIdFromUrl(url: string): string {
-    const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
-    if (match) {
-      return match[1];
-    }
+    // /d/{fileId} — Google Docs, Drive file/folder share links
+    const slashMatch = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (slashMatch) return slashMatch[1];
 
+    // ?id={fileId} or &id={fileId} — drive.google.com/open?id=...
+    const idMatch = url.match(/[?&]id=([a-zA-Z0-9-_]+)/);
+    if (idMatch) return idMatch[1];
+
+    // Raw file ID
     if (/^[a-zA-Z0-9-_]+$/.test(url)) {
       return url;
     }
