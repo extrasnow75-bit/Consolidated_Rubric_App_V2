@@ -93,6 +93,8 @@ class GoogleDriveService {
 
           const sharedWithMeView = new google.picker.DocsView()
             .setOwnedByMe(false)
+            .setIncludeFolders(true)
+            .setSelectFolderEnabled(false)
             .setMimeTypes(SUPPORTED_MIME_TYPES);
 
           const builder = new google.picker.PickerBuilder()
