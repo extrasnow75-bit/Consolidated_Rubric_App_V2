@@ -90,6 +90,8 @@ export const Part2WordToCsv: React.FC = () => {
   // ── Input mode (file upload vs Google Drive) ─────────────────────────
   const [inputMode, setInputMode] = useState<'from-phase1' | 'file' | 'google-drive'>(state.rubric ? 'from-phase1' : 'file');
   const [pickingFromGoogleDrive, setPickingFromGoogleDrive] = useState(false);
+  const [driveUrl, setDriveUrl] = useState('');
+  const [fetchingDriveUrl, setFetchingDriveUrl] = useState(false);
 
   // ── Single-rubric editable fields ────────────────────────────────────
   const [processingType, setProcessingType] = useState<ProcessingType>(
@@ -539,6 +541,57 @@ export const Part2WordToCsv: React.FC = () => {
     } finally {
       setPickingFromGoogleDrive(false);
       setIsLoading(false);
+    }
+  };
+
+  /** Fetch a rubric document from a pasted Google Drive / Docs URL. */
+  const handleFetchFromUrl = async () => {
+    if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+      setError('Please sign in with Google first.');
+      return;
+    }
+    if (!driveUrl.trim()) return;
+
+    resetForNewFile();
+    setFetchingDriveUrl(true);
+    setError(null);
+
+    try {
+      const fileId = googleDriveService.extractFileIdFromUrl(driveUrl.trim());
+      const meta = await googleDriveService.verifyFileAccess(fileId, state.googleAccessToken);
+
+      let data: string;
+      let mimeType: string;
+
+      if (meta.mimeType === 'application/vnd.google-apps.document') {
+        const text = await googleDriveService.getGoogleDocContent(fileId, state.googleAccessToken);
+        const bytes = new TextEncoder().encode(text);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i += 8192) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+        }
+        data = btoa(binary);
+        mimeType = 'text/plain';
+      } else {
+        const arrayBuffer = await googleDriveService.downloadFileAsArrayBuffer(fileId, state.googleAccessToken);
+        data = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+        mimeType = meta.mimeType;
+      }
+
+      const attachment: Attachment = { name: meta.name, mimeType, data };
+      setAttachments([attachment]);
+      const nameFromFile = meta.name
+        .replace(/\.(docx?|pdf|txt)$/i, '')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      setEditableRubricName(nameFromFile);
+      setDriveUrl('');
+      setInputMode('file');
+    } catch (err: any) {
+      setError(`Google Drive: ${err.message}`);
+    } finally {
+      setFetchingDriveUrl(false);
     }
   };
 
@@ -1293,6 +1346,36 @@ export const Part2WordToCsv: React.FC = () => {
                     </button>
                   </div>
                 )}
+
+                {/* Divider */}
+                <div className="flex items-center gap-3 my-4">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-xs text-gray-400 font-semibold">OR</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+
+                {/* URL paste input */}
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Paste Google Drive URL
+                  </label>
+                  <input
+                    type="url"
+                    value={driveUrl}
+                    onChange={(e) => setDriveUrl(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleFetchFromUrl(); }}
+                    placeholder="docs.google.com/document/d/… or drive.google.com/file/d/…"
+                    className="w-full px-4 py-3 border rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none mb-3"
+                  />
+                  <button
+                    onClick={handleFetchFromUrl}
+                    disabled={!driveUrl.trim() || fetchingDriveUrl || !state.isGoogleAuthenticated}
+                    className="w-full py-3 px-4 bg-blue-100 text-blue-700 rounded-xl font-bold hover:bg-blue-200 disabled:bg-gray-100 disabled:text-gray-400 transition-all text-sm flex items-center justify-center gap-2"
+                  >
+                    {fetchingDriveUrl && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {fetchingDriveUrl ? 'Fetching…' : 'Fetch from Drive'}
+                  </button>
+                </div>
 
                 {state.error && (
                   <ErrorDisplay error={state.error} className="mt-6" />
