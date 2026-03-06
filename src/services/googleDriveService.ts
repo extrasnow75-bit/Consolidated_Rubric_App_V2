@@ -86,13 +86,20 @@ class GoogleDriveService {
           ];
           const SUPPORTED_MIME_TYPES = (mimeTypes ?? DEFAULT_MIME_TYPES).join(',');
 
-          const view = new google.picker.DocsView()
+          const myDriveView = new google.picker.DocsView()
             .setIncludeFolders(true)
             .setSelectFolderEnabled(false)
+            .setEnableDrives(true)
+            .setMimeTypes(SUPPORTED_MIME_TYPES);
+
+          const sharedWithMeView = new google.picker.DocsView()
+            .setOwnedByMe(false)
+            .setEnableDrives(true)
             .setMimeTypes(SUPPORTED_MIME_TYPES);
 
           const builder = new google.picker.PickerBuilder()
-            .addView(view)
+            .addView(myDriveView)
+            .addView(sharedWithMeView)
             .setOAuthToken(accessToken)
             .setDeveloperKey(this.pickerApiKey)
             .setAppId(this.pickerApiKey.split(':')[0] ?? '')
