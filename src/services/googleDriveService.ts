@@ -215,84 +215,52 @@ class GoogleDriveService {
 
   /**
    * Get Google Docs content as plain text, supporting documents with multiple tabs.
-   * Uses the Docs API (docs.googleapis.com) with includeTabsContent=true so that
-   * all tabs are returned in a single request. Falls back gracefully to the legacy
-   * body.content field for older single-body documents.
+   * Uses the Drive export API (www.googleapis.com) to export the document as
+   * plain text. This avoids the separate docs.googleapis.com domain entirely
+   * and works for both single-body and multi-tab Google Docs.
    */
   async getGoogleDocContent(fileId: string, accessToken: string): Promise<string> {
-    try {
-      const response = await fetch(
-        `${GOOGLE_DOCS_API}/${fileId}?includeTabsContent=true`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
-      );
-
-      if (response.status === 404) {
-        throw new Error('Document not found. Please check the link and try again.');
+    const response = await fetch(
+      `${GOOGLE_DRIVE_API}/${fileId}/export?mimeType=text/plain`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
       }
+    );
 
-      if (response.status === 401) {
-        throw new Error('Your Google session has expired. Please sign out and sign in again.');
-      }
+    if (response.status === 404) {
+      throw new Error('Document not found. Please check the link and try again.');
+    }
 
-      if (response.status === 403) {
-        const detail = await this.parseGoogleErrorBody(response);
-        const isPermissionError = detail.toLowerCase().includes('insufficientpermissions') ||
-          detail.toLowerCase().includes('insufficient permissions') ||
-          detail.toLowerCase().includes('request had insufficient authentication scopes');
-        if (isPermissionError) {
-          throw new Error(
-            'Google Drive access not authorized. Your current sign-in does not include Drive read permission. ' +
-            'Please sign out from the Google panel and sign in again — on the Google consent screen, make sure to allow Drive access.'
-          );
-        }
+    if (response.status === 401) {
+      throw new Error('Your Google session has expired. Please sign out and sign in again.');
+    }
+
+    if (response.status === 403) {
+      const detail = await this.parseGoogleErrorBody(response);
+      const isPermissionError = detail.toLowerCase().includes('insufficientpermissions') ||
+        detail.toLowerCase().includes('insufficient permissions') ||
+        detail.toLowerCase().includes('request had insufficient authentication scopes');
+      if (isPermissionError) {
         throw new Error(
-          'You do not have access to this document. ' +
-          (detail ? `(${detail}) ` : '') +
-          'Please ensure the document is shared with your Google account.'
+          'Google Drive access not authorized. Your current sign-in does not include Drive read permission. ' +
+          'Please sign out from the Google panel and sign in again — on the Google consent screen, make sure to allow Drive access.'
         );
       }
-
-      if (!response.ok) {
-        const detail = await this.parseGoogleErrorBody(response);
-        throw new Error(`Failed to fetch document (HTTP ${response.status}${detail ? `: ${detail}` : ''})`);
-      }
-
-      const doc = await response.json();
-
-      // Multi-tab documents: doc.tabs[] is present and non-empty
-      const tabs: any[] = doc.tabs || [];
-      if (tabs.length > 0) {
-        const allTabTexts = tabs.flatMap((tab: any) => this.collectTabTexts(tab));
-        if (allTabTexts.length === 1) {
-          // Single tab — return text directly without a header
-          return allTabTexts[0].text;
-        }
-        // Multiple tabs — prefix each section with the tab name so the AI
-        // can distinguish rubrics that live on different tabs
-        return allTabTexts
-          .map(({ title, text }) => `=== Tab: ${title} ===\n${text}`)
-          .join('\n\n');
-      }
-
-      // Legacy single-body document (no tabs field)
-      return this.extractTextFromDocContent(doc.body?.content || []);
-
-    } catch (error: any) {
-      if (
-        error.message.includes('Document not found') ||
-        error.message.includes('You do not have access') ||
-        error.message.includes('Google Drive access not authorized') ||
-        error.message.includes('session has expired') ||
-        error.message.includes('Failed to fetch document')
-      ) {
-        throw error;
-      }
-      throw new Error(`Failed to fetch Google Doc: ${error.message}`);
+      throw new Error(
+        'You do not have access to this document. ' +
+        (detail ? `(${detail}) ` : '') +
+        'Please ensure the document is shared with your Google account.'
+      );
     }
+
+    if (!response.ok) {
+      const detail = await this.parseGoogleErrorBody(response);
+      throw new Error(`Failed to fetch document (HTTP ${response.status}${detail ? `: ${detail}` : ''})`);
+    }
+
+    return await response.text();
   }
 
   /**

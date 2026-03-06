@@ -165,6 +165,7 @@ export default defineConfig(({ mode }) => {
             " https://accounts.google.com" +
             " https://oauth2.googleapis.com" +
             " https://www.googleapis.com" +
+            " https://docs.googleapis.com" +
             " https://content.googleapis.com" +
             " https://drive.google.com" +
             " https://*.instructure.com" +

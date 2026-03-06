@@ -291,13 +291,13 @@ export const Dashboard: React.FC = () => {
           <div className="bg-[#e5eff6] rounded-3xl p-4 shadow-2xl border border-blue-100 space-y-4">
 
           {/* Initial Setup heading + collapsible explainer */}
-          <div className="bg-gradient-to-r from-amber-400 to-orange-400 rounded-2xl p-4 shadow">
+          <div className="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
             <button
               onClick={() => setSetupOpen(o => !o)}
-              className="w-full flex items-center gap-3 text-left"
+              className="w-full bg-blue-600 flex items-center gap-3 text-left px-4 py-3"
             >
               <div className="w-9 h-9 bg-white rounded-xl flex items-center justify-center shadow flex-shrink-0">
-                <Settings2 className="w-5 h-5 text-orange-500" />
+                <Settings2 className="w-5 h-5 text-blue-600" />
               </div>
               <span className="font-black text-white text-lg flex-1">Initial Setup</span>
               {setupOpen
@@ -305,10 +305,10 @@ export const Dashboard: React.FC = () => {
                 : <ChevronDown className="w-5 h-5 text-white flex-shrink-0" />}
             </button>
             {setupOpen && (
-              <div className="mt-3 pt-3 border-t border-orange-300 text-sm text-white space-y-2 leading-relaxed">
-                <p>A <span className="font-bold">Gemini API Key</span> is needed to complete any of the available tasks.</p>
-                <p><span className="font-bold">Google Login</span> is optional but allows you to choose files directly from Google Drive.</p>
-                <p>A <span className="font-bold">Canvas API Token</span> is needed if you want the app to upload rubrics directly to Canvas for you.</p>
+              <div className="px-4 pt-3 pb-4 text-sm text-gray-600 space-y-2 leading-relaxed">
+                <p>A <span className="font-bold text-gray-800">Gemini API Key</span> is needed to complete any of the available tasks.</p>
+                <p><span className="font-bold text-gray-800">Google Login</span> is optional but allows you to choose files directly from Google Drive.</p>
+                <p>A <span className="font-bold text-gray-800">Canvas API Token</span> is needed if you want the app to upload rubrics directly to Canvas for you.</p>
               </div>
             )}
           </div>
