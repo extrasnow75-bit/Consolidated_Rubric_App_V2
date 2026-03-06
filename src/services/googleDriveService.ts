@@ -97,7 +97,10 @@ class GoogleDriveService {
             .setSelectFolderEnabled(false)
             .setMimeTypes(SUPPORTED_MIME_TYPES);
 
+          const recentView = new google.picker.View(google.picker.ViewId.RECENTLY_PICKED);
+
           const builder = new google.picker.PickerBuilder()
+            .addView(recentView)
             .addView(myDriveView)
             .addView(sharedWithMeView)
             .setOAuthToken(accessToken)
