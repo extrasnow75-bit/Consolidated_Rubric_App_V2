@@ -6,6 +6,7 @@ import {
   generateAllCsvsFromDoc,
   generateCsvFromRubricObject,
   discoverRubricTitles,
+  type RubricDiscovery,
 } from '../services/geminiService';
 import { friendlyError } from './ErrorDisplay';
 import {
@@ -110,6 +111,11 @@ export const Part2WordToCsv: React.FC = () => {
   const [isDiscovering, setIsDiscovering] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
+  // ── Pre-scan (auto-discovery on file attach) ─────────────────────────
+  const [preDiscovery, setPreDiscovery] = useState<RubricDiscovery[] | null>(null);
+  const [isPreScanning, setIsPreScanning] = useState(false);
+  const preAbortRef = useRef<AbortController | null>(null);
+
   // ── Live timer for estimated time to completion ──────────────────────
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const generationStartRef = useRef<number | null>(null);
@@ -135,6 +141,35 @@ export const Part2WordToCsv: React.FC = () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [isGeneratingAll]);
+
+  // Auto-discover rubric count as soon as a file is attached so we can show
+  // "X rubrics detected · ~Y min" before the user clicks Generate.
+  useEffect(() => {
+    // Clear any previous pre-scan result whenever attachments change
+    preAbortRef.current?.abort();
+    setPreDiscovery(null);
+    setIsPreScanning(false);
+
+    if (attachments.length === 0) return;
+    // Phase 1 carry-forward: rubric is already known, no need to scan
+    if (inputMode === 'from-phase1') return;
+
+    const controller = new AbortController();
+    preAbortRef.current = controller;
+    setIsPreScanning(true);
+
+    discoverRubricTitles(attachments[0], controller.signal)
+      .then(results => {
+        if (!controller.signal.aborted) setPreDiscovery(results);
+      })
+      .catch(() => { /* silent — Generate still works without pre-scan */ })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsPreScanning(false);
+      });
+
+    return () => controller.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachments]);
 
   // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -177,6 +212,9 @@ export const Part2WordToCsv: React.FC = () => {
     setIsDiscovering(false);
     setIsLoading(false);
     stopProgress();
+    setPreDiscovery(null);
+    setIsPreScanning(false);
+    preAbortRef.current?.abort();
   };
 
   // ── Phase 1 → Phase 2 carry-forward ──────────────────────────────────
@@ -278,9 +316,10 @@ export const Part2WordToCsv: React.FC = () => {
     state.batchItems.forEach(item => removeBatchItem(item.id));
 
     // ── Pass 1: Discover all rubric titles (~3–5 s, tiny output) ────────
+    // Re-use pre-scan results if already available (saves 3–5 s)
     let metas: { name: string; totalPoints: string; scoringMethod: 'ranges' | 'fixed' }[];
     try {
-      const discoveries = await discoverRubricTitles(attachments[0], controller.signal);
+      const discoveries = preDiscovery ?? await discoverRubricTitles(attachments[0], controller.signal);
       if (controller.signal.aborted) { setIsDiscovering(false); setIsGeneratingAll(false); return; }
 
       metas = discoveries.map((d) => ({
@@ -622,7 +661,9 @@ export const Part2WordToCsv: React.FC = () => {
   const completedCount = doneCount + errorCount;
 
   // Batch call: single Gemini request for the whole document (~60 s typical)
-  const staticEstimateSecs = 60;
+  // Use pre-scan count if available (8 s per rubric: 2 s throttle + ~6 s API),
+  // otherwise fall back to a conservative 60 s flat estimate.
+  const staticEstimateSecs = preDiscovery ? preDiscovery.length * 8 : 60;
 
   // For batch mode, estimate remaining time relative to the 60 s budget
   const dynamicRemainingS = Math.max(0, staticEstimateSecs - elapsedSeconds);
@@ -985,6 +1026,29 @@ export const Part2WordToCsv: React.FC = () => {
                       : 'Gemini will first detect all rubric titles, then generate each CSV one at a time.'}
                   </p>
                 </div>
+
+                {/* Pre-scan result: rubric count + time estimate before generation starts */}
+                {!isGeneratingAll && rubricResults.length === 0 && (isPreScanning || preDiscovery) && (
+                  <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                    {isPreScanning ? (
+                      <div className="flex items-center gap-2 text-sm text-blue-700">
+                        <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                        <span>Scanning document for rubrics…</span>
+                      </div>
+                    ) : preDiscovery && (
+                      <div className="space-y-0.5">
+                        <p className="text-sm font-bold text-blue-900">
+                          {preDiscovery.length === 1
+                            ? '1 rubric detected'
+                            : `${preDiscovery.length} rubrics detected`}
+                        </p>
+                        <p className="text-xs text-blue-600">
+                          Estimated generation time: ~{fmtSeconds(preDiscovery.length * 8)}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Download All ZIP + Save All to Drive — sits above the cards once at least one is done */}
                 {doneCount > 0 && (

@@ -29,8 +29,11 @@ googleProvider.addScope('https://www.googleapis.com/auth/drive.readonly');
 // even if they are already signed in.
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-// SessionStorage keys for the Google access token
-// (Firebase persists the user identity but not the Google access token)
+// localStorage keys for the Google access token.
+// localStorage (not sessionStorage) is used so the token survives tab close and
+// opening a new tab — matching the "stay signed in" behaviour of Gmail/Drive.
+// Firebase already persists the user identity in IndexedDB; we only need to
+// persist the short-lived Google OAuth access token ourselves.
 const GOOGLE_ACCESS_TOKEN_KEY = 'firebase_google_access_token';
 const GOOGLE_ACCESS_TOKEN_EXPIRY_KEY = 'firebase_google_access_token_expiry';
 
@@ -62,9 +65,9 @@ export async function initiateGoogleSignIn(): Promise<FirebaseSignInResult> {
   // Google access tokens expire in ~1 hour
   const expiresAt = Date.now() + 60 * 60 * 1000;
 
-  // Persist so the token survives a same-tab page refresh
-  sessionStorage.setItem(GOOGLE_ACCESS_TOKEN_KEY, accessToken);
-  sessionStorage.setItem(GOOGLE_ACCESS_TOKEN_EXPIRY_KEY, String(expiresAt));
+  // Persist so the token survives page refresh, tab close, and new tabs
+  localStorage.setItem(GOOGLE_ACCESS_TOKEN_KEY, accessToken);
+  localStorage.setItem(GOOGLE_ACCESS_TOKEN_EXPIRY_KEY, String(expiresAt));
 
   const firebaseUser = result.user;
   return {
@@ -83,8 +86,8 @@ export async function initiateGoogleSignIn(): Promise<FirebaseSignInResult> {
  * Sign out from Firebase and clear the stored Google access token.
  */
 export async function signOutFromGoogle(): Promise<void> {
-  sessionStorage.removeItem(GOOGLE_ACCESS_TOKEN_KEY);
-  sessionStorage.removeItem(GOOGLE_ACCESS_TOKEN_EXPIRY_KEY);
+  localStorage.removeItem(GOOGLE_ACCESS_TOKEN_KEY);
+  localStorage.removeItem(GOOGLE_ACCESS_TOKEN_EXPIRY_KEY);
   await firebaseSignOut(auth);
 }
 
@@ -93,8 +96,8 @@ export async function signOutFromGoogle(): Promise<void> {
  * (with a 5-minute safety buffer). Returns null otherwise.
  */
 export function getStoredAccessToken(): { accessToken: string; expiresAt: number } | null {
-  const token = sessionStorage.getItem(GOOGLE_ACCESS_TOKEN_KEY);
-  const expiryStr = sessionStorage.getItem(GOOGLE_ACCESS_TOKEN_EXPIRY_KEY);
+  const token = localStorage.getItem(GOOGLE_ACCESS_TOKEN_KEY);
+  const expiryStr = localStorage.getItem(GOOGLE_ACCESS_TOKEN_EXPIRY_KEY);
   if (!token || !expiryStr) return null;
   const expiresAt = Number(expiryStr);
   if (Date.now() > expiresAt - 5 * 60 * 1000) return null; // expired or nearly expired
