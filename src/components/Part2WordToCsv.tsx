@@ -1266,7 +1266,7 @@ export const Part2WordToCsv: React.FC = () => {
                   return (
                     <button
                       onClick={isGeneratingAll ? handleStop : handleGenerateAll}
-                      disabled={!isGeneratingAll && attachments.length === 0}
+                      disabled={!isGeneratingAll && (attachments.length === 0 || isPreScanning)}
                       className={`w-full py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2 ${
                         isGeneratingAll
                           ? 'bg-red-500 text-white hover:bg-red-600'
