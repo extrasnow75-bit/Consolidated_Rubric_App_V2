@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useSession } from '../contexts/SessionContext';
-import { AppMode, Attachment, RubricMeta } from '../types';
+import { AppMode, Attachment, RubricMeta, BatchItemStatus } from '../types';
 import {
   generateCsvForRubric,
   generateAllCsvsFromDoc,
@@ -80,6 +80,8 @@ export const Part2WordToCsv: React.FC = () => {
     stopProgress,
     setProgress,
     startGoogleAuth,
+    addBatchItem,
+    removeBatchItem,
   } = useSession();
 
   // ── File / attachment state ──────────────────────────────────────────
@@ -165,6 +167,7 @@ export const Part2WordToCsv: React.FC = () => {
     setEditableRubricName('');
     setEditableScoringMethod('ranges');
     setError(null);
+    state.batchItems.forEach(item => removeBatchItem(item.id));
     // Cancel any in-flight generation
     if (abortRef.current) {
       abortRef.current.abort();
@@ -271,6 +274,8 @@ export const Part2WordToCsv: React.FC = () => {
     setError(null);
     setRubricResults([]);
     setRubricOptions([]);
+    // Clear any CSVs carried over from a previous run
+    state.batchItems.forEach(item => removeBatchItem(item.id));
 
     // ── Pass 1: Discover all rubric titles (~3–5 s, tiny output) ────────
     let metas: { name: string; totalPoints: string; scoringMethod: 'ranges' | 'fixed' }[];
@@ -324,6 +329,16 @@ export const Part2WordToCsv: React.FC = () => {
             controller.signal,
           );
           csvResults[idx] = csv;
+          if (csv) {
+            addBatchItem({
+              id: `p2-${Date.now()}-${idx}`,
+              name: rubric.name,
+              totalPoints: rubric.totalPoints,
+              scoringMethod: rubric.scoringMethod,
+              status: BatchItemStatus.COMPLETED,
+              csvContent: csv,
+            });
+          }
           setRubricResults((prev) => {
             const next = [...prev];
             next[idx] = { rubric, status: 'done', csvContent: csv };

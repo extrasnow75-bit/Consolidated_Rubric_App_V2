@@ -396,7 +396,8 @@ class GoogleDriveService {
           }
 
           const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
-            .setSelectFolderEnabled(true);
+            .setSelectFolderEnabled(true)
+            .setSelectableMimeTypes('application/vnd.google-apps.folder');
 
           const builder = new google.picker.PickerBuilder()
             .addView(view)

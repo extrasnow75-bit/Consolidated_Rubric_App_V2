@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSession } from '../contexts/SessionContext';
-import { AppMode, CanvasConfig } from '../types';
+import { AppMode, BatchItemStatus, CanvasConfig } from '../types';
 import { pushRubricToCanvas } from '../services/canvasService';
 import { Eye, EyeOff, Loader2, Upload, CheckCircle, AlertCircle, X, Zap, FolderOpen, ChevronLeft } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
@@ -49,6 +49,23 @@ export const Part3Upload: React.FC = () => {
   const [drivePickedFileName, setDrivePickedFileName] = useState('');
   const [driveUrl, setDriveUrl] = useState('');
   const [fetchingDriveUrl, setFetchingDriveUrl] = useState(false);
+
+  // Pre-populate batch mode from Phase 2 context when multiple rubrics were generated
+  useEffect(() => {
+    const completed = state.batchItems.filter(
+      item => item.status === BatchItemStatus.COMPLETED && !!item.csvContent,
+    );
+    if (completed.length > 1) {
+      setBatchFiles(completed.map(item => ({
+        id: item.id,
+        name: `${item.name}.csv`,
+        content: item.csvContent!,
+        status: 'pending' as const,
+      })));
+      setUploadMode('batch');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const csvToUse = state.csvOutput || drivePickedCsv || manualCsv;
 
