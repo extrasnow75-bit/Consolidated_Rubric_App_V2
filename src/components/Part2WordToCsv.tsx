@@ -347,59 +347,71 @@ export const Part2WordToCsv: React.FC = () => {
     // every rubric title before generation starts.
     setRubricResults(metas.map((m) => ({ rubric: m, status: 'pending' })));
 
-    // ── Pass 2: Generate each rubric CSV (throttle spaces the calls) ─────
-    // All calls are launched concurrently; the queue-based throttle serialises
-    // them at 2 s intervals so we stay within rate limits.  Each card flips
-    // from pending → generating → done/error as its slot fires.
+    // ── Pass 2: Generate each rubric CSV — strictly sequential ──────────
+    // One rubric fully completes before the next starts.  This mirrors the
+    // approach used in the original rubric-generator app and reliably stays
+    // within Gemini's 10 RPM rate limit.  A 6 s gap after each request
+    // ensures we never exceed ~10 RPM even if a call returns very quickly.
     const csvResults = new Array<string | null>(metas.length).fill(null);
 
-    await Promise.allSettled(
-      metas.map(async (rubric, idx) => {
-        try {
-          const csv = await generateCsvForRubric(
-            rubric.name,
-            rubric.totalPoints,
-            rubric.scoringMethod,
-            attachments[0],
-            controller.signal,
-            // onStart fires after the throttle queue grants this slot —
-            // flip the card from 'pending' (clock) to 'generating' (spinner)
-            // only when the API call is actually about to start.
-            () => {
-              setRubricResults((prev) => {
-                const next = [...prev];
-                next[idx] = { rubric, status: 'generating' };
-                return next;
-              });
-            },
-          );
-          csvResults[idx] = csv;
-          if (csv) {
-            addBatchItem({
-              id: `p2-${Date.now()}-${idx}`,
-              name: rubric.name,
-              totalPoints: rubric.totalPoints,
-              scoringMethod: rubric.scoringMethod,
-              status: BatchItemStatus.COMPLETED,
-              csvContent: csv,
-            });
-          }
+    for (let idx = 0; idx < metas.length; idx++) {
+      if (controller.signal.aborted) break;
+
+      const rubric = metas[idx];
+
+      // Flip this card from 'pending' (clock) to 'generating' (spinner)
+      setRubricResults((prev) => {
+        const next = [...prev];
+        next[idx] = { rubric, status: 'generating' };
+        return next;
+      });
+
+      try {
+        const csv = await generateCsvForRubric(
+          rubric.name,
+          rubric.totalPoints,
+          rubric.scoringMethod,
+          attachments[0],
+          controller.signal,
+        );
+        csvResults[idx] = csv;
+        if (csv) {
+          addBatchItem({
+            id: `p2-${Date.now()}-${idx}`,
+            name: rubric.name,
+            totalPoints: rubric.totalPoints,
+            scoringMethod: rubric.scoringMethod,
+            status: BatchItemStatus.COMPLETED,
+            csvContent: csv,
+          });
+        }
+        setRubricResults((prev) => {
+          const next = [...prev];
+          next[idx] = { rubric, status: 'done', csvContent: csv };
+          return next;
+        });
+      } catch (err: any) {
+        if (!controller.signal.aborted) {
           setRubricResults((prev) => {
             const next = [...prev];
-            next[idx] = { rubric, status: 'done', csvContent: csv };
+            next[idx] = { rubric, status: 'error', error: err.message };
             return next;
           });
-        } catch (err: any) {
-          if (!controller.signal.aborted) {
-            setRubricResults((prev) => {
-              const next = [...prev];
-              next[idx] = { rubric, status: 'error', error: err.message };
-              return next;
-            });
-          }
         }
-      }),
-    );
+      }
+
+      // Wait 6 s before the next request to stay within the 10 RPM limit.
+      // Skip the delay after the last rubric or if generation was stopped.
+      if (idx < metas.length - 1 && !controller.signal.aborted) {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 6000);
+          controller.signal.addEventListener('abort', () => {
+            clearTimeout(timer);
+            resolve();
+          }, { once: true });
+        });
+      }
+    }
 
     if (controller.signal.aborted) {
       setIsGeneratingAll(false);
