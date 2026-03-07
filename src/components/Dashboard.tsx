@@ -37,7 +37,7 @@ export const Dashboard: React.FC = () => {
   const [canvasTokenError, setCanvasTokenError] = useState<string | null>(null);
 
   // Initial Setup panel
-  const [setupOpen, setSetupOpen] = useState(true);
+  const [setupOpen, setSetupOpen] = useState(false);
 
   // Missing-key warning modal
   const [modal, setModal] = useState<{ pendingStep: AppMode; missingGemini: boolean; missingCanvas: boolean } | null>(null);
@@ -294,7 +294,7 @@ export const Dashboard: React.FC = () => {
           <div className="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
             <button
               onClick={() => setSetupOpen(o => !o)}
-              className="w-full bg-blue-600 flex items-center gap-3 text-left px-4 py-3"
+              className="w-full bg-[#0033a0] flex items-center gap-3 text-left px-4 py-3"
             >
               <div className="w-9 h-9 bg-white rounded-xl flex items-center justify-center shadow flex-shrink-0">
                 <Settings2 className="w-5 h-5 text-blue-600" />
