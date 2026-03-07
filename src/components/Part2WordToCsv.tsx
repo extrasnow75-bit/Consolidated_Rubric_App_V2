@@ -307,6 +307,9 @@ export const Part2WordToCsv: React.FC = () => {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    // Cancel any in-flight pre-scan so it doesn't race with Pass 1 below.
+    preAbortRef.current?.abort();
+
     setIsGeneratingAll(true);
     setIsDiscovering(true);
     setError(null);
@@ -352,13 +355,6 @@ export const Part2WordToCsv: React.FC = () => {
 
     await Promise.allSettled(
       metas.map(async (rubric, idx) => {
-        // Flip to 'generating' just before the throttled API call
-        setRubricResults((prev) => {
-          const next = [...prev];
-          next[idx] = { rubric, status: 'generating' };
-          return next;
-        });
-
         try {
           const csv = await generateCsvForRubric(
             rubric.name,
@@ -366,6 +362,16 @@ export const Part2WordToCsv: React.FC = () => {
             rubric.scoringMethod,
             attachments[0],
             controller.signal,
+            // onStart fires after the throttle queue grants this slot —
+            // flip the card from 'pending' (clock) to 'generating' (spinner)
+            // only when the API call is actually about to start.
+            () => {
+              setRubricResults((prev) => {
+                const next = [...prev];
+                next[idx] = { rubric, status: 'generating' };
+                return next;
+              });
+            },
           );
           csvResults[idx] = csv;
           if (csv) {

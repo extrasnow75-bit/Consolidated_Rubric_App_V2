@@ -672,8 +672,12 @@ export async function generateCsvForRubric(
   scoringMethod: 'ranges' | 'fixed',
   attachment: Attachment,
   signal?: AbortSignal,
+  onStart?: () => void,
 ): Promise<string> {
   await throttle(signal);
+  // Notify caller that the throttle queue has granted this slot — the card
+  // should now flip from 'pending' (clock) to 'generating' (spinner).
+  onStart?.();
 
   return retryWithBackoff(async () => {
     if (signal?.aborted) throw new Error('Request cancelled');
@@ -769,7 +773,7 @@ Do NOT generate CSV content — titles and scoring methods only.`;
     }
 
     const response = await ai.models.generateContent({
-      model: FAST_MODEL,
+      model: PRIMARY_MODEL,
       contents: [{ parts }],
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
