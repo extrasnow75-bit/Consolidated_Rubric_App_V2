@@ -757,10 +757,11 @@ DATA RULES:
 1. One row per criterion.
 2. "Rubric Name" column: populate ONLY on the first data row of each CSV; leave blank on all subsequent rows.
 3. Ratings must be ordered HIGHEST to LOWEST points.
-4. Rating Points must be plain numbers only (e.g., 10, 8, 5) — never ranges.
-5. Set "Criteria Enable Range" to FALSE for all criteria.
-6. Wrap any field containing a comma in double quotes.
-7. No markdown fences, no prose — only raw CSV content in each csv field.
+4. Detect the scoring method from the source document for each rubric:
+   - If the rubric uses point ranges (e.g., "40–50 pts", "90-100"), set "Criteria Enable Range" to TRUE and format Rating Points as ranges (e.g., "90-100", "80-89").
+   - If the rubric uses single fixed values (e.g., "10 pts", "8"), set "Criteria Enable Range" to FALSE and use plain numbers only (e.g., "10", "8").
+5. Wrap any field containing a comma in double quotes.
+6. No markdown fences, no prose — only raw CSV content in each csv field.
 
 Return a JSON object with a "rubrics" array. Each element must have:
 - "title": the rubric name exactly as it appears in the document
