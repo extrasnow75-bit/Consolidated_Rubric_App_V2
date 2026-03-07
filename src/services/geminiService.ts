@@ -6,12 +6,19 @@ let client: GoogleGenAI | null = null;
 let chatSession: Chat | null = null;
 
 /**
- * Primary model — confirmed READY via diagnostic (HTTP 200).
- * gemini-2.5-flash is the only model returning 200 on this key/project.
+ * Primary model — used for all complex generation tasks (rubric CSV, chat, etc.).
+ * gemini-2.5-flash is the only model confirmed READY via diagnostic (HTTP 200).
  * gemini-2.0-flash and gemini-2.0-flash-lite are both DISABLED (limit:0).
  * gemini-1.5-* models return 404 (deprecated from v1beta).
  */
 const PRIMARY_MODEL = 'gemini-2.5-flash';
+
+/**
+ * Fast model — used for lightweight tasks (key validation, rubric discovery).
+ * gemini-2.5-flash-lite has a higher daily quota (1,000 RPD vs 250 RPD on Flash),
+ * preserving the primary model's quota for the heavy per-rubric generation calls.
+ */
+const FAST_MODEL = 'gemini-2.5-flash-lite';
 
 /** MIME type for Word documents */
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -178,7 +185,7 @@ export const validateGeminiApiKey = async (apiKey: string): Promise<boolean> => 
   try {
     const testClient = new GoogleGenAI({ apiKey });
     await testClient.models.generateContent({
-      model: PRIMARY_MODEL,
+      model: FAST_MODEL,
       contents: 'Say "ok"',
     });
     return true;
@@ -762,7 +769,7 @@ Do NOT generate CSV content — titles and scoring methods only.`;
     }
 
     const response = await ai.models.generateContent({
-      model: PRIMARY_MODEL,
+      model: FAST_MODEL,
       contents: [{ parts }],
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
