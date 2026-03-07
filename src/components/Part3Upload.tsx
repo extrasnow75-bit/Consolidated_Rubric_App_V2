@@ -42,7 +42,11 @@ export const Part3Upload: React.FC = () => {
   const [manualCsv, setManualCsv] = useState('');
   const [showManualInput, setShowManualInput] = useState(false);
   const [batchFiles, setBatchFiles] = useState<BatchFile[]>([]);
-  const [uploadMode, setUploadMode] = useState<'single' | 'batch' | 'google-drive'>('single');
+  const [uploadMode, setUploadMode] = useState<'from-phase2' | 'batch' | 'google-drive'>('from-phase2');
+  // Per-item upload status for the from-phase2 batch flow (keyed by batchItem id)
+  const [phase2UploadStatuses, setPhase2UploadStatuses] = useState<
+    Record<string, { status: 'pending' | 'uploading' | 'success' | 'error'; message?: string }>
+  >({});
   const [deploymentLogs, setDeploymentLogs] = useState<string[]>([]);
   const [pickingFromDrive, setPickingFromDrive] = useState(false);
   const [drivePickedCsv, setDrivePickedCsv] = useState<string | null>(null);
@@ -50,19 +54,18 @@ export const Part3Upload: React.FC = () => {
   const [driveUrl, setDriveUrl] = useState('');
   const [fetchingDriveUrl, setFetchingDriveUrl] = useState(false);
 
-  // Pre-populate batch mode from Phase 2 context when multiple rubrics were generated
+  // When Phase 2 items are present, activate the From Phase 2 tab and
+  // initialise per-item upload statuses.  Data stays in context (never
+  // copied to local state) so it survives tab switches.
   useEffect(() => {
     const completed = state.batchItems.filter(
       item => item.status === BatchItemStatus.COMPLETED && !!item.csvContent,
     );
-    if (completed.length > 1) {
-      setBatchFiles(completed.map(item => ({
-        id: item.id,
-        name: `${item.name}.csv`,
-        content: item.csvContent!,
-        status: 'pending' as const,
-      })));
-      setUploadMode('batch');
+    if (completed.length > 0) {
+      setUploadMode('from-phase2');
+      const statuses: Record<string, { status: 'pending' }> = {};
+      completed.forEach(item => { statuses[item.id] = { status: 'pending' }; });
+      setPhase2UploadStatuses(statuses);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -132,13 +135,23 @@ export const Part3Upload: React.FC = () => {
     }, 100);
   };
 
+  // Derive phase2Items at render time so it's available in both JSX and handleUpload
+  const phase2Items = state.batchItems.filter(
+    item => item.status === BatchItemStatus.COMPLETED && !!item.csvContent,
+  );
+
   const handleUpload = async () => {
     if (!courseUrl.trim() || !accessToken.trim()) {
       setError('Please enter Canvas URL and access token');
       return;
     }
 
-    if ((uploadMode === 'single' || uploadMode === 'google-drive') && !csvToUse.trim()) {
+    if (uploadMode === 'from-phase2' && phase2Items.length === 0 && !csvToUse.trim()) {
+      setError('No CSV content to upload. Go back to Phase 2 to generate CSVs.');
+      return;
+    }
+
+    if (uploadMode === 'google-drive' && !csvToUse.trim()) {
       setError('No CSV content to upload');
       return;
     }
@@ -161,7 +174,91 @@ export const Part3Upload: React.FC = () => {
     };
 
     try {
-      if (uploadMode === 'single' || uploadMode === 'google-drive') {
+      if (uploadMode === 'from-phase2' && phase2Items.length >= 1) {
+        // ── From Phase 2 — upload all items sequentially from context ──
+        const label = phase2Items.length === 1 ? '1 file' : `${phase2Items.length} files`;
+        addLog(`Starting upload (${label})...`);
+        startProgress(phase2Items.length, true);
+
+        let successCount = 0;
+        let errorCount = 0;
+
+        for (let i = 0; i < phase2Items.length; i++) {
+          const signal = getAbortSignal();
+          if (signal.aborted) {
+            addLog('Upload cancelled by user');
+            setError('Upload cancelled by user');
+            break;
+          }
+
+          if (i > 0) {
+            addLog('Waiting 10 seconds before next upload…');
+            try {
+              await new Promise<void>((resolve, reject) => {
+                const timer = setTimeout(resolve, 10_000);
+                signal.addEventListener('abort', () => {
+                  clearTimeout(timer);
+                  reject(new Error('Upload cancelled'));
+                }, { once: true });
+              });
+            } catch {
+              addLog('Upload cancelled during wait');
+              setError('Upload cancelled by user');
+              break;
+            }
+            if (getAbortSignal().aborted) break;
+          }
+
+          const item = phase2Items[i];
+          const fileName = `${item.name}.csv`;
+          setPhase2UploadStatuses(prev => ({ ...prev, [item.id]: { status: 'uploading' } }));
+          addLog(`Uploading: ${fileName}...`);
+
+          setProgress({
+            currentStep: `Uploading: ${fileName}`,
+            percentage: i / phase2Items.length,
+            itemsProcessed: i,
+          });
+
+          try {
+            const result = await pushRubricToCanvas(config, item.csvContent!);
+            if (result.success) {
+              setPhase2UploadStatuses(prev => ({ ...prev, [item.id]: { status: 'success', message: 'Successfully uploaded' } }));
+              successCount++;
+              addLog(`✓ ${fileName} uploaded successfully`);
+              addToHistory({
+                id: Date.now().toString(),
+                timestamp: Date.now(),
+                rubricName: item.name,
+                totalPoints: parseInt(item.totalPoints || '0') || 100,
+                csvFileName: fileName,
+                canvasUploadStatus: 'success',
+              });
+            } else {
+              setPhase2UploadStatuses(prev => ({ ...prev, [item.id]: { status: 'error', message: result.message } }));
+              errorCount++;
+              addLog(`✗ ${fileName} failed: ${result.message}`);
+            }
+          } catch (err: any) {
+            setPhase2UploadStatuses(prev => ({ ...prev, [item.id]: { status: 'error', message: err.message } }));
+            errorCount++;
+            addLog(`✗ ${fileName} error: ${err.message}`);
+          }
+        }
+
+        setProgress({ percentage: 1, itemsProcessed: phase2Items.length });
+        const uploadSuccess = errorCount === 0;
+        setUploadStatus({
+          success: uploadSuccess,
+          message: `Batch upload complete: ${successCount} successful, ${errorCount} failed`,
+        });
+        if (uploadSuccess) {
+          setTimeout(() => stopProgress(), 500);
+        } else {
+          stopProgress();
+        }
+
+      } else if (uploadMode === 'from-phase2' || uploadMode === 'google-drive') {
         addLog('Starting single rubric upload...');
         // Single upload
         startProgress(1, true);
@@ -322,13 +419,13 @@ export const Part3Upload: React.FC = () => {
   const removeBatchFile = (id: string) => {
     setBatchFiles((prev) => prev.filter((f) => f.id !== id));
     if (batchFiles.length === 1) {
-      setUploadMode('single');
+      setUploadMode('from-phase2');
     }
   };
 
   const clearBatchFiles = () => {
     setBatchFiles([]);
-    setUploadMode('single');
+    setUploadMode('from-phase2');
   };
 
   /** Resolve a picked/fetched Drive file to CSV based on its mimeType. */
@@ -497,8 +594,10 @@ export const Part3Upload: React.FC = () => {
         <div className="mb-6">
           <h2 className="text-2xl font-black text-gray-900 mb-2">Deploy to Canvas</h2>
           <p className="text-gray-600 font-medium mb-6">
-            {uploadMode === 'single'
-              ? 'Enter your Canvas credentials to upload the rubric'
+            {uploadMode === 'from-phase2'
+              ? phase2Items.length > 0
+                ? `Upload ${phase2Items.length === 1 ? 'your rubric' : `${phase2Items.length} rubrics`} from Phase 2 to Canvas`
+                : 'Enter your Canvas credentials to upload the rubric'
               : uploadMode === 'google-drive'
               ? 'Upload CSV rubric(s) to Canvas'
               : 'Upload multiple CSV files to Canvas LMS'}
@@ -515,12 +614,9 @@ export const Part3Upload: React.FC = () => {
         {/* Upload Mode Tabs */}
         <div className="mb-6 border-b border-gray-200 flex gap-0">
           <button
-            onClick={() => {
-              setUploadMode('single');
-              clearBatchFiles();
-            }}
+            onClick={() => setUploadMode('from-phase2')}
             className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
-              uploadMode === 'single'
+              uploadMode === 'from-phase2'
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
@@ -554,16 +650,55 @@ export const Part3Upload: React.FC = () => {
           {/* Left Column: Queue + Timeline */}
           <div className="lg:col-span-2 flex flex-col gap-6">
 
-            {/* CSV Display (Single Mode) */}
-            {uploadMode === 'single' && csvToUse && (
+            {/* From Phase 2 Tab Content */}
+            {uploadMode === 'from-phase2' && phase2Items.length > 0 && (
+              <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                <h3 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
+                  <Upload className="w-5 h-5 text-blue-600" />
+                  Phase 2 Rubrics ({phase2Items.length})
+                </h3>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {phase2Items.map((item) => {
+                    const st = phase2UploadStatuses[item.id];
+                    return (
+                      <div
+                        key={item.id}
+                        className="p-3 bg-gray-50 border border-gray-200 rounded-xl flex items-center gap-3"
+                      >
+                        {(!st || st.status === 'pending') && (
+                          <Upload className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                        )}
+                        {st?.status === 'uploading' && (
+                          <div className="w-5 h-5 rounded-full border-2 border-gray-300 border-t-blue-600 animate-spin flex-shrink-0" />
+                        )}
+                        {st?.status === 'success' && (
+                          <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+                        )}
+                        {st?.status === 'error' && (
+                          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-gray-900 truncate">{item.name}</p>
+                          {st?.message && (
+                            <p className="text-xs text-gray-500 truncate">{st.message}</p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {uploadMode === 'from-phase2' && phase2Items.length === 0 && csvToUse && (
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl">
                 <p className="text-sm font-bold text-blue-900">
-                  ✓ CSV file ready ({state.csvFileName || drivePickedFileName || 'rubric.csv'})
+                  ✓ CSV file ready ({state.csvFileName || 'rubric.csv'})
                 </p>
               </div>
             )}
 
-            {uploadMode === 'single' && !csvToUse && (
+            {uploadMode === 'from-phase2' && phase2Items.length === 0 && !csvToUse && (
               <div className="p-5 bg-yellow-50 border border-yellow-200 rounded-2xl space-y-2">
                 <p className="text-sm font-bold text-yellow-900">
                   ⚠ No CSV available from Phase 2.
@@ -880,8 +1015,8 @@ export const Part3Upload: React.FC = () => {
               </div>
             </div>
 
-            {/* Manual CSV Input (Single Mode) */}
-            {uploadMode === 'single' && !state.csvOutput && (
+            {/* Manual CSV Input (From Phase 2 fallback — only when no Phase 2 items) */}
+            {uploadMode === 'from-phase2' && phase2Items.length === 0 && !state.csvOutput && (
               <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
                 <button
                   onClick={() => setShowManualInput(!showManualInput)}
@@ -914,7 +1049,8 @@ export const Part3Upload: React.FC = () => {
                   isUploading ||
                   !courseUrl.trim() ||
                   !accessToken.trim() ||
-                  ((uploadMode === 'single' || uploadMode === 'google-drive') && !csvToUse.trim()) ||
+                  (uploadMode === 'from-phase2' && phase2Items.length === 0 && !csvToUse.trim()) ||
+                  (uploadMode === 'google-drive' && !csvToUse.trim()) ||
                   (uploadMode === 'batch' && batchFiles.length === 0)
                 }
                 className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"
@@ -926,6 +1062,8 @@ export const Part3Upload: React.FC = () => {
                     : 'Uploading...'
                   : uploadMode === 'batch'
                   ? `Deploy ${batchFiles.length} File(s)`
+                  : uploadMode === 'from-phase2' && phase2Items.length > 1
+                  ? `Deploy ${phase2Items.length} Rubrics to Canvas`
                   : 'Deploy Rubric to Canvas'}
               </button>
 
@@ -937,7 +1075,17 @@ export const Part3Upload: React.FC = () => {
                     : `Estimated time: ~${batchFiles.length * 2 + (batchFiles.length - 1) * 10}s (${batchFiles.length} uploads + ${batchFiles.length - 1}×10s gaps)`}
                 </p>
               )}
-              {!isUploading && uploadMode === 'single' && csvToUse.trim() && (
+              {!isUploading && uploadMode === 'from-phase2' && phase2Items.length > 1 && (
+                <p className="text-xs text-gray-500 text-center mt-2">
+                  {`Estimated time: ~${phase2Items.length * 2 + (phase2Items.length - 1) * 10}s (${phase2Items.length} uploads + ${phase2Items.length - 1}×10s gaps)`}
+                </p>
+              )}
+              {!isUploading && uploadMode === 'from-phase2' && phase2Items.length === 1 && (
+                <p className="text-xs text-gray-500 text-center mt-2">
+                  Estimated time: ~2 seconds
+                </p>
+              )}
+              {!isUploading && uploadMode === 'from-phase2' && phase2Items.length === 0 && csvToUse.trim() && (
                 <p className="text-xs text-gray-500 text-center mt-2">
                   Estimated time: ~2 seconds
                 </p>
