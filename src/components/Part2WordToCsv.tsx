@@ -348,16 +348,20 @@ export const Part2WordToCsv: React.FC = () => {
     setRubricResults(metas.map((m) => ({ rubric: m, status: 'pending' })));
 
     // ── Pass 2: Generate each rubric CSV — strictly sequential ──────────
-    // One rubric fully completes before the next starts.  This mirrors the
-    // approach used in the original rubric-generator app and reliably stays
-    // within Gemini's 10 RPM rate limit.  A 6 s gap after each request
-    // ensures we never exceed ~10 RPM even if a call returns very quickly.
+    // One rubric fully completes before the next starts, staying within
+    // Gemini's 10 RPM limit.  Adaptive pacing: we record the call start
+    // time and only wait whatever remains of a 6 s minimum gap after the
+    // call finishes.  If the call itself took ≥ 6 s (common for large
+    // rubrics) no extra delay is added, keeping total time as short as
+    // possible while still protecting against rate-limit errors.
+    const MIN_GAP_MS = 6000; // 6 s → safe for 10 RPM
     const csvResults = new Array<string | null>(metas.length).fill(null);
 
     for (let idx = 0; idx < metas.length; idx++) {
       if (controller.signal.aborted) break;
 
       const rubric = metas[idx];
+      const callStart = Date.now();
 
       // Flip this card from 'pending' (clock) to 'generating' (spinner)
       setRubricResults((prev) => {
@@ -400,16 +404,21 @@ export const Part2WordToCsv: React.FC = () => {
         }
       }
 
-      // Wait 6 s before the next request to stay within the 10 RPM limit.
-      // Skip the delay after the last rubric or if generation was stopped.
+      // Adaptive gap: only wait whatever time remains to reach MIN_GAP_MS
+      // since the call started.  If the call already took ≥ 6 s, skip.
+      // Always skip after the last rubric or if generation was stopped.
       if (idx < metas.length - 1 && !controller.signal.aborted) {
-        await new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, 6000);
-          controller.signal.addEventListener('abort', () => {
-            clearTimeout(timer);
-            resolve();
-          }, { once: true });
-        });
+        const elapsed = Date.now() - callStart;
+        const remaining = MIN_GAP_MS - elapsed;
+        if (remaining > 0) {
+          await new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, remaining);
+            controller.signal.addEventListener('abort', () => {
+              clearTimeout(timer);
+              resolve();
+            }, { once: true });
+          });
+        }
       }
     }
 
