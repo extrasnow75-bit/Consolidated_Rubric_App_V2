@@ -5,6 +5,7 @@ import {
   generateCsvForRubric,
   generateAllCsvsFromDoc,
   generateCsvFromRubricObject,
+  discoverRubricTitles,
 } from '../services/geminiService';
 import { friendlyError } from './ErrorDisplay';
 import {
@@ -104,6 +105,7 @@ export const Part2WordToCsv: React.FC = () => {
   // ── Multi-rubric parallel generation ────────────────────────────────
   const [rubricResults, setRubricResults] = useState<RubricResult[]>([]);
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
+  const [isDiscovering, setIsDiscovering] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   // ── Live timer for estimated time to completion ──────────────────────
@@ -169,6 +171,7 @@ export const Part2WordToCsv: React.FC = () => {
       abortRef.current = null;
     }
     setIsGeneratingAll(false);
+    setIsDiscovering(false);
     setIsLoading(false);
     stopProgress();
   };
@@ -264,41 +267,91 @@ export const Part2WordToCsv: React.FC = () => {
     abortRef.current = controller;
 
     setIsGeneratingAll(true);
+    setIsDiscovering(true);
     setError(null);
-    // Show a single "generating" placeholder card while the batch call runs
-    setRubricResults([{ rubric: { name: 'All rubrics', totalPoints: '', scoringMethod: 'fixed' }, status: 'generating' }]);
+    setRubricResults([]);
+    setRubricOptions([]);
 
+    // ── Pass 1: Discover all rubric titles (~3–5 s, tiny output) ────────
+    let metas: { name: string; totalPoints: string; scoringMethod: 'ranges' | 'fixed' }[];
     try {
-      const batchResults = await generateAllCsvsFromDoc(attachments[0], controller.signal);
+      const discoveries = await discoverRubricTitles(attachments[0], controller.signal);
+      if (controller.signal.aborted) { setIsDiscovering(false); setIsGeneratingAll(false); return; }
 
-      if (controller.signal.aborted) return;
-
-      // Detect scoringMethod from each CSV so retries use the correct mode
-      const metas = batchResults.map((r) => ({
-        name: r.title,
+      metas = discoveries.map((d) => ({
+        name: d.name,
         totalPoints: '',
-        scoringMethod: r.csv.includes(',TRUE,') ? 'ranges' as const : 'fixed' as const,
+        scoringMethod: d.scoringMethod,
       }));
-      setRubricOptions(metas);
-      setRubricResults(
-        batchResults.map((r, i) => ({
-          rubric: metas[i],
-          status: 'done',
-          csvContent: r.csv,
-        })),
-      );
-
-      // If exactly one rubric was found, switch to the single-result view
-      if (batchResults.length === 1) {
-        setSingleCsvContent(batchResults[0].csv);
-        setEditableRubricName(batchResults[0].title);
-        setCsvOutput(batchResults[0].csv, `${batchResults[0].title}.csv`);
-      }
     } catch (err: any) {
       if (!controller.signal.aborted) {
-        setError(`Batch generation failed: ${err.message}`);
-        setRubricResults([]);
+        setError(`Discovery failed: ${err.message}`);
       }
+      setIsDiscovering(false);
+      setIsGeneratingAll(false);
+      abortRef.current = null;
+      return;
+    }
+
+    setIsDiscovering(false);
+    setRubricOptions(metas);
+
+    // Render all cards immediately in 'pending' state so the user can see
+    // every rubric title before generation starts.
+    setRubricResults(metas.map((m) => ({ rubric: m, status: 'pending' })));
+
+    // ── Pass 2: Generate each rubric CSV (throttle spaces the calls) ─────
+    // All calls are launched concurrently; the queue-based throttle serialises
+    // them at 2 s intervals so we stay within rate limits.  Each card flips
+    // from pending → generating → done/error as its slot fires.
+    const csvResults = new Array<string | null>(metas.length).fill(null);
+
+    await Promise.allSettled(
+      metas.map(async (rubric, idx) => {
+        // Flip to 'generating' just before the throttled API call
+        setRubricResults((prev) => {
+          const next = [...prev];
+          next[idx] = { rubric, status: 'generating' };
+          return next;
+        });
+
+        try {
+          const csv = await generateCsvForRubric(
+            rubric.name,
+            rubric.totalPoints,
+            rubric.scoringMethod,
+            attachments[0],
+            controller.signal,
+          );
+          csvResults[idx] = csv;
+          setRubricResults((prev) => {
+            const next = [...prev];
+            next[idx] = { rubric, status: 'done', csvContent: csv };
+            return next;
+          });
+        } catch (err: any) {
+          if (!controller.signal.aborted) {
+            setRubricResults((prev) => {
+              const next = [...prev];
+              next[idx] = { rubric, status: 'error', error: err.message };
+              return next;
+            });
+          }
+        }
+      }),
+    );
+
+    if (controller.signal.aborted) {
+      setIsGeneratingAll(false);
+      abortRef.current = null;
+      return;
+    }
+
+    // If exactly one rubric found and it succeeded, switch to single-result view
+    if (metas.length === 1 && csvResults[0]) {
+      setSingleCsvContent(csvResults[0]);
+      setEditableRubricName(metas[0].name);
+      setCsvOutput(csvResults[0], `${metas[0].name}.csv`);
     }
 
     setIsGeneratingAll(false);
@@ -912,7 +965,9 @@ export const Part2WordToCsv: React.FC = () => {
                   <p className="text-xs text-gray-500">
                     {rubricResults.length > 0 && !isGeneratingAll
                       ? `${rubricResults.length} rubric${rubricResults.length !== 1 ? 's' : ''} extracted — download individually or as a ZIP.`
-                      : 'Gemini will detect all rubrics in the document and convert each one to a Canvas CSV.'}
+                      : isDiscovering
+                      ? 'Scanning document for rubric titles…'
+                      : 'Gemini will first detect all rubric titles, then generate each CSV one at a time.'}
                   </p>
                 </div>
 
@@ -1060,7 +1115,9 @@ export const Part2WordToCsv: React.FC = () => {
                     </div>
 
                     <p className="text-xs text-blue-500">
-                      Sending all rubrics in one request — this may take up to 60 s
+                      {isDiscovering
+                        ? 'Scanning document for rubric titles…'
+                        : 'Generating rubrics one at a time — each card updates as it finishes'}
                     </p>
                   </div>
                 )}

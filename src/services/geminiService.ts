@@ -719,7 +719,90 @@ DATA RULES:
   }, signal);
 }
 
-// ─── Phase 2: Batch rubric generation ───────────────────────────────
+// ─── Phase 2: Rubric discovery (pass 1 of 2) ────────────────────────
+
+export interface RubricDiscovery {
+  name: string;
+  scoringMethod: 'ranges' | 'fixed';
+}
+
+/**
+ * Lightweight first-pass: ask Gemini to list all rubric titles (and
+ * scoring methods) in the document WITHOUT generating any CSV content.
+ * Returns quickly because the output is tiny, regardless of how many
+ * rubrics the document contains.  Used by the two-pass generation flow
+ * so the UI can render all rubric cards (in pending state) before
+ * per-rubric CSV generation begins.
+ */
+export async function discoverRubricTitles(
+  attachment: Attachment,
+  signal?: AbortSignal,
+): Promise<RubricDiscovery[]> {
+  await throttle(signal);
+
+  return retryWithBackoff(async () => {
+    if (signal?.aborted) throw new Error('Request cancelled');
+    const ai = getClient();
+
+    const prompt = `List every grading rubric in this document.
+
+For each rubric return:
+- name: the exact rubric title as it appears in the document
+- scoringMethod: "ranges" if the rubric uses point ranges (e.g. "40–50 pts", "90-100"), "fixed" if it uses single point values (e.g. "10 pts", "8")
+
+Do NOT generate CSV content — titles and scoring methods only.`;
+
+    const parts: any[] = [{ text: prompt }];
+
+    if (isDocx(attachment)) {
+      const extracted = await extractDocxText(attachment);
+      parts.push({ text: `\n\n[Document content from "${attachment.name}"]:\n${extracted}` });
+    } else {
+      parts.push({ inlineData: { mimeType: attachment.mimeType, data: attachment.data } });
+    }
+
+    const response = await ai.models.generateContent({
+      model: PRIMARY_MODEL,
+      contents: [{ parts }],
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION,
+        temperature: 0.1,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            rubrics: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name:          { type: Type.STRING },
+                  scoringMethod: { type: Type.STRING },
+                },
+                required: ['name', 'scoringMethod'],
+              },
+            },
+          },
+          required: ['rubrics'],
+        },
+      },
+    });
+
+    if (!response.text) throw new Error('No response from rubric discovery call');
+    const parsed = JSON.parse(response.text.trim()) as {
+      rubrics: Array<{ name: string; scoringMethod: string }>;
+    };
+    if (!Array.isArray(parsed.rubrics) || parsed.rubrics.length === 0) {
+      throw new Error('No rubrics found in document — check that the file contains rubric tables');
+    }
+    return parsed.rubrics.map((r) => ({
+      name: r.name,
+      scoringMethod: r.scoringMethod === 'fixed' ? ('fixed' as const) : ('ranges' as const),
+    }));
+  }, signal);
+}
+
+// ─── Phase 2: Batch rubric generation (legacy — kept for reference) ──
 
 export interface BatchRubricResult {
   title: string;
