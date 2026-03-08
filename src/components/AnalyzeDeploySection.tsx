@@ -333,8 +333,10 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
         {/* Timing row */}
         <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
           <span>Elapsed: {formatMs(elapsedMs)}</span>
-          {isRunning && estimatedMs > 0 && (
-            <span>Est. remaining: {formatMs(Math.max(0, estimatedMs - elapsedMs))}</span>
+          {isRunning && (
+            estimatedMs > 0
+              ? <span>Est. remaining: {formatMs(Math.max(0, estimatedMs - elapsedMs))}</span>
+              : <span className="italic">Time estimate will appear shortly.</span>
           )}
           {isRunning && (
             <button

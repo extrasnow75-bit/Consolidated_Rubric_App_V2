@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import {
   Key, Check, X, Loader2, ExternalLink, Eye, EyeOff,
@@ -72,6 +72,10 @@ export const Dashboard: React.FC = () => {
   const [courseUrlInput, setCourseUrlInput] = useState(state.courseUrl || '');
   const courseUrlValid = isCourseUrlValid(courseUrlInput);
 
+  // ── Course Name ──
+  const [courseName, setCourseName] = useState<string | null>(null);
+  const [courseNameLoading, setCourseNameLoading] = useState(false);
+
   // ── Draft Rubric Document ──
   const [hasDraftRubric, setHasDraftRubricLocal] = useState<'' | 'yes' | 'no'>('');
   const [uploadedFiles, setUploadedFiles] = useState<UploadedDocFile[]>([]);
@@ -92,6 +96,41 @@ export const Dashboard: React.FC = () => {
     hasDraftRubric === 'yes' ? uploadedFiles.length > 0 : hasDraftRubric === 'no';
 
   const allRequiredValid = geminiValid && canvasTokenValid && courseUrlValid && draftRubricValid;
+
+  // ── Fetch course name when URL and token are both valid ──
+  useEffect(() => {
+    if (!courseUrlValid || !canvasTokenValid) {
+      setCourseName(null);
+      return;
+    }
+    let cancelled = false;
+    setCourseNameLoading(true);
+    const fetchCourseName = async () => {
+      try {
+        const url = new URL(courseUrlInput.trim());
+        const match = url.pathname.match(/\/courses\/(\d+)/);
+        if (!match) return;
+        const courseId = match[1];
+        const instanceUrl = `${url.protocol}//${url.host}`;
+        const resp = await fetch(`/canvas-proxy/api/v1/courses/${courseId}`, {
+          headers: {
+            'Authorization': `Bearer ${state.canvasApiToken}`,
+            'X-Canvas-Instance': instanceUrl,
+          },
+        });
+        if (!cancelled && resp.ok) {
+          const data = await resp.json();
+          setCourseName(data.name || null);
+        }
+      } catch {
+        // silently ignore network errors
+      } finally {
+        if (!cancelled) setCourseNameLoading(false);
+      }
+    };
+    fetchCourseName();
+    return () => { cancelled = true; };
+  }, [courseUrlValid, canvasTokenValid, courseUrlInput, state.canvasApiToken]);
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
 
@@ -209,23 +248,33 @@ export const Dashboard: React.FC = () => {
     try {
       const result = await openGooglePicker();
       if (!result) return;
-      const buffer = await downloadDriveFile(result.fileId);
+
+      const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      let buffer: ArrayBuffer;
+      let fileName = result.name;
+
+      if (result.mimeType === 'application/vnd.google-apps.document') {
+        // Google Docs must be exported — alt=media doesn't work for native Google files
+        if (!fileName.toLowerCase().endsWith('.docx')) fileName = `${fileName}.docx`;
+        const exportUrl =
+          `https://www.googleapis.com/drive/v3/files/${result.fileId}/export` +
+          `?mimeType=${encodeURIComponent(DOCX_MIME)}`;
+        const resp = await fetch(exportUrl, {
+          headers: { Authorization: `Bearer ${state.googleAccessToken}` },
+        });
+        if (!resp.ok) throw new Error(`Google Drive export failed (${resp.status})`);
+        buffer = await resp.arrayBuffer();
+      } else {
+        buffer = await downloadDriveFile(result.fileId);
+      }
+
       const bytes = new Uint8Array(buffer);
       let binary = '';
       bytes.forEach((b) => (binary += String.fromCharCode(b)));
       const base64 = btoa(binary);
       setUploadedFiles((prev) => {
-        if (prev.some((p) => p.name === result.name)) return prev;
-        return [
-          ...prev,
-          {
-            name: result.name,
-            data: base64,
-            mimeType:
-              result.mimeType ||
-              'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          },
-        ];
+        if (prev.some((p) => p.name === fileName)) return prev;
+        return [...prev, { name: fileName, data: base64, mimeType: DOCX_MIME }];
       });
     } catch (err: any) {
       console.error('Google Picker error:', err);
@@ -418,12 +467,24 @@ export const Dashboard: React.FC = () => {
               <X className="w-3 h-3" /> URL must include a /courses/&lt;ID&gt; path
             </p>
           )}
+          {courseUrlValid && (
+            <div className="mt-3 flex items-center gap-2 min-h-[1.5rem]">
+              {courseNameLoading ? (
+                <Loader2 className="w-4 h-4 text-green-500 animate-spin" />
+              ) : courseName ? (
+                <>
+                  <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
+                  <span className="text-sm font-bold text-green-700">{courseName}</span>
+                </>
+              ) : null}
+            </div>
+          )}
         </SetupCard>
 
         {/* Card 5: Draft Rubric Document */}
         <SetupCard isValid={draftRubricValid}>
           <div className="flex items-center gap-2 mb-1">
-            <FileText className="w-4 h-4 text-purple-600 flex-shrink-0" />
+            <FileText className="w-4 h-4 flex-shrink-0" style={{ color: '#4285F4' }} />
             <h3 className="font-black text-lg text-gray-900">Draft Rubric Document</h3>
             {draftRubricValid && <Check className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
           </div>
@@ -506,14 +567,24 @@ export const Dashboard: React.FC = () => {
       </div>
 
       {/* "Yes" path: Analyze & Deploy button */}
-      {hasDraftRubric === 'yes' && allRequiredValid && !showAnalyze && (
+      {hasDraftRubric === 'yes' && !showAnalyze && (
         <div className="mt-6">
           <button
             onClick={() => handleAnalyzeDeploy('yes')}
-            className="w-full py-4 bg-[#0033a0] text-white rounded-2xl font-black text-base uppercase tracking-widest shadow-xl hover:bg-blue-900 transition-all active:scale-95"
+            disabled={!allRequiredValid}
+            className={`w-full py-4 rounded-2xl font-black text-base uppercase tracking-widest transition-all active:scale-95 ${
+              allRequiredValid
+                ? 'bg-[#0033a0] text-white hover:bg-blue-900 shadow-xl cursor-pointer'
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
+            }`}
           >
             Analyze Draft Rubric(s) and Deploy To Canvas
           </button>
+          {!allRequiredValid && (
+            <p className="text-center text-sm text-gray-500 mt-2">
+              Button becomes active when form is completely filled out.
+            </p>
+          )}
         </div>
       )}
 
