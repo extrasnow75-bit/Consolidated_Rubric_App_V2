@@ -1038,44 +1038,48 @@ export const Part2WordToCsv: React.FC = () => {
               </>
             )}
 
-            {/* ── Shared: generate section (visible once a file is loaded) ── */}
+            {/* ── Shared: steps 2 & 3 (visible once a file is loaded) ── */}
             {attachments.length > 0 && (
               <>
-                <div className="mt-8 mb-4 border-t border-gray-100 pt-6">
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">
-                    Step 2: Generate CSV(s)
+                {/* ── Step 2: Scan Document ──────────────────────────────── */}
+                <div className="mt-8 border-t border-gray-100 pt-6 mb-4">
+                  <p className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                    Step 2: Scan Document
                   </p>
-                  <p className="text-xs text-gray-500">
-                    {rubricResults.length > 0 && !isGeneratingAll
-                      ? `${rubricResults.length} rubric${rubricResults.length !== 1 ? 's' : ''} extracted — download individually or as a ZIP.`
-                      : isDiscovering
-                      ? 'Scanning document for rubric titles…'
-                      : 'Gemini will first detect all rubric titles, then generate each CSV one at a time.'}
-                  </p>
+                  {isPreScanning ? (
+                    <div className="flex items-center gap-2 text-xs text-blue-700 mt-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+                      <span>Scanning document for rubrics… ~20 seconds</span>
+                    </div>
+                  ) : preDiscovery ? (
+                    <div className="flex items-center gap-2 text-xs text-green-700 mt-2">
+                      <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span className="font-bold">
+                        {preDiscovery.length === 1 ? '1 rubric detected' : `${preDiscovery.length} rubrics detected`}
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-700">
+                      Gemini will scan your document to identify the rubrics it contains. ~20 seconds.
+                    </p>
+                  )}
                 </div>
 
-                {/* Pre-scan result: rubric count + time estimate before generation starts */}
-                {!isGeneratingAll && rubricResults.length === 0 && (isPreScanning || preDiscovery) && (
-                  <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl">
-                    {isPreScanning ? (
-                      <div className="flex items-center gap-2 text-sm text-blue-700">
-                        <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
-                        <span>Scanning document for rubrics…</span>
-                      </div>
-                    ) : preDiscovery && (
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-bold text-blue-900">
-                          {preDiscovery.length === 1
-                            ? '1 rubric detected'
-                            : `${preDiscovery.length} rubrics detected`}
-                        </p>
-                        <p className="text-xs text-blue-600">
-                          Estimated generation time: ~{fmtSeconds(preDiscovery.length * 8)}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
+                {/* ── Step 3: Generate CSV(s) ────────────────────────────── */}
+                <div className="mb-4 border-t border-gray-100 pt-6">
+                  <p className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                    Step 3: Generate CSV(s)
+                  </p>
+                  <p className="text-xs text-gray-700">
+                    {rubricResults.length > 0 && !isGeneratingAll
+                      ? `${rubricResults.length} rubric${rubricResults.length !== 1 ? 's' : ''} extracted — download individually or as a ZIP.`
+                      : isGeneratingAll
+                      ? 'Gemini is processing your document — each CSV will appear as it finishes.'
+                      : preDiscovery
+                      ? `Estimated generation time: ~${fmtSeconds(preDiscovery.length * 8)}`
+                      : 'Gemini will generate a Canvas CSV for each rubric it finds.'}
+                  </p>
+                </div>
 
                 {/* Download All ZIP + Save All to Drive — sits above the cards once at least one is done */}
                 {doneCount > 0 && (

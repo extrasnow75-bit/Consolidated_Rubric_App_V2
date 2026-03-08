@@ -46,6 +46,38 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
 
         <div className="p-6 space-y-8">
 
+          {/* AI Setup */}
+          <section>
+            <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-3">AI Setup</h3>
+            <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl space-y-3">
+              <p className="text-sm font-black text-gray-900">How To Get a Gemini API Key</p>
+              <ol className="list-decimal list-inside space-y-1 text-sm text-gray-600">
+                <li>Go to <a href="https://aistudio.google.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Google AI Studio</a>.</li>
+                <li>Sign in with your Google or SSO account, such as your Boise State University email.</li>
+                <li>
+                  Create the key:
+                  <ol className="list-[lower-alpha] list-inside space-y-1 mt-1 ml-4">
+                    <li>Click <span className="font-bold">"Get API key"</span> on the left.</li>
+                    <li>Click the <span className="font-bold">"Create API key"</span> button.</li>
+                  </ol>
+                </li>
+                <li>Copy and paste the key. A string of letters and numbers will appear. Copy it immediately.</li>
+                <li>Use it: Go back to your app and paste it into the appropriate place.</li>
+              </ol>
+              <p className="text-xs text-gray-500">
+                Source:{' '}
+                <a
+                  href="https://docs.google.com/document/d/1Ce1gOTozOD3TGd8ntPz3oEWJjU-Y07K2akuIJHXnzHk/edit?tab=t.0#heading=h.xaazhwt982j4"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:underline"
+                >
+                  What a Gemini API Key Is, and How and Why to Get One
+                </a>
+              </p>
+            </div>
+          </section>
+
           {/* Canvas Access Token — inline steps */}
           <section>
             <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-3">Canvas Setup</h3>
@@ -71,20 +103,6 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
                 </a>
               </p>
             </div>
-          </section>
-
-          {/* AI Setup */}
-          <section>
-            <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">AI Setup</h3>
-            <a
-              href="https://docs.google.com/document/d/1Ce1gOTozOD3TGd8ntPz3oEWJjU-Y07K2akuIJHXnzHk/edit?tab=t.0"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-between p-4 bg-gray-50 hover:bg-blue-50 border border-gray-100 hover:border-blue-200 rounded-2xl transition-all group"
-            >
-              <span className="text-sm font-bold text-gray-800 group-hover:text-blue-700">What Is a Gemini API Key and Why Do I Need One?</span>
-              <span className="text-gray-400 group-hover:text-blue-500 ml-3"><ExternalLinkIcon /></span>
-            </a>
           </section>
 
           {/* Resources & Training */}
