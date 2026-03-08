@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CheckCircle, XCircle, Loader2, Download, Copy, Trash2 } from 'lucide-react';
+import { CheckCircle, XCircle, Loader2, Download, Copy, Trash2, ExternalLink } from 'lucide-react';
 import { RubricData, CanvasConfig } from '../types';
 import { generateCsvFromRubricObject, generateAllCsvsFromDoc } from '../services/geminiService';
 import { pushRubricToCanvas } from '../services/canvasService';
@@ -63,6 +63,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
   const [estimatedMs, setEstimatedMs] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [results, setResults] = useState<RubricResult[]>([]);
+  const [csvPromptAnswer, setCsvPromptAnswer] = useState<'yes' | 'no' | null>(null);
 
   const abortRef = useRef<AbortController>(new AbortController());
   const startTimeRef = useRef<number>(Date.now());
@@ -114,7 +115,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
           const csv = generateCsvFromRubricObject(phase1Rubric, scoringMethod);
           pending.push({ name: phase1Rubric.title, csvContent: csv });
           setProgress(30);
-          addLog(`CSV generated for "${phase1Rubric.title}"`, 'success');
+          addLog(`CSV generated: "${phase1Rubric.title}"`, 'success');
         } else if (uploadedFiles.length > 0) {
           const totalFiles = uploadedFiles.length;
           for (let i = 0; i < totalFiles; i++) {
@@ -126,8 +127,11 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
                 { name: file.name, mimeType: file.mimeType, data: file.data },
                 signal,
               );
-              extracted.forEach((r) => pending.push({ name: r.title, csvContent: r.csv }));
               addLog(`Found ${extracted.length} rubric(s) in "${file.name}"`, 'success');
+              extracted.forEach((r) => {
+                pending.push({ name: r.title, csvContent: r.csv });
+                addLog(`CSV generated: "${r.title}"`, 'success');
+              });
             } catch (err: any) {
               if (signal.aborted) throw err;
               addLog(`Failed to analyze "${file.name}": ${err.message}`, 'error');
@@ -244,6 +248,16 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
     }
   };
 
+  const handleCsvYes = async () => {
+    setCsvPromptAnswer('yes');
+    await handleDownloadCsvs();
+  };
+
+  const handleCsvNo = () => {
+    setCsvPromptAnswer('no');
+    setResults((prev) => prev.map((r) => ({ ...r, csvContent: undefined })));
+  };
+
   const handleCopyLogs = () => {
     const text = logs.map((l) => `[${l.timestamp}] ${l.message}`).join('\n');
     navigator.clipboard.writeText(text);
@@ -254,6 +268,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
   const successCount = results.filter((r) => r.status === 'success').length;
   const failCount = results.filter((r) => r.status === 'failed').length;
   const isRunning = runStatus === 'running';
+  const rubricPageUrl = courseUrl.trim().replace(/\/?$/, '') + '/rubrics';
 
   // ─── Summary header (replaces spinner when done) ──────────────────────────
   const renderSummaryHeader = () => {
@@ -278,29 +293,32 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
     }
     // Complete
     return (
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2">
-          <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0" />
-          <span className="font-black text-gray-900">
-            {successCount > 0
-              ? `${successCount} rubric${successCount !== 1 ? 's' : ''} deployed successfully`
-              : 'Deployment complete'}
-          </span>
-        </div>
-        {failCount > 0 && (
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-2">
-            <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-            <span className="font-bold text-red-700">{failCount} failed</span>
+            <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0" />
+            <span className="font-black text-gray-900">
+              {successCount > 0
+                ? `${successCount} rubric${successCount !== 1 ? 's' : ''} deployed successfully`
+                : 'Deployment complete'}
+            </span>
           </div>
-        )}
-        {results.some((r) => r.csvContent) && (
-          <button
-            onClick={handleDownloadCsvs}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl font-bold text-sm hover:bg-green-700 transition-all active:scale-95"
+          {failCount > 0 && (
+            <div className="flex items-center gap-2">
+              <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+              <span className="font-bold text-red-700">{failCount} failed</span>
+            </div>
+          )}
+        </div>
+        {successCount > 0 && (
+          <a
+            href={rubricPageUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-bold hover:underline"
           >
-            <Download className="w-4 h-4" />
-            Download CSV{results.filter((r) => r.csvContent).length > 1 ? 's' : ''}
-          </button>
+            Verify at Canvas Rubrics page <ExternalLink className="w-3 h-3" />
+          </a>
         )}
       </div>
     );
@@ -347,6 +365,35 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
             </button>
           )}
         </div>
+
+        {/* CSV download prompt — shown after completion if CSVs are available */}
+        {runStatus === 'complete' && results.some((r) => r.csvContent) && csvPromptAnswer === null && (
+          <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap items-center gap-3">
+            <span className="text-sm font-bold text-gray-700">
+              Would you like CSV versions of each rubric?
+            </span>
+            <button
+              onClick={handleCsvYes}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl font-bold text-sm hover:bg-green-700 transition-all active:scale-95"
+            >
+              <Download className="w-4 h-4" /> Yes, download
+            </button>
+            <button
+              onClick={handleCsvNo}
+              className="px-4 py-2 bg-white border border-gray-300 text-gray-600 rounded-xl font-bold text-sm hover:bg-gray-50 transition-all"
+            >
+              No thanks
+            </button>
+          </div>
+        )}
+        {runStatus === 'complete' && csvPromptAnswer === 'yes' && (
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <p className="text-sm text-green-700 font-bold flex items-center gap-2">
+              <Download className="w-4 h-4" />
+              CSV{results.filter((r) => r.csvContent).length !== 1 ? 's' : ''} downloaded.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Deployment Timeline */}
