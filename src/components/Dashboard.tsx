@@ -511,7 +511,7 @@ export const Dashboard: React.FC = () => {
                 onDragLeave={() => setIsDragging(false)}
                 onDrop={handleDrop}
                 className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer ${
-                  isDragging ? 'border-purple-400 bg-purple-50' : 'border-gray-300 hover:border-purple-400 hover:bg-purple-50/30'
+                  isDragging ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50/30'
                 }`}
                 onClick={() => fileInputRef.current?.click()}
               >
