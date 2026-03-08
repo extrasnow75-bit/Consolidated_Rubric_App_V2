@@ -209,7 +209,7 @@ export const Dashboard: React.FC = () => {
     try {
       const result = await openGooglePicker();
       if (!result) return;
-      const buffer = await downloadDriveFile(result.id);
+      const buffer = await downloadDriveFile(result.fileId);
       const bytes = new Uint8Array(buffer);
       let binary = '';
       bytes.forEach((b) => (binary += String.fromCharCode(b)));
