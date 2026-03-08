@@ -384,7 +384,7 @@ export const Dashboard: React.FC = () => {
               <button
                 onClick={handleSaveCanvasToken}
                 disabled={!canvasTokenInput.trim()}
-                className="w-full px-4 py-3 bg-red-600 text-white rounded-xl font-black hover:bg-red-700 transition-all text-sm disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
+                className="w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-black hover:bg-blue-700 transition-all text-sm disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
               >
                 <Check className="w-4 h-4" /> Save Token
               </button>
