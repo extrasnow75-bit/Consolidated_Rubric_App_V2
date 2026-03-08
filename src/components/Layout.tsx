@@ -128,6 +128,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           <h1 className="text-xl font-black">eCampus Center Rubric Creator <span className="font-normal opacity-75">V.2</span></h1>
           <p className="text-xs text-blue-100">Streamlined rubric workflow</p>
         </div>
+        <p className="text-xs text-blue-200 font-medium">Part of the IDS TOOLKIT</p>
       </div>
 
       {/* White Ribbon Bar */}

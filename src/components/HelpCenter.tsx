@@ -32,7 +32,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
         <div className="p-6 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
           <div>
             <h2 className="text-xl font-black text-gray-900 tracking-tight uppercase">Help Center</h2>
-            <p className="text-[10px] font-black text-blue-700 uppercase tracking-widest">Instructional Design Toolkit</p>
+            <p className="text-[10px] font-black text-blue-700 uppercase tracking-widest">IDS TOOLKIT</p>
           </div>
           <button
             onClick={onClose}
