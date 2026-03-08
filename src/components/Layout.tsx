@@ -133,7 +133,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Blue Banner */}
       <div className="bg-[#0033a0] text-white py-6 px-8 sm:px-12 flex items-center justify-between shadow-lg z-50">
         <div>
-          <h1 className="text-xl font-black">eCampus Center Rubric Creator</h1>
+          <h1 className="text-xl font-black">eCampus Center Rubric Creator <span className="font-normal opacity-75">V.1</span></h1>
           <p className="text-xs text-blue-100">All-in-one rubric workflow</p>
         </div>
       </div>
