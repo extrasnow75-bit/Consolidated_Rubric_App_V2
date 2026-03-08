@@ -66,14 +66,6 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       case AppMode.DASHBOARD:
         return (
           <div className={baseClasses}>
-            <IconBox className="bg-amber-50"><Lightbulb className="w-5 h-5 text-amber-500" /></IconBox>
-            <RightArrow />
-            <IconBox><WordIcon /></IconBox>
-            <RightArrow />
-            <IconBox><CSVIcon /></IconBox>
-            <RightArrow />
-            <IconBox><CanvasLogo /></IconBox>
-            <div className="h-6 w-px bg-gray-200 mx-2" />
             <span className="text-sm font-black text-gray-400 uppercase tracking-widest">Dashboard</span>
           </div>
         );
@@ -133,8 +125,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Blue Banner */}
       <div className="bg-[#0033a0] text-white py-6 px-8 sm:px-12 flex items-center justify-between shadow-lg z-50">
         <div>
-          <h1 className="text-xl font-black">eCampus Center Rubric Creator <span className="font-normal opacity-75">V.1</span></h1>
-          <p className="text-xs text-blue-100">All-in-one rubric workflow</p>
+          <h1 className="text-xl font-black">eCampus Center Rubric Creator <span className="font-normal opacity-75">V.2</span></h1>
+          <p className="text-xs text-blue-100">Streamlined rubric workflow</p>
         </div>
       </div>
 

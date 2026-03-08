@@ -46,6 +46,9 @@ const SessionContext = createContext<{
   setUserGeminiApiKey: (key: string | null) => void;
   // Canvas API Token
   setUserCanvasApiToken: (token: string | null) => void;
+  // V.2 fields
+  setCourseUrl: (url: string | null) => void;
+  setHasDraftRubric: (value: 'yes' | 'no' | null) => void;
   // Google Auth methods
   startGoogleAuth: () => Promise<void>;
   signOutGoogle: () => Promise<void>;
@@ -90,6 +93,9 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     geminiApiKey: null,
     // Canvas API Token
     canvasApiToken: null,
+    // V.2 fields
+    courseUrl: null,
+    hasDraftRubric: null,
     // Google Authentication
     isGoogleAuthenticated: false,
     googleUser: null,
@@ -287,9 +293,11 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
         totalItems: 0,
         canCancel: false,
       },
-      // Preserve Gemini API key, Canvas token, and Google auth across session clears
+      // Preserve credentials and V.2 setup across session clears
       geminiApiKey: prev.geminiApiKey,
       canvasApiToken: prev.canvasApiToken,
+      courseUrl: prev.courseUrl,
+      hasDraftRubric: prev.hasDraftRubric,
       isGoogleAuthenticated: prev.isGoogleAuthenticated,
       googleUser: prev.googleUser,
       googleAccessToken: prev.googleAccessToken,
@@ -323,6 +331,17 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       localStorage.removeItem('gemini_api_key');
       geminiServiceSetApiKey('');
     }
+  }, []);
+
+  // V.2 setters
+  const setCourseUrl = useCallback((url: string | null) => {
+    setState((prev) => ({ ...prev, courseUrl: url }));
+    if (url) localStorage.setItem('canvas_course_url', url);
+    else localStorage.removeItem('canvas_course_url');
+  }, []);
+
+  const setHasDraftRubric = useCallback((value: 'yes' | 'no' | null) => {
+    setState((prev) => ({ ...prev, hasDraftRubric: value }));
   }, []);
 
   // Canvas API Token management
@@ -440,6 +459,12 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       setState((prev) => ({ ...prev, canvasApiToken: savedCanvasToken }));
     }
 
+    // Restore saved V.2 course URL
+    const savedCourseUrl = localStorage.getItem('canvas_course_url');
+    if (savedCourseUrl) {
+      setState((prev) => ({ ...prev, courseUrl: savedCourseUrl }));
+    }
+
     // Listen for Firebase auth state changes.
     // When the page reloads, Firebase restores the user from IndexedDB.
     // If a valid Google access token is also in sessionStorage we restore
@@ -511,6 +536,8 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     newBatch,
     setUserGeminiApiKey,
     setUserCanvasApiToken,
+    setCourseUrl,
+    setHasDraftRubric,
     startGoogleAuth,
     signOutGoogle,
     extractGoogleDocText,

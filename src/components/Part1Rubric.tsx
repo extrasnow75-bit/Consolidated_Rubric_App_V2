@@ -11,7 +11,12 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { getRecentDocs, saveRecentDoc, RecentDoc } from '../utils/recentDocs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
 
-export const Part1Rubric: React.FC = () => {
+interface Part1RubricProps {
+  onAnalyzeDeploy?: () => void;
+  canAnalyzeDeploy?: boolean;
+}
+
+export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAnalyzeDeploy }) => {
   const {
     state,
     setCurrentStep,
@@ -356,7 +361,11 @@ export const Part1Rubric: React.FC = () => {
       setError('Please generate a rubric first');
       return;
     }
-    setCurrentStep(AppMode.PART_2);
+    if (onAnalyzeDeploy) {
+      onAnalyzeDeploy();
+    } else {
+      setCurrentStep(AppMode.PART_2);
+    }
   };
 
   const handleReset = () => {
@@ -842,10 +851,11 @@ export const Part1Rubric: React.FC = () => {
                 {/* Primary Action */}
                 <button
                   onClick={handleContinue}
-                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all active:scale-95 mb-3 flex items-center justify-center gap-2"
+                  disabled={onAnalyzeDeploy !== undefined && !canAnalyzeDeploy}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all active:scale-95 mb-3 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ArrowRight className="w-5 h-5" />
-                  Continue to Part 2: Convert to CSV
+                  {onAnalyzeDeploy ? 'Analyze Draft Rubric(s) and Deploy To Canvas' : 'Continue to Part 2: Convert to CSV'}
                 </button>
 
                 {/* Secondary Actions */}

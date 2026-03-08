@@ -241,6 +241,10 @@ export interface SessionState {
   // Canvas API Token (user-provided, optional — used by Phase 3)
   canvasApiToken: string | null;
 
+  // V.2 fields
+  courseUrl: string | null;
+  hasDraftRubric: 'yes' | 'no' | null;
+
   // Google Authentication
   isGoogleAuthenticated: boolean;
   googleUser: GoogleUser | null;
