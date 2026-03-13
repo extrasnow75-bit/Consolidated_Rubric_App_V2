@@ -600,12 +600,6 @@ export const Dashboard: React.FC = () => {
               </div>
             )}
 
-            {/* "No" path — brief note */}
-            {hasDraftRubric === 'no' && (
-              <p className="text-sm text-blue-700 bg-blue-50 rounded-xl px-4 py-3 font-medium">
-                The rubric creator will appear below. Once you've generated your rubric, you'll see the deploy button.
-              </p>
-            )}
           </SetupCard>
         )}
 
