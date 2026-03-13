@@ -145,7 +145,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl transition-all font-bold text-sm border border-gray-200 active:scale-95"
           >
             <HelpCircle className="w-5 h-5" />
-            <span>Help</span>
+            <span>Help Center & More</span>
           </button>
 
           {showReturnButton && (
