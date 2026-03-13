@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import {
   Key, Check, X, Loader2, ExternalLink, Eye, EyeOff,
-  LogOut, Link, FileText, Upload, ChevronDown, FolderOpen,
+  LogOut, Link, FileText, Upload, ChevronDown, FolderOpen, Settings2,
 } from 'lucide-react';
 import { validateGeminiApiKey } from '../services/geminiService';
 import { Part1Rubric } from './Part1Rubric';
@@ -95,7 +95,18 @@ export const Dashboard: React.FC = () => {
   const draftRubricValid =
     hasDraftRubric === 'yes' ? uploadedFiles.length > 0 : hasDraftRubric === 'no';
 
+  // Core setup = Gemini + Canvas Token (Google is optional)
+  const coreSetupComplete = geminiValid && canvasTokenValid;
+
   const allRequiredValid = geminiValid && canvasTokenValid && courseUrlValid && draftRubricValid;
+
+  // ── Collapsible Initial Setup ──
+  const [isSetupOpen, setIsSetupOpen] = useState(!coreSetupComplete);
+
+  // Auto-collapse when core setup becomes complete
+  useEffect(() => {
+    if (coreSetupComplete) setIsSetupOpen(false);
+  }, [coreSetupComplete]);
 
   // ── Fetch course name when URL and token are both valid ──
   useEffect(() => {
@@ -254,7 +265,6 @@ export const Dashboard: React.FC = () => {
       let fileName = result.name;
 
       if (result.mimeType === 'application/vnd.google-apps.document') {
-        // Google Docs must be exported — alt=media doesn't work for native Google files
         if (!fileName.toLowerCase().endsWith('.docx')) fileName = `${fileName}.docx`;
         const exportUrl =
           `https://www.googleapis.com/drive/v3/files/${result.fileId}/export` +
@@ -292,277 +302,315 @@ export const Dashboard: React.FC = () => {
   return (
     <div className="max-w-2xl mx-auto py-10 px-4">
 
-      {/* Page heading */}
-      <div className="text-center mb-8">
-        <h2 className="text-3xl font-black text-gray-900">Initial Setup</h2>
-        <p className="text-gray-600 mt-2 font-medium">Complete each section, then deploy your rubric(s) to Canvas.</p>
-      </div>
-
       <div className="space-y-4">
 
-        {/* Card 1: Gemini API Key */}
-        <SetupCard isValid={geminiValid}>
-          <div className="flex items-center gap-2 mb-1">
-            <Key className="w-4 h-4 text-amber-600 flex-shrink-0" />
-            <h3 className="font-black text-lg text-gray-900">Gemini API Key</h3>
-            {geminiValid && <Check className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
-          </div>
-          {geminiValid ? (
-            <div>
-              <div className="flex items-center gap-2 mt-2 mb-1">
-                <div className="w-2 h-2 bg-green-500 rounded-full" />
-                <span className="text-sm font-bold text-green-700">API key active</span>
-              </div>
-              <p className="text-xs text-gray-500 font-mono mb-3 break-all">{maskKey(state.geminiApiKey!)}</p>
-              <button onClick={handleRemoveApiKey} className="w-full px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-sm flex items-center justify-center gap-2">
-                <LogOut className="w-4 h-4" /> Remove Key
-              </button>
-            </div>
-          ) : (
-            <div>
-              <p className="text-sm text-gray-600 mb-3">Enter your free Google Gemini API key to enable AI features.</p>
-              <input
-                type="password"
-                value={apiKeyInput}
-                onChange={(e) => { setApiKeyInput(e.target.value); setKeyValidationResult('idle'); }}
-                onKeyDown={(e) => e.key === 'Enter' && handleSaveApiKey()}
-                placeholder="Paste your API key here..."
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-sm font-mono focus:border-amber-400 focus:outline-none transition-all mb-3"
-              />
-              {keyValidationResult === 'invalid' && (
-                <div className="flex items-center gap-2 mb-3 text-red-600">
-                  <X className="w-4 h-4" />
-                  <span className="text-xs font-bold">Invalid API key. Please check and try again.</span>
-                </div>
-              )}
-              <button
-                onClick={handleSaveApiKey}
-                disabled={!apiKeyInput.trim() || isValidatingKey}
-                className="w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-black hover:bg-blue-700 transition-all text-sm disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
-              >
-                {isValidatingKey ? <><Loader2 className="w-4 h-4 animate-spin" /> Validating...</> : <><Check className="w-4 h-4" /> Save Key</>}
-              </button>
-              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-1 mt-3 text-xs text-blue-600 hover:text-blue-800 font-bold hover:underline">
-                Get a free key at aistudio.google.com <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
-          )}
-        </SetupCard>
+        {/* ── Initial Setup Collapsible ── */}
+        <div className="rounded-2xl overflow-hidden shadow-md">
 
-        {/* Card 2: Google Sign-In (optional) */}
-        <SetupCard isValid={googleSignedIn} isOptional>
-          {!googleSignedIn ? (
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <GoogleIcon />
-                <h3 className="font-black text-lg text-gray-900">Google Sign-In</h3>
-                <span className="ml-auto text-xs text-gray-400 font-bold uppercase tracking-wide">Optional</span>
-              </div>
-              <p className="text-sm text-gray-600 mb-4">Sign in to select rubric documents directly from Google Drive.</p>
-              <button
-                onClick={() => startGoogleAuth()}
-                disabled={state.isAuthenticating}
-                className="w-full px-6 py-3 bg-white border-2 border-blue-400 text-blue-600 rounded-xl font-black hover:bg-blue-50 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
-              >
-                {state.isAuthenticating ? <><Loader2 className="w-5 h-5 animate-spin" /> Signing in...</> : <><GoogleIcon /> Sign In with Google</>}
-              </button>
-              {state.googleAuthError && (
-                <p className="text-xs text-red-600 mt-2 flex items-start gap-1">
-                  <X className="w-3 h-3 mt-0.5 flex-shrink-0" /> {state.googleAuthError}
-                </p>
-              )}
-            </div>
-          ) : (
-            <div className="flex items-center gap-4">
-              {state.googleUser?.picture && (
-                <img src={state.googleUser.picture} alt="Profile" className="w-12 h-12 rounded-full border-2 border-green-300 flex-shrink-0" />
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="font-black text-gray-900 truncate">{state.googleUser?.name}</p>
-                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                </div>
-                <p className="text-xs text-gray-500 truncate">{state.googleUser?.email}</p>
-              </div>
-              <button onClick={() => signOutGoogle()} className="px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-xs flex items-center gap-1 flex-shrink-0">
-                <LogOut className="w-3 h-3" /> Sign Out
-              </button>
-            </div>
-          )}
-        </SetupCard>
-
-        {/* Card 3: Canvas API Token */}
-        <SetupCard isValid={canvasTokenValid}>
-          <div className="flex items-center gap-2 mb-1">
-            <Key className="w-4 h-4 text-red-600 flex-shrink-0" />
-            <h3 className="font-black text-lg text-gray-900">Canvas API Token</h3>
-            {canvasTokenValid && <Check className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
-          </div>
-          {canvasTokenValid ? (
-            <div>
-              <div className="flex items-center gap-2 mt-2 mb-1">
-                <div className="w-2 h-2 bg-green-500 rounded-full" />
-                <span className="text-sm font-bold text-green-700">Token saved</span>
-              </div>
-              <p className="text-xs text-gray-500 font-mono mb-3 break-all">{maskKey(state.canvasApiToken!)}</p>
-              <button onClick={handleRemoveCanvasToken} className="w-full px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-sm flex items-center justify-center gap-2">
-                <LogOut className="w-4 h-4" /> Remove Token
-              </button>
-            </div>
-          ) : (
-            <div>
-              <p className="text-sm text-gray-600 mb-3">Required for deploying rubrics to Canvas. Generate a token from your Canvas account settings.</p>
-              <div className="relative mb-3">
-                <input
-                  type={showCanvasToken ? 'text' : 'password'}
-                  value={canvasTokenInput}
-                  onChange={(e) => { setCanvasTokenInput(e.target.value); setCanvasTokenError(null); }}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSaveCanvasToken()}
-                  placeholder="Paste your Canvas token here..."
-                  className={`w-full px-4 py-3 border-2 rounded-xl text-sm font-mono focus:outline-none transition-all pr-10 ${canvasTokenError ? 'border-red-400' : 'border-gray-200 focus:border-red-400'}`}
+          {/* Header */}
+          <button
+            onClick={() => setIsSetupOpen((v) => !v)}
+            className="w-full bg-[#0033a0] hover:bg-[#002d8f] text-white px-6 py-4 flex items-center gap-3 transition-colors cursor-pointer text-left"
+          >
+            <Settings2 className="w-5 h-5 flex-shrink-0" />
+            <span className="font-black text-base">Initial Setup</span>
+            <div className="ml-auto flex items-center gap-3">
+              {/* Status dots: Gemini, Canvas, Google (optional) */}
+              <div className="flex items-center gap-2">
+                <div
+                  title="Gemini API Key"
+                  className={`w-2.5 h-2.5 rounded-full transition-colors ${geminiValid ? 'bg-green-400' : 'bg-white/30'}`}
                 />
-                <button type="button" onClick={() => setShowCanvasToken((v) => !v)} className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600">
-                  {showCanvasToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
+                <div
+                  title="Canvas API Token"
+                  className={`w-2.5 h-2.5 rounded-full transition-colors ${canvasTokenValid ? 'bg-green-400' : 'bg-white/30'}`}
+                />
+                <div
+                  title="Google Sign-In (optional)"
+                  className={`w-2.5 h-2.5 rounded-full transition-colors ${googleSignedIn ? 'bg-green-400 opacity-80' : 'bg-white/20'}`}
+                />
               </div>
-              {canvasTokenError && (
-                <p className="text-xs text-red-600 mb-3 flex items-start gap-1">
-                  <X className="w-3 h-3 mt-0.5 flex-shrink-0" /> {canvasTokenError}
-                </p>
-              )}
-              <button
-                onClick={handleSaveCanvasToken}
-                disabled={!canvasTokenInput.trim()}
-                className="w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-black hover:bg-blue-700 transition-all text-sm disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
-              >
-                <Check className="w-4 h-4" /> Save Token
-              </button>
-            </div>
-          )}
-        </SetupCard>
-
-        {/* Card 4: Target Canvas Course */}
-        <SetupCard isValid={courseUrlValid}>
-          <div className="flex items-center gap-2 mb-1">
-            <Link className="w-4 h-4 text-blue-600 flex-shrink-0" />
-            <h3 className="font-black text-lg text-gray-900">Target Canvas Course</h3>
-            {courseUrlValid && <Check className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
-          </div>
-          <p className="text-sm text-gray-600 mb-3">Enter the homepage URL of the Canvas course you want to deploy rubrics to.</p>
-          <input
-            type="url"
-            value={courseUrlInput}
-            onChange={(e) => handleCourseUrlChange(e.target.value)}
-            placeholder="https://canvas.institution.edu/courses/12345"
-            className={`w-full px-4 py-3 border-2 rounded-xl text-sm focus:outline-none transition-all ${
-              courseUrlInput && !courseUrlValid
-                ? 'border-red-300 focus:border-red-400'
-                : courseUrlValid
-                ? 'border-green-400 focus:border-green-500'
-                : 'border-gray-200 focus:border-blue-400'
-            }`}
-          />
-          {courseUrlInput && !courseUrlValid && (
-            <p className="text-xs text-red-600 mt-2 flex items-center gap-1">
-              <X className="w-3 h-3" /> URL must include a /courses/&lt;ID&gt; path
-            </p>
-          )}
-          {courseUrlValid && (
-            <div className="mt-3 flex items-center gap-2 min-h-[1.5rem]">
-              {courseNameLoading ? (
-                <Loader2 className="w-4 h-4 text-green-500 animate-spin" />
-              ) : courseName ? (
-                <>
-                  <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
-                  <span className="text-sm font-bold text-green-700">{courseName}</span>
-                </>
-              ) : null}
-            </div>
-          )}
-        </SetupCard>
-
-        {/* Card 5: Draft Rubric Document */}
-        <SetupCard isValid={draftRubricValid}>
-          <div className="flex items-center gap-2 mb-1">
-            <FileText className="w-4 h-4 flex-shrink-0" style={{ color: '#4285F4' }} />
-            <h3 className="font-black text-lg text-gray-900">Draft Rubric Document</h3>
-            {draftRubricValid && <Check className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
-          </div>
-          <p className="text-sm text-gray-600 mb-3">Do you already have a draft rubric document ready to deploy?</p>
-
-          <div className="relative mb-4">
-            <select
-              value={hasDraftRubric}
-              onChange={(e) => handleDraftRubricChange(e.target.value as '' | 'yes' | 'no')}
-              className="w-full appearance-none px-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:border-purple-400 focus:outline-none transition-all bg-white font-medium text-gray-700 cursor-pointer"
-            >
-              <option value="">Select...</option>
-              <option value="yes">Yes - I have a draft rubric document</option>
-              <option value="no">No - I need to create one first</option>
-            </select>
-            <ChevronDown className="absolute right-3 top-3.5 w-4 h-4 text-gray-400 pointer-events-none" />
-          </div>
-
-          {/* "Yes" path — file upload area */}
-          {hasDraftRubric === 'yes' && (
-            <div className="space-y-3">
-              <div
-                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer ${
-                  isDragging ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50/30'
-                }`}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Upload className="w-7 h-7 text-gray-400 mx-auto mb-2" />
-                <p className="text-sm font-bold text-gray-700">Drag & drop rubric files here</p>
-                <p className="text-xs text-gray-500 mt-1">or click to browse · .docx / .doc</p>
-              </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
-                multiple
-                className="hidden"
-                onChange={handleFileInput}
+              <ChevronDown
+                className={`w-5 h-5 transition-transform duration-300 ${isSetupOpen ? 'rotate-180' : ''}`}
               />
+            </div>
+          </button>
 
-              <div className="flex gap-2">
-                <button onClick={() => fileInputRef.current?.click()} className="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2">
-                  <Upload className="w-4 h-4" /> Browse Files
-                </button>
-                {googleSignedIn && (
-                  <button onClick={handleGooglePicker} className="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2">
-                    <FolderOpen className="w-4 h-4" /> Google Drive
-                  </button>
-                )}
-              </div>
+          {/* Collapsible body */}
+          {isSetupOpen && (
+            <div className="bg-gray-50 px-4 pb-4 pt-3 space-y-3 border border-gray-100 border-t-0 rounded-b-2xl">
 
-              {uploadedFiles.length > 0 && (
-                <div className="space-y-1">
-                  {uploadedFiles.map((f, i) => (
-                    <div key={i} className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm">
-                      <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
-                      <span className="flex-1 truncate font-medium text-gray-800">{f.name}</span>
-                      <button onClick={() => setUploadedFiles((prev) => prev.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-500 transition-colors flex-shrink-0">
+              {/* Card 1: Gemini API Key */}
+              <SetupCard isValid={geminiValid}>
+                <div className="flex items-center gap-2 mb-1">
+                  <Key className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                  <h3 className="font-black text-lg text-gray-900">Gemini API Key</h3>
+                  {geminiValid && <Check className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
+                </div>
+                {geminiValid ? (
+                  <div>
+                    <div className="flex items-center gap-2 mt-2 mb-1">
+                      <div className="w-2 h-2 bg-green-500 rounded-full" />
+                      <span className="text-sm font-bold text-green-700">API key active</span>
+                    </div>
+                    <p className="text-xs text-gray-500 font-mono mb-3 break-all">{maskKey(state.geminiApiKey!)}</p>
+                    <button onClick={handleRemoveApiKey} className="w-full px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-sm flex items-center justify-center gap-2">
+                      <LogOut className="w-4 h-4" /> Remove Key
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-sm text-gray-600 mb-3">Enter your free Google Gemini API key to enable AI features.</p>
+                    <input
+                      type="password"
+                      value={apiKeyInput}
+                      onChange={(e) => { setApiKeyInput(e.target.value); setKeyValidationResult('idle'); }}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSaveApiKey()}
+                      placeholder="Paste your API key here..."
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-sm font-mono focus:border-amber-400 focus:outline-none transition-all mb-3"
+                    />
+                    {keyValidationResult === 'invalid' && (
+                      <div className="flex items-center gap-2 mb-3 text-red-600">
                         <X className="w-4 h-4" />
+                        <span className="text-xs font-bold">Invalid API key. Please check and try again.</span>
+                      </div>
+                    )}
+                    <button
+                      onClick={handleSaveApiKey}
+                      disabled={!apiKeyInput.trim() || isValidatingKey}
+                      className="w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-black hover:bg-blue-700 transition-all text-sm disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
+                    >
+                      {isValidatingKey ? <><Loader2 className="w-4 h-4 animate-spin" /> Validating...</> : <><Check className="w-4 h-4" /> Save Key</>}
+                    </button>
+                    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-1 mt-3 text-xs text-blue-600 hover:text-blue-800 font-bold hover:underline">
+                      Get a free key at aistudio.google.com <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                )}
+              </SetupCard>
+
+              {/* Card 2: Canvas API Token */}
+              <SetupCard isValid={canvasTokenValid}>
+                <div className="flex items-center gap-2 mb-1">
+                  <Key className="w-4 h-4 text-red-600 flex-shrink-0" />
+                  <h3 className="font-black text-lg text-gray-900">Canvas API Token</h3>
+                  {canvasTokenValid && <Check className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
+                </div>
+                {canvasTokenValid ? (
+                  <div>
+                    <div className="flex items-center gap-2 mt-2 mb-1">
+                      <div className="w-2 h-2 bg-green-500 rounded-full" />
+                      <span className="text-sm font-bold text-green-700">Token saved</span>
+                    </div>
+                    <p className="text-xs text-gray-500 font-mono mb-3 break-all">{maskKey(state.canvasApiToken!)}</p>
+                    <button onClick={handleRemoveCanvasToken} className="w-full px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-sm flex items-center justify-center gap-2">
+                      <LogOut className="w-4 h-4" /> Remove Token
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-sm text-gray-600 mb-3">Required for deploying rubrics to Canvas. Generate a token from your Canvas account settings.</p>
+                    <div className="relative mb-3">
+                      <input
+                        type={showCanvasToken ? 'text' : 'password'}
+                        value={canvasTokenInput}
+                        onChange={(e) => { setCanvasTokenInput(e.target.value); setCanvasTokenError(null); }}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSaveCanvasToken()}
+                        placeholder="Paste your Canvas token here..."
+                        className={`w-full px-4 py-3 border-2 rounded-xl text-sm font-mono focus:outline-none transition-all pr-10 ${canvasTokenError ? 'border-red-400' : 'border-gray-200 focus:border-red-400'}`}
+                      />
+                      <button type="button" onClick={() => setShowCanvasToken((v) => !v)} className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600">
+                        {showCanvasToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
-                  ))}
-                </div>
-              )}
+                    {canvasTokenError && (
+                      <p className="text-xs text-red-600 mb-3 flex items-start gap-1">
+                        <X className="w-3 h-3 mt-0.5 flex-shrink-0" /> {canvasTokenError}
+                      </p>
+                    )}
+                    <button
+                      onClick={handleSaveCanvasToken}
+                      disabled={!canvasTokenInput.trim()}
+                      className="w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-black hover:bg-blue-700 transition-all text-sm disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
+                    >
+                      <Check className="w-4 h-4" /> Save Token
+                    </button>
+                  </div>
+                )}
+              </SetupCard>
+
+              {/* Card 3: Google Sign-In (optional) — after Canvas Token */}
+              <SetupCard isValid={googleSignedIn} isOptional>
+                {!googleSignedIn ? (
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <GoogleIcon />
+                      <h3 className="font-black text-lg text-gray-900">Google Sign-In</h3>
+                      <span className="ml-auto text-xs text-gray-400 font-bold uppercase tracking-wide">Optional</span>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-4">Sign in to select rubric documents directly from Google Drive.</p>
+                    <button
+                      onClick={() => startGoogleAuth()}
+                      disabled={state.isAuthenticating}
+                      className="w-full px-6 py-3 bg-white border-2 border-blue-400 text-blue-600 rounded-xl font-black hover:bg-blue-50 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                    >
+                      {state.isAuthenticating ? <><Loader2 className="w-5 h-5 animate-spin" /> Signing in...</> : <><GoogleIcon /> Sign In with Google</>}
+                    </button>
+                    {state.googleAuthError && (
+                      <p className="text-xs text-red-600 mt-2 flex items-start gap-1">
+                        <X className="w-3 h-3 mt-0.5 flex-shrink-0" /> {state.googleAuthError}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-4">
+                    {state.googleUser?.picture && (
+                      <img src={state.googleUser.picture} alt="Profile" className="w-12 h-12 rounded-full border-2 border-green-300 flex-shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-black text-gray-900 truncate">{state.googleUser?.name}</p>
+                        <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                      </div>
+                      <p className="text-xs text-gray-500 truncate">{state.googleUser?.email}</p>
+                    </div>
+                    <button onClick={() => signOutGoogle()} className="px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-xs flex items-center gap-1 flex-shrink-0">
+                      <LogOut className="w-3 h-3" /> Sign Out
+                    </button>
+                  </div>
+                )}
+              </SetupCard>
+
             </div>
           )}
+        </div>
 
-          {/* "No" path — brief note */}
-          {hasDraftRubric === 'no' && (
-            <p className="text-sm text-blue-700 bg-blue-50 rounded-xl px-4 py-3 font-medium">
-              The rubric creator will appear below. Once you've generated your rubric, you'll see the deploy button.
-            </p>
-          )}
-        </SetupCard>
+        {/* ── Draft Rubric Document — appears once core setup is complete ── */}
+        {coreSetupComplete && (
+          <SetupCard isValid={draftRubricValid}>
+            <div className="flex items-center gap-2 mb-1">
+              <FileText className="w-4 h-4 flex-shrink-0" style={{ color: '#4285F4' }} />
+              <h3 className="font-black text-lg text-gray-900">Draft Rubric Document</h3>
+              {draftRubricValid && <Check className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
+            </div>
+            <p className="text-sm text-gray-600 mb-3">Do you already have a draft rubric document ready to deploy?</p>
+
+            <div className="relative mb-4">
+              <select
+                value={hasDraftRubric}
+                onChange={(e) => handleDraftRubricChange(e.target.value as '' | 'yes' | 'no')}
+                className="w-full appearance-none px-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:border-purple-400 focus:outline-none transition-all bg-white font-medium text-gray-700 cursor-pointer"
+              >
+                <option value="">Select...</option>
+                <option value="yes">Yes - I have a draft rubric document</option>
+                <option value="no">No - I need to create one first</option>
+              </select>
+              <ChevronDown className="absolute right-3 top-3.5 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
+
+            {/* "Yes" path — file upload area */}
+            {hasDraftRubric === 'yes' && (
+              <div className="space-y-3">
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={handleDrop}
+                  className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer ${
+                    isDragging ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50/30'
+                  }`}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="w-7 h-7 text-gray-400 mx-auto mb-2" />
+                  <p className="text-sm font-bold text-gray-700">Drag & drop rubric files here</p>
+                  <p className="text-xs text-gray-500 mt-1">or click to browse · .docx / .doc</p>
+                </div>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileInput}
+                />
+
+                <div className="flex gap-2">
+                  <button onClick={() => fileInputRef.current?.click()} className="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2">
+                    <Upload className="w-4 h-4" /> Browse Files
+                  </button>
+                  {googleSignedIn && (
+                    <button onClick={handleGooglePicker} className="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2">
+                      <FolderOpen className="w-4 h-4" /> Google Drive
+                    </button>
+                  )}
+                </div>
+
+                {uploadedFiles.length > 0 && (
+                  <div className="space-y-1">
+                    {uploadedFiles.map((f, i) => (
+                      <div key={i} className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm">
+                        <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        <span className="flex-1 truncate font-medium text-gray-800">{f.name}</span>
+                        <button onClick={() => setUploadedFiles((prev) => prev.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-500 transition-colors flex-shrink-0">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* "No" path — brief note */}
+            {hasDraftRubric === 'no' && (
+              <p className="text-sm text-blue-700 bg-blue-50 rounded-xl px-4 py-3 font-medium">
+                The rubric creator will appear below. Once you've generated your rubric, you'll see the deploy button.
+              </p>
+            )}
+          </SetupCard>
+        )}
+
+        {/* ── Target Canvas Course — appears only when "Yes" is selected ── */}
+        {coreSetupComplete && hasDraftRubric === 'yes' && (
+          <SetupCard isValid={courseUrlValid}>
+            <div className="flex items-center gap-2 mb-1">
+              <Link className="w-4 h-4 text-blue-600 flex-shrink-0" />
+              <h3 className="font-black text-lg text-gray-900">Target Canvas Course</h3>
+              {courseUrlValid && <Check className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
+            </div>
+            <p className="text-sm text-gray-600 mb-3">Enter the homepage URL of the Canvas course you want to deploy rubrics to.</p>
+            <input
+              type="url"
+              value={courseUrlInput}
+              onChange={(e) => handleCourseUrlChange(e.target.value)}
+              placeholder="https://canvas.institution.edu/courses/12345"
+              className={`w-full px-4 py-3 border-2 rounded-xl text-sm focus:outline-none transition-all ${
+                courseUrlInput && !courseUrlValid
+                  ? 'border-red-300 focus:border-red-400'
+                  : courseUrlValid
+                  ? 'border-green-400 focus:border-green-500'
+                  : 'border-gray-200 focus:border-blue-400'
+              }`}
+            />
+            {courseUrlInput && !courseUrlValid && (
+              <p className="text-xs text-red-600 mt-2 flex items-center gap-1">
+                <X className="w-3 h-3" /> URL must include a /courses/&lt;ID&gt; path
+              </p>
+            )}
+            {courseUrlValid && (
+              <div className="mt-3 flex items-center gap-2 min-h-[1.5rem]">
+                {courseNameLoading ? (
+                  <Loader2 className="w-4 h-4 text-green-500 animate-spin" />
+                ) : courseName ? (
+                  <>
+                    <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
+                    <span className="text-sm font-bold text-green-700">{courseName}</span>
+                  </>
+                ) : null}
+              </div>
+            )}
+          </SetupCard>
+        )}
 
       </div>
 
@@ -593,7 +641,7 @@ export const Dashboard: React.FC = () => {
         <div className="mt-8 border-t border-gray-200 pt-8">
           <Part1Rubric
             onAnalyzeDeploy={() => handleAnalyzeDeploy('no')}
-            canAnalyzeDeploy={geminiValid && canvasTokenValid && courseUrlValid}
+            canAnalyzeDeploy={geminiValid && canvasTokenValid}
           />
         </div>
       )}

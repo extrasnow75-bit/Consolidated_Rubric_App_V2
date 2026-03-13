@@ -66,7 +66,13 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       case AppMode.DASHBOARD:
         return (
           <div className={baseClasses}>
-            <span className="text-sm font-black text-gray-400 uppercase tracking-widest">Dashboard</span>
+            <IconBox className="bg-amber-50"><Lightbulb className="w-5 h-5 text-amber-500" /></IconBox>
+            <RightArrow />
+            <IconBox><WordIcon /></IconBox>
+            <RightArrow />
+            <IconBox><CSVIcon /></IconBox>
+            <RightArrow />
+            <IconBox><CanvasLogo /></IconBox>
           </div>
         );
       case AppMode.PART_1:
