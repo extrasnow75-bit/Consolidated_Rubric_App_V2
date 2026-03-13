@@ -538,7 +538,7 @@ export const Dashboard: React.FC = () => {
               <select
                 value={hasDraftRubric}
                 onChange={(e) => handleDraftRubricChange(e.target.value as '' | 'yes' | 'no')}
-                className="w-full appearance-none px-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:border-purple-400 focus:outline-none transition-all bg-white font-medium text-gray-700 cursor-pointer"
+                className="w-full appearance-none px-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:border-[#0033a0] focus:outline-none transition-all bg-white font-medium text-gray-700 cursor-pointer"
               >
                 <option value="">Select...</option>
                 <option value="yes">Yes - I have a draft rubric document</option>
