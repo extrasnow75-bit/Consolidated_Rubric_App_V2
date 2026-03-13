@@ -736,7 +736,7 @@ export const Dashboard: React.FC = () => {
                 <div className="flex-1">
                   <h3 className="font-black text-lg text-gray-900">Screenshot to Editable Doc</h3>
                   <p className="text-sm text-gray-600 mt-2">
-                    Convert Canvas rubric screenshots to MS Word / Google Docs rubric template.
+                    Convert Canvas rubric screenshots to a matching, editable, draft rubric (MS Word / Google Docs file).
                   </p>
                 </div>
               </button>
