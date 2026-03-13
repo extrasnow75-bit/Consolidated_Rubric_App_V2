@@ -3,9 +3,10 @@ import { useSession } from '../contexts/SessionContext';
 import {
   Key, Check, X, Loader2, ExternalLink, Eye, EyeOff,
   LogOut, Link, FileText, Upload, ChevronDown, FolderOpen, Settings2,
-  Lightbulb, Camera, ArrowRight, Clipboard, HardDrive,
+  Lightbulb, Camera, ArrowRight, Clipboard, HardDrive, Clock, ChevronUp,
 } from 'lucide-react';
 import { googleDriveService } from '../services/googleDriveService';
+import { getRecentDocs, saveRecentDoc, RecentDoc } from '../utils/recentDocs';
 import { AppMode } from '../types';
 import { validateGeminiApiKey } from '../services/geminiService';
 import { AnalyzeDeploySection, UploadedDocFile } from './AnalyzeDeploySection';
@@ -94,6 +95,8 @@ export const Dashboard: React.FC = () => {
   const [driveUrl, setDriveUrl] = useState('');
   const [isFetchingDriveUrl, setIsFetchingDriveUrl] = useState(false);
   const [driveUrlError, setDriveUrlError] = useState<string | null>(null);
+  const [recentDocs, setRecentDocs] = useState<RecentDoc[]>(() => getRecentDocs());
+  const [showRecentDocs, setShowRecentDocs] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pasteAreaRef = useRef<HTMLDivElement>(null);
 
@@ -338,6 +341,8 @@ export const Dashboard: React.FC = () => {
         if (prev.some((p) => p.name === fileName)) return prev;
         return [...prev, { name: fileName, data: base64, mimeType: DOCX_MIME }];
       });
+      saveRecentDoc({ name: fileName, fileId: result.fileId, mimeType: result.mimeType, source: 'picker' });
+      setRecentDocs(getRecentDocs());
     } catch (err: any) {
       console.error('Google Picker error:', err);
     }
@@ -372,11 +377,49 @@ export const Dashboard: React.FC = () => {
         if (prev.some((p) => p.name === fileName)) return prev;
         return [...prev, { name: fileName, data: base64, mimeType: DOCX_MIME }];
       });
+      saveRecentDoc({ name: fileName, url: driveUrl.trim(), source: 'url' });
+      setRecentDocs(getRecentDocs());
       setDriveUrl('');
     } catch (err: any) {
       setDriveUrlError(`Could not fetch file: ${err.message}`);
     } finally {
       setIsFetchingDriveUrl(false);
+    }
+  };
+
+  const handleRecentDocClick = async (doc: RecentDoc) => {
+    setShowRecentDocs(false);
+    if (doc.source === 'url' && doc.url) {
+      setDriveUrl(doc.url);
+      return;
+    }
+    if (doc.source === 'picker' && doc.fileId && state.googleAccessToken) {
+      try {
+        const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        let buffer: ArrayBuffer;
+        let fileName = doc.name;
+        if (doc.mimeType === 'application/vnd.google-apps.document') {
+          if (!fileName.toLowerCase().endsWith('.docx')) fileName = `${fileName}.docx`;
+          const exportUrl =
+            `https://www.googleapis.com/drive/v3/files/${doc.fileId}/export` +
+            `?mimeType=${encodeURIComponent(DOCX_MIME)}`;
+          const resp = await fetch(exportUrl, { headers: { Authorization: `Bearer ${state.googleAccessToken}` } });
+          if (!resp.ok) throw new Error(`Export failed (${resp.status})`);
+          buffer = await resp.arrayBuffer();
+        } else {
+          buffer = await googleDriveService.downloadFileAsArrayBuffer(doc.fileId, state.googleAccessToken);
+        }
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        bytes.forEach((b) => (binary += String.fromCharCode(b)));
+        const base64 = btoa(binary);
+        setUploadedFiles((prev) => {
+          if (prev.some((p) => p.name === fileName)) return prev;
+          return [...prev, { name: fileName, data: base64, mimeType: DOCX_MIME }];
+        });
+      } catch (err: any) {
+        setDriveUrlError(`Could not reload document: ${err.message}`);
+      }
     }
   };
 
@@ -652,34 +695,9 @@ export const Dashboard: React.FC = () => {
                       }`}
                       onClick={() => fileInputRef.current?.click()}
                     >
-                      <Upload className="w-7 h-7 text-gray-400 mx-auto mb-2" />
-                      <p className="text-sm font-bold text-gray-700">Drag & drop rubric files here</p>
-                      <p className="text-xs text-gray-500 mt-1">or click to browse · .docx / .doc</p>
+                      <FileText className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                      <p className="text-sm font-bold text-gray-700">Drop a .docx or .doc file here or click to browse</p>
                     </div>
-
-                    {/* Paste area */}
-                    <div
-                      ref={pasteAreaRef}
-                      tabIndex={0}
-                      onFocus={() => setIsPasteAreaFocused(true)}
-                      onBlur={() => setIsPasteAreaFocused(false)}
-                      onPaste={handlePasteAreaPaste}
-                      onClick={() => pasteAreaRef.current?.focus()}
-                      className={`w-full px-4 py-3 border-2 rounded-xl flex items-center gap-3 cursor-text transition-all outline-none ${
-                        isPasteAreaFocused
-                          ? 'border-[#0033a0] bg-blue-50 ring-2 ring-blue-200 ring-offset-1'
-                          : 'border-gray-200 bg-gray-50 hover:border-[#0033a0]/40'
-                      }`}
-                    >
-                      <Clipboard className={`w-4 h-4 flex-shrink-0 transition-colors ${isPasteAreaFocused ? 'text-[#0033a0]' : 'text-gray-400'}`} />
-                      <span className={`text-sm font-bold transition-colors ${isPasteAreaFocused ? 'text-[#0033a0]' : 'text-gray-500'}`}>
-                        {isPasteAreaFocused ? 'Ready — press Ctrl+V (or ⌘+V) to paste' : 'Click here to paste a file'}
-                      </span>
-                    </div>
-
-                    <button onClick={() => fileInputRef.current?.click()} className="w-full px-3 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2">
-                      <Upload className="w-4 h-4" /> Browse Files
-                    </button>
                   </>
                 )}
 
@@ -731,6 +749,39 @@ export const Dashboard: React.FC = () => {
                           </svg>
                           Sign in with Google
                         </button>
+                      </div>
+                    )}
+
+                    {/* Recent Documents */}
+                    {recentDocs.length > 0 && (
+                      <div>
+                        <button
+                          onClick={() => setShowRecentDocs(!showRecentDocs)}
+                          className="flex items-center gap-2 text-sm font-bold text-gray-700 hover:text-gray-900 transition-colors"
+                        >
+                          <Clock className="w-4 h-4" />
+                          Recent Documents
+                          {showRecentDocs ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </button>
+                        {showRecentDocs && (
+                          <div className="mt-2 border border-gray-200 rounded-xl overflow-hidden">
+                            {recentDocs.map((doc, i) => (
+                              <button
+                                key={i}
+                                onClick={() => handleRecentDocClick(doc)}
+                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-all text-left border-b border-gray-100 last:border-0"
+                              >
+                                <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-bold text-gray-900 truncate">{doc.name}</p>
+                                  <p className="text-xs text-gray-600">
+                                    {doc.source === 'picker' ? 'Drive Picker' : 'URL'} · {new Date(doc.timestamp).toLocaleDateString()}
+                                  </p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -893,10 +944,12 @@ export const Dashboard: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex-1">
-                  <h3 className="font-black text-lg text-gray-900">Create Draft Rubric(s)</h3>
-                  <p className="text-sm text-gray-600 mt-2">
-                    Transform an assignment description into a matching draft rubric (MS Word / Google Docs file).
-                  </p>
+                  <h3 className="font-black text-lg text-gray-900">Assignment Description to Rubric(s)</h3>
+                  <div className="mt-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
+                    <p className="text-sm text-gray-600">
+                      Upload or paste an assignment description to generate one or more draft rubrics (MS Word or Google Docs) based on the eCampus Center template.
+                    </p>
+                  </div>
                 </div>
               </button>
 
@@ -924,10 +977,12 @@ export const Dashboard: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex-1">
-                  <h3 className="font-black text-lg text-gray-900">Screenshot to Editable Doc</h3>
-                  <p className="text-sm text-gray-600 mt-2">
-                    Convert Canvas rubric screenshots to a matching, editable, draft rubric (MS Word / Google Docs file).
-                  </p>
+                  <h3 className="font-black text-lg text-gray-900">Screenshot to Rubric(s)</h3>
+                  <div className="mt-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
+                    <p className="text-sm text-gray-600">
+                      Convert Canvas rubric screenshots to a matching, editable, draft rubric (MS Word / Google Docs file).
+                    </p>
+                  </div>
                 </div>
               </button>
 

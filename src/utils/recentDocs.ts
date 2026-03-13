@@ -2,14 +2,14 @@
 
 export interface RecentDoc {
   name: string;
-  url?: string;       // used when source === 'url'
-  fileId?: string;    // used when source === 'picker'
-  mimeType?: string;  // used when source === 'picker' to enable re-fetch
+  url?: string;
+  fileId?: string;
+  mimeType?: string;
   source: 'picker' | 'url';
   timestamp: number;
 }
 
-const STORAGE_KEY = 'rubric_app_recent_docs';
+const STORAGE_KEY = 'rubric_app_recent_docs_draft';
 const MAX_DOCS = 5;
 
 export function getRecentDocs(): RecentDoc[] {
@@ -22,7 +22,6 @@ export function getRecentDocs(): RecentDoc[] {
 
 export function saveRecentDoc(doc: Omit<RecentDoc, 'timestamp'>): void {
   const existing = getRecentDocs();
-  // Deduplicate by fileId (picker) or url (manual entry)
   const deduped = existing.filter(d =>
     doc.fileId ? d.fileId !== doc.fileId : d.url !== doc.url
   );
