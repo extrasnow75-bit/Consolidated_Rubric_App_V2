@@ -3,9 +3,10 @@ import { useSession } from '../contexts/SessionContext';
 import {
   Key, Check, X, Loader2, ExternalLink, Eye, EyeOff,
   LogOut, Link, FileText, Upload, ChevronDown, FolderOpen, Settings2,
+  Lightbulb, Camera, ArrowRight,
 } from 'lucide-react';
+import { AppMode } from '../types';
 import { validateGeminiApiKey } from '../services/geminiService';
-import { Part1Rubric } from './Part1Rubric';
 import { AnalyzeDeploySection, UploadedDocFile } from './AnalyzeDeploySection';
 
 // ─── Google Icon ──────────────────────────────────────────────────────────────
@@ -54,6 +55,7 @@ export const Dashboard: React.FC = () => {
     setUserGeminiApiKey,
     setUserCanvasApiToken,
     setCourseUrl,
+    setCurrentStep,
     openGooglePicker,
     downloadDriveFile,
   } = useSession();
@@ -95,18 +97,21 @@ export const Dashboard: React.FC = () => {
   const draftRubricValid =
     hasDraftRubric === 'yes' ? uploadedFiles.length > 0 : hasDraftRubric === 'no';
 
-  // Core setup = Gemini + Canvas Token (Google is optional)
+  // Core setup = Gemini + Canvas Token (determines when workflow cards appear)
   const coreSetupComplete = geminiValid && canvasTokenValid;
+
+  // All setup done (including optional Google) = when collapsible auto-closes
+  const allSetupComplete = geminiValid && canvasTokenValid && googleSignedIn;
 
   const allRequiredValid = geminiValid && canvasTokenValid && courseUrlValid && draftRubricValid;
 
   // ── Collapsible Initial Setup ──
-  const [isSetupOpen, setIsSetupOpen] = useState(!coreSetupComplete);
+  const [isSetupOpen, setIsSetupOpen] = useState(!allSetupComplete);
 
-  // Auto-collapse when core setup becomes complete
+  // Auto-collapse only when all three setup items are complete (including Google)
   useEffect(() => {
-    if (coreSetupComplete) setIsSetupOpen(false);
-  }, [coreSetupComplete]);
+    if (allSetupComplete) setIsSetupOpen(false);
+  }, [allSetupComplete]);
 
   // ── Fetch course name when URL and token are both valid ──
   useEffect(() => {
@@ -636,13 +641,66 @@ export const Dashboard: React.FC = () => {
         </div>
       )}
 
-      {/* "No" path: Phase 1 inline */}
+      {/* "No" path: Phase 1 selection cards (V.1 style) */}
       {hasDraftRubric === 'no' && (
-        <div className="mt-8 border-t border-gray-200 pt-8">
-          <Part1Rubric
-            onAnalyzeDeploy={() => handleAnalyzeDeploy('no')}
-            canAnalyzeDeploy={geminiValid && canvasTokenValid}
-          />
+        <div className="mt-4">
+          <div className="bg-blue-50 border-l-4 border-[#2B579A] p-4 rounded-xl">
+            <h3 className="text-sm font-black text-[#2B579A] uppercase tracking-widest mb-4">
+              Phase 1: Create Phase
+            </h3>
+            <div className="space-y-1">
+
+              {/* Create Draft Rubric(s) */}
+              <button
+                onClick={() => setCurrentStep(AppMode.PART_1)}
+                className="w-full p-6 rounded-t-2xl border-2 border-gray-100 hover:border-[#2B579A] hover:bg-white transition-all shadow-md bg-white flex items-start gap-6 group text-left"
+              >
+                <div className="flex items-center gap-2 pt-1 flex-shrink-0">
+                  <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center group-hover:bg-amber-200 transition-all">
+                    <Lightbulb className="w-6 h-6 text-amber-600" />
+                  </div>
+                  <ArrowRight className="w-5 h-5 text-gray-600" />
+                  <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-all">
+                    <span className="text-[#2B579A] font-black text-sm">W</span>
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-black text-lg text-gray-900">Create Draft Rubric(s)</h3>
+                  <p className="text-sm text-gray-600 mt-2">
+                    Transform an assignment description into a matching draft rubric (MS Word / Google Docs file).
+                  </p>
+                </div>
+              </button>
+
+              {/* OR divider */}
+              <div className="px-6 py-3 bg-blue-100 border-l-2 border-r-2 border-[#2B579A] flex items-center justify-center">
+                <p className="text-sm font-black text-[#2B579A]">or</p>
+              </div>
+
+              {/* Screenshot to Word Template */}
+              <button
+                onClick={() => setCurrentStep(AppMode.SCREENSHOT)}
+                className="w-full p-6 rounded-b-2xl border-2 border-gray-100 hover:border-[#2B579A] hover:bg-white transition-all shadow-md bg-white flex items-start gap-6 group text-left"
+              >
+                <div className="flex items-center gap-2 pt-1 flex-shrink-0">
+                  <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center group-hover:bg-purple-200 transition-all">
+                    <Camera className="w-6 h-6 text-purple-600" />
+                  </div>
+                  <ArrowRight className="w-5 h-5 text-gray-600" />
+                  <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-all">
+                    <span className="text-[#2B579A] font-black text-sm">W</span>
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-black text-lg text-gray-900">Screenshot to Word Template</h3>
+                  <p className="text-sm text-gray-600 mt-2">
+                    Convert Canvas rubric screenshots to MS Word / Google Docs rubric template.
+                  </p>
+                </div>
+              </button>
+
+            </div>
+          </div>
         </div>
       )}
 
