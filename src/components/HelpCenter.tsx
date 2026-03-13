@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
 interface HelpCenterProps {
   isOpen: boolean;
@@ -13,6 +13,24 @@ const ExternalLinkIcon = () => (
 );
 
 const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
+  const panelRef = useRef<HTMLElement>(null);
+
+  // Listen for deeplink events from other components (e.g. "How do I get one?" link)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const sectionId = (e as CustomEvent).detail as string;
+      // Wait for the slide-in animation to complete before scrolling
+      setTimeout(() => {
+        const target = document.getElementById(sectionId);
+        if (target && panelRef.current) {
+          panelRef.current.scrollTo({ top: target.offsetTop - 80, behavior: 'smooth' });
+        }
+      }, 350);
+    };
+    window.addEventListener('openHelpSection', handler);
+    return () => window.removeEventListener('openHelpSection', handler);
+  }, []);
+
   return (
     <>
       {/* Backdrop */}
@@ -25,6 +43,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
 
       {/* Side Panel */}
       <aside
+        ref={panelRef}
         className={`fixed top-0 right-0 h-full w-full sm:w-[400px] bg-white shadow-2xl z-[70] transform transition-transform duration-300 ease-in-out ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         } overflow-y-auto`}
@@ -79,7 +98,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
           </section>
 
           {/* Canvas Access Token — inline steps */}
-          <section>
+          <section id="canvas-setup">
             <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-3">Canvas Setup</h3>
             <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl space-y-3">
               <p className="text-sm font-black text-gray-900">How to Generate a Canvas Access Token</p>

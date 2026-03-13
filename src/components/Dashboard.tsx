@@ -8,6 +8,8 @@ import {
 import { AppMode } from '../types';
 import { validateGeminiApiKey } from '../services/geminiService';
 import { AnalyzeDeploySection, UploadedDocFile } from './AnalyzeDeploySection';
+import { Part1Rubric } from './Part1Rubric';
+import { ScreenshotConverter } from './ScreenshotConverter';
 
 // ─── Google Icon ──────────────────────────────────────────────────────────────
 
@@ -26,11 +28,14 @@ const SetupCard: React.FC<{
   children: React.ReactNode;
   isValid: boolean;
   isOptional?: boolean;
-}> = ({ children, isValid, isOptional = false }) => (
+  noGlow?: boolean;
+}> = ({ children, isValid, isOptional = false, noGlow = false }) => (
   <div
     className={`bg-white rounded-2xl border-2 p-6 shadow-sm transition-all duration-300 ${
-      isValid
+      isValid && !noGlow
         ? 'border-green-400 ring-2 ring-green-300 ring-offset-1 shadow-green-100'
+        : isValid && noGlow
+        ? 'border-green-300'
         : isOptional
         ? 'border-gray-100'
         : 'border-gray-200'
@@ -56,6 +61,7 @@ export const Dashboard: React.FC = () => {
     setUserCanvasApiToken,
     setCourseUrl,
     setCurrentStep,
+    setHelpOpen,
     openGooglePicker,
     downloadDriveFile,
   } = useSession();
@@ -89,6 +95,9 @@ export const Dashboard: React.FC = () => {
   const [analyzeRubricSource, setAnalyzeRubricSource] = useState<'yes' | 'no' | null>(null);
   const analyzeRef = useRef<HTMLDivElement>(null);
 
+  // ── Phase 1 inline mode ──
+  const [phase1Mode, setPhase1Mode] = useState<'none' | 'rubric' | 'screenshot'>('none');
+
   // ─── Derived validity ────────────────────────────────────────────────────────
 
   const geminiValid = !!state.geminiApiKey;
@@ -104,6 +113,15 @@ export const Dashboard: React.FC = () => {
   const allSetupComplete = geminiValid && canvasTokenValid && googleSignedIn;
 
   const allRequiredValid = geminiValid && canvasTokenValid && courseUrlValid && draftRubricValid;
+
+  // ── Initial Setup header status text ──
+  const requiredRemaining = [!geminiValid, !canvasTokenValid].filter(Boolean).length;
+  const setupStatusText = allSetupComplete
+    ? 'Complete'
+    : requiredRemaining === 0 && !googleSignedIn
+    ? 'Optional: Sign in to Google?'
+    : `${[!geminiValid, !canvasTokenValid, !googleSignedIn].filter(Boolean).length} item${[!geminiValid, !canvasTokenValid, !googleSignedIn].filter(Boolean).length === 1 ? '' : 's'} remaining`;
+  const setupStatusColor = allSetupComplete ? 'text-green-400' : 'text-white/90';
 
   // ── Collapsible Initial Setup ──
   const [isSetupOpen, setIsSetupOpen] = useState(!allSetupComplete);
@@ -200,6 +218,7 @@ export const Dashboard: React.FC = () => {
 
   const handleDraftRubricChange = (val: '' | 'yes' | 'no') => {
     setHasDraftRubricLocal(val);
+    setPhase1Mode('none');
     if (val === 'no') {
       setUploadedFiles([]);
       setShowAnalyze(false);
@@ -320,20 +339,25 @@ export const Dashboard: React.FC = () => {
             <Settings2 className="w-5 h-5 flex-shrink-0" />
             <span className="font-black text-base">Initial Setup</span>
             <div className="ml-auto flex items-center gap-3">
-              {/* Status dots: Gemini, Canvas, Google (optional) */}
-              <div className="flex items-center gap-2">
-                <div
-                  title="Gemini API Key"
-                  className={`w-2.5 h-2.5 rounded-full transition-colors ${geminiValid ? 'bg-green-400' : 'bg-white/30'}`}
-                />
-                <div
-                  title="Canvas API Token"
-                  className={`w-2.5 h-2.5 rounded-full transition-colors ${canvasTokenValid ? 'bg-green-400' : 'bg-white/30'}`}
-                />
-                <div
-                  title="Google Sign-In (optional)"
-                  className={`w-2.5 h-2.5 rounded-full transition-colors ${googleSignedIn ? 'bg-green-400 opacity-80' : 'bg-white/20'}`}
-                />
+              {/* Status dots + text */}
+              <div className="flex flex-col items-end gap-1">
+                <div className="flex items-center gap-2">
+                  <div
+                    title="Gemini API Key"
+                    className={`w-2.5 h-2.5 rounded-full transition-colors ${geminiValid ? 'bg-green-400' : 'bg-white/30'}`}
+                  />
+                  <div
+                    title="Canvas API Token"
+                    className={`w-2.5 h-2.5 rounded-full transition-colors ${canvasTokenValid ? 'bg-green-400' : 'bg-white/30'}`}
+                  />
+                  <div
+                    title="Google Sign-In (optional)"
+                    className={`w-2.5 h-2.5 rounded-full transition-colors ${googleSignedIn ? 'bg-green-400 opacity-80' : 'bg-white/20'}`}
+                  />
+                </div>
+                <span className={`text-xs font-bold leading-none ${setupStatusColor}`}>
+                  {setupStatusText}
+                </span>
               </div>
               <ChevronDown
                 className={`w-5 h-5 transition-transform duration-300 ${isSetupOpen ? 'rotate-180' : ''}`}
@@ -440,6 +464,16 @@ export const Dashboard: React.FC = () => {
                     >
                       <Check className="w-4 h-4" /> Save Token
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.dispatchEvent(new CustomEvent('openHelpSection', { detail: 'canvas-setup' }));
+                        setHelpOpen(true);
+                      }}
+                      className="w-full mt-2 text-sm text-blue-600 hover:text-blue-800 font-bold hover:underline text-center"
+                    >
+                      How do I get one?
+                    </button>
                   </div>
                 )}
               </SetupCard>
@@ -492,7 +526,7 @@ export const Dashboard: React.FC = () => {
 
         {/* ── Draft Rubric Document — appears once core setup is complete ── */}
         {coreSetupComplete && (
-          <SetupCard isValid={draftRubricValid}>
+          <SetupCard isValid={draftRubricValid} noGlow>
             <div className="flex items-center gap-2 mb-1">
               <FileText className="w-4 h-4 flex-shrink-0" style={{ color: '#4285F4' }} />
               <h3 className="font-black text-lg text-gray-900">Draft Rubric Document</h3>
@@ -652,8 +686,12 @@ export const Dashboard: React.FC = () => {
 
               {/* Create Draft Rubric(s) */}
               <button
-                onClick={() => setCurrentStep(AppMode.PART_1)}
-                className="w-full p-6 rounded-t-2xl border-2 border-gray-100 hover:border-[#2B579A] hover:bg-white transition-all shadow-md bg-white flex items-start gap-6 group text-left"
+                onClick={() => setPhase1Mode(phase1Mode === 'rubric' ? 'none' : 'rubric')}
+                className={`w-full p-6 rounded-t-2xl border-2 transition-all shadow-md flex items-start gap-6 group text-left ${
+                  phase1Mode === 'rubric'
+                    ? 'border-[#2B579A] bg-blue-50'
+                    : 'border-gray-100 bg-white hover:border-[#2B579A] hover:bg-white'
+                }`}
               >
                 <div className="flex items-center gap-2 pt-1 flex-shrink-0">
                   <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center group-hover:bg-amber-200 transition-all">
@@ -677,10 +715,14 @@ export const Dashboard: React.FC = () => {
                 <p className="text-sm font-black text-[#2B579A]">or</p>
               </div>
 
-              {/* Screenshot to Word Template */}
+              {/* Screenshot to Editable Doc */}
               <button
-                onClick={() => setCurrentStep(AppMode.SCREENSHOT)}
-                className="w-full p-6 rounded-b-2xl border-2 border-gray-100 hover:border-[#2B579A] hover:bg-white transition-all shadow-md bg-white flex items-start gap-6 group text-left"
+                onClick={() => setPhase1Mode(phase1Mode === 'screenshot' ? 'none' : 'screenshot')}
+                className={`w-full p-6 rounded-b-2xl border-2 transition-all shadow-md flex items-start gap-6 group text-left ${
+                  phase1Mode === 'screenshot'
+                    ? 'border-[#2B579A] bg-blue-50'
+                    : 'border-gray-100 bg-white hover:border-[#2B579A] hover:bg-white'
+                }`}
               >
                 <div className="flex items-center gap-2 pt-1 flex-shrink-0">
                   <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center group-hover:bg-purple-200 transition-all">
@@ -692,7 +734,7 @@ export const Dashboard: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex-1">
-                  <h3 className="font-black text-lg text-gray-900">Screenshot to Word Template</h3>
+                  <h3 className="font-black text-lg text-gray-900">Screenshot to Editable Doc</h3>
                   <p className="text-sm text-gray-600 mt-2">
                     Convert Canvas rubric screenshots to MS Word / Google Docs rubric template.
                   </p>
@@ -701,6 +743,21 @@ export const Dashboard: React.FC = () => {
 
             </div>
           </div>
+
+          {/* Inline Phase 1 content */}
+          {phase1Mode === 'rubric' && (
+            <div className="mt-4">
+              <Part1Rubric
+                onAnalyzeDeploy={() => handleAnalyzeDeploy('no')}
+                canAnalyzeDeploy={geminiValid && canvasTokenValid}
+              />
+            </div>
+          )}
+          {phase1Mode === 'screenshot' && (
+            <div className="mt-4">
+              <ScreenshotConverter />
+            </div>
+          )}
         </div>
       )}
 
