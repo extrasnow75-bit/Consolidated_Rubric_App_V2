@@ -120,7 +120,7 @@ export const Dashboard: React.FC = () => {
     ? 'Complete'
     : requiredRemaining === 0 && !googleSignedIn
     ? 'Optional: Sign in to Google?'
-    : `${[!geminiValid, !canvasTokenValid, !googleSignedIn].filter(Boolean).length} item${[!geminiValid, !canvasTokenValid, !googleSignedIn].filter(Boolean).length === 1 ? '' : 's'} remaining`;
+    : `${requiredRemaining} item${requiredRemaining === 1 ? '' : 's'} remaining`;
   const setupStatusColor = allSetupComplete ? 'text-green-400' : 'text-white/90';
 
   // ── Collapsible Initial Setup ──
