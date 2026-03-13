@@ -3,7 +3,7 @@ import { useSession } from '../contexts/SessionContext';
 import {
   Key, Check, X, Loader2, ExternalLink, Eye, EyeOff,
   LogOut, Link, FileText, Upload, ChevronDown, FolderOpen, Settings2,
-  Lightbulb, Camera, ArrowRight,
+  Lightbulb, Camera, ArrowRight, Clipboard,
 } from 'lucide-react';
 import { AppMode } from '../types';
 import { validateGeminiApiKey } from '../services/geminiService';
@@ -88,7 +88,9 @@ export const Dashboard: React.FC = () => {
   const [hasDraftRubric, setHasDraftRubricLocal] = useState<'' | 'yes' | 'no'>('');
   const [uploadedFiles, setUploadedFiles] = useState<UploadedDocFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [isPasteAreaFocused, setIsPasteAreaFocused] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pasteAreaRef = useRef<HTMLDivElement>(null);
 
   // ── Analyze & Deploy ──
   const [showAnalyze, setShowAnalyze] = useState(false);
@@ -275,6 +277,27 @@ export const Dashboard: React.FC = () => {
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files) await addFiles(e.target.files);
       e.target.value = '';
+    },
+    [addFiles],
+  );
+
+  const handlePasteAreaPaste = useCallback(
+    async (e: React.ClipboardEvent<HTMLDivElement>) => {
+      const items = Array.from(e.clipboardData.items);
+      const fileItem = items.find((item) =>
+        item.kind === 'file' &&
+        (item.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+          item.type === 'application/msword' ||
+          item.type === '')
+      );
+      if (fileItem) {
+        const file = fileItem.getAsFile();
+        if (file) {
+          const list = new DataTransfer();
+          list.items.add(file);
+          await addFiles(list.files);
+        }
+      }
     },
     [addFiles],
   );
@@ -572,6 +595,26 @@ export const Dashboard: React.FC = () => {
                   className="hidden"
                   onChange={handleFileInput}
                 />
+
+                {/* Paste area */}
+                <div
+                  ref={pasteAreaRef}
+                  tabIndex={0}
+                  onFocus={() => setIsPasteAreaFocused(true)}
+                  onBlur={() => setIsPasteAreaFocused(false)}
+                  onPaste={handlePasteAreaPaste}
+                  onClick={() => pasteAreaRef.current?.focus()}
+                  className={`w-full px-4 py-3 border-2 rounded-xl flex items-center gap-3 cursor-text transition-all outline-none ${
+                    isPasteAreaFocused
+                      ? 'border-[#0033a0] bg-blue-50 ring-2 ring-blue-200 ring-offset-1'
+                      : 'border-gray-200 bg-gray-50 hover:border-[#0033a0]/40'
+                  }`}
+                >
+                  <Clipboard className={`w-4 h-4 flex-shrink-0 transition-colors ${isPasteAreaFocused ? 'text-[#0033a0]' : 'text-gray-400'}`} />
+                  <span className={`text-sm font-bold transition-colors ${isPasteAreaFocused ? 'text-[#0033a0]' : 'text-gray-500'}`}>
+                    {isPasteAreaFocused ? 'Ready — press Ctrl+V (or ⌘+V) to paste' : 'Click here to paste a file'}
+                  </span>
+                </div>
 
                 <div className="flex gap-2">
                   <button onClick={() => fileInputRef.current?.click()} className="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2">
