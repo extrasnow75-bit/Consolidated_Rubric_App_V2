@@ -56,6 +56,15 @@ Inactive tabs use `text-gray-600 hover:text-gray-900`
 - Secondary: `bg-gray-100 text-gray-900 hover:bg-gray-200`
 - Disabled: `bg-gray-300 text-gray-400`
 
+### Icons
+- **"Add to Drive" button**: Use official Google Material Symbols icon only
+  - **Source**: `https://fonts.gstatic.com/s/i/materialicons/add_to_drive/v1/24px.svg`
+  - **NEVER create custom versions** — always fetch the official icon from Google's CDN
+  - **Filter for white**: Use `style={{ filter: 'brightness(0) invert(1)' }}` when icon needs to be white on colored backgrounds
+  - **Color**: Match icon color to surrounding text color for visual consistency
+- **All other icons**: Use lucide-react library (`CheckCircle2`, `Loader2`, `RotateCw`, `Clock`, `X`, etc.)
+- **Icon colors**: Must meet same contrast rules as text — use `text-gray-700` or darker for body, `text-blue-600` for accent, `text-green-600` for success
+
 ### Error/Status Messages
 - Error text: `text-red-700` (or `text-red-600` on white)
 - Success: `text-green-700`
@@ -70,5 +79,8 @@ When adding new UI elements:
 - [ ] Headings are `text-gray-900`
 - [ ] Forms follow button/input patterns above
 - [ ] Color contrast meets WCAG AA (4.5:1 minimum for normal text)
+- [ ] Icon colors meet contrast requirements (use `text-gray-700` or darker for body content)
+- [ ] "Add to Drive" button uses official Google Material Symbols icon from CDN (never custom versions)
+- [ ] All lucide-react icons match the color scheme (no light colors like `text-gray-400`)
 
 Run this contrast check: [WebAIM Contrast Checker](https://webaim.org/resources/contrastchecker/)
