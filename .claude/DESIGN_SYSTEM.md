@@ -1,5 +1,7 @@
 # Rubric App V.2 — Design System
 
+> **See also**: [Master Design System](../../.claude/DESIGN_SYSTEM.md) — shared standards for all Rubric App projects and Google-integrated apps
+
 ## Color & Contrast
 
 ### Text on White/Light Backgrounds
