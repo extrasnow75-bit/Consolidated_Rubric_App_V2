@@ -633,8 +633,10 @@ export const ScreenshotConverter: React.FC = () => {
                   onClick={handleExportToWord}
                   className="px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2"
                 >
-                  <img src="https://fonts.gstatic.com/s/i/materialicons/add_to_drive/v1/24px.svg" alt="Add to Drive" className="w-5 h-5" style={{ filter: 'brightness(0) invert(1)' }} />
-                  Save to Drive
+                  <svg className="w-5 h-5 flex-shrink-0" viewBox="0 -960 960 960" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M220-100q-17 0-34.5-10.5T160-135L60-310q-8-14-8-34.5t8-34.5l260-446q8-14 25.5-24.5T380-860h200q17 0 34.5 10.5T640-825l182 312q-23-6-47.5-8t-48.5 2L574-780H386L132-344l94 164h316q11 23 25.5 43t33.5 37H220Zm70-180-29-51 183-319h72l101 176q-17 13-31.5 28.5T560-413l-80-139-110 192h164q-7 19-10.5 39t-3.5 41H290Zm430 160v-120H600v-80h120v-120h80v120h120v80H800v120h-80Z"/>
+                  </svg>
+                  Add to Drive
                 </button>
 
                 <button
@@ -682,42 +684,33 @@ export const ScreenshotConverter: React.FC = () => {
                     {state.rubric && (
                       <button
                         onClick={() => setUploadDocTab('phase1')}
-                        className={`px-4 py-2 font-bold flex items-center gap-2 transition-all ${
+                        className={`px-4 py-2 font-bold transition-all ${
                           uploadDocTab === 'phase1'
                             ? 'border-b-2 border-[#0033a0] text-[#0033a0]'
                             : 'text-gray-600 hover:text-gray-900'
                         }`}
                       >
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M10.5 1.5H4a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V11.414a2 2 0 00-.586-1.414l-4.414-4.414A2 2 0 0011.414 5H10.5v-3.5z" />
-                        </svg>
                         From Phase 1
                       </button>
                     )}
                     <button
                       onClick={() => setUploadDocTab('local')}
-                      className={`px-4 py-2 font-bold flex items-center gap-2 transition-all ${
+                      className={`px-4 py-2 font-bold transition-all ${
                         uploadDocTab === 'local'
                           ? 'border-b-2 border-[#0033a0] text-[#0033a0]'
                           : 'text-gray-600 hover:text-gray-900'
                       }`}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
                       From Local Drive
                     </button>
                     <button
                       onClick={() => setUploadDocTab('google-drive')}
-                      className={`px-4 py-2 font-bold flex items-center gap-2 transition-all ${
+                      className={`px-4 py-2 font-bold transition-all ${
                         uploadDocTab === 'google-drive'
                           ? 'border-b-2 border-[#0033a0] text-[#0033a0]'
                           : 'text-gray-600 hover:text-gray-900'
                       }`}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                      </svg>
                       From Google Drive
                     </button>
                   </div>
