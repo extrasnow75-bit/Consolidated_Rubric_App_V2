@@ -59,12 +59,25 @@ Inactive tabs use `text-gray-600 hover:text-gray-900`
 - Disabled: `bg-gray-300 text-gray-400`
 
 ### Icons
-- **"Add to Drive" button**: Use official Google Material Symbols icon only
-  - **Source**: `https://fonts.gstatic.com/s/i/materialicons/add_to_drive/v1/24px.svg`
-  - **NEVER create custom versions** — always fetch the official icon from Google's CDN
-  - **Filter for white**: Use `style={{ filter: 'brightness(0) invert(1)' }}` when icon needs to be white on colored backgrounds
-  - **Color**: Match icon color to surrounding text color for visual consistency
-- **All other icons**: Use lucide-react library (`CheckCircle2`, `Loader2`, `RotateCw`, `Clock`, `X`, etc.)
+
+#### "Add to Drive" Button — Inline SVG Required
+⚠️ **DO NOT use external Google Material Symbols CDN** — the "add_to_drive" icon doesn't exist at that URL (returns 404).
+
+**Correct Implementation** — Use inline SVG with Google Drive logo (from V.1):
+```jsx
+<svg className="w-5 h-5 flex-shrink-0" viewBox="0 -960 960 960" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+  <path d="M220-100q-17 0-34.5-10.5T160-135L60-310q-8-14-8-34.5t8-34.5l260-446q8-14 25.5-24.5T380-860h200q17 0 34.5 10.5T640-825l182 312q-23-6-47.5-8t-48.5 2L574-780H386L132-344l94 164h316q11 23 25.5 43t33.5 37H220Zm70-180-29-51 183-319h72l101 176q-17 13-31.5 28.5T560-413l-80-139-110 192h164q-7 19-10.5 39t-3.5 41H290Zm430 160v-120H600v-80h120v-120h80v120h120v80H800v120h-80Z"/>
+</svg>
+```
+
+**Why inline SVG?**
+- Eliminates external CDN dependency
+- `fill="currentColor"` automatically inherits button text color (white on green, gray on white, etc.)
+- No filters needed — more reliable across browsers
+- Matches V.1 implementation
+
+#### All Other Icons
+- Use lucide-react library (`CheckCircle2`, `Loader2`, `RotateCw`, `Clock`, `X`, etc.)
 - **Icon colors**: Must meet same contrast rules as text — use `text-gray-700` or darker for body, `text-blue-600` for accent, `text-green-600` for success
 
 ### Error/Status Messages
@@ -82,7 +95,7 @@ When adding new UI elements:
 - [ ] Forms follow button/input patterns above
 - [ ] Color contrast meets WCAG AA (4.5:1 minimum for normal text)
 - [ ] Icon colors meet contrast requirements (use `text-gray-700` or darker for body content)
-- [ ] "Add to Drive" button uses official Google Material Symbols icon from CDN (never custom versions)
+- [ ] "Add to Drive" button uses **inline SVG** with Google Drive logo (see Icons section), NOT external CDN
 - [ ] All lucide-react icons match the color scheme (no light colors like `text-gray-400`)
 
 Run this contrast check: [WebAIM Contrast Checker](https://webaim.org/resources/contrastchecker/)
