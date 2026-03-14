@@ -442,7 +442,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
           <>
             <h2 className="text-2xl font-black text-gray-900 mb-2">Create Draft Rubric</h2>
             <p className="text-gray-600 font-medium mb-8">
-              Paste or upload an assignment description.
+              Specify the type of rubric you'd like and then paste or upload an assignment description.
             </p>
 
             {/* Processing Type - Above Tabs */}
