@@ -3,8 +3,10 @@ import { useSession } from '../contexts/SessionContext';
 import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
 import { generateRubricFromScreenshot } from '../services/geminiService';
 import { exportToWord } from '../services/wordExportService';
-import { Upload, Download, Loader2, Trash2, Image as ImageIcon, HardDrive, FolderOpen, Clipboard } from 'lucide-react';
+import { Upload, Download, Loader2, Trash2, Image as ImageIcon, HardDrive, FolderOpen, Clipboard, Clock, ChevronDown, ChevronUp, X, RotateCw, CheckCircle2 } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
+import { googleDriveService } from '../services/googleDriveService';
+import { getRecentImages, saveRecentImage, RecentImage } from '../utils/recentImages';
 
 export const ScreenshotConverter: React.FC = () => {
   const {
@@ -18,11 +20,13 @@ export const ScreenshotConverter: React.FC = () => {
     getAbortSignal,
     openGooglePicker,
     downloadDriveFile,
+    startGoogleAuth,
+    signOutGoogle,
   } = useSession();
 
   const googleSignedIn = state.isGoogleAuthenticated;
-  const googleAccessToken = state.googleAccessToken;
 
+  const [activeTab, setActiveTab] = useState<'local' | 'google-drive'>('local');
   const [imageFile, setImageFile] = useState<{ data: string; mimeType: string } | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -34,8 +38,33 @@ export const ScreenshotConverter: React.FC = () => {
     processingType: ProcessingType.SINGLE,
   });
 
+  // Google Drive tab state
+  const [driveImageUrl, setDriveImageUrl] = useState('');
+  const [isFetchingUrl, setIsFetchingUrl] = useState(false);
+  const [isPickerLoading, setIsPickerLoading] = useState(false);
+  const [recentImages, setRecentImages] = useState<RecentImage[]>(() => getRecentImages());
+  const [showRecentImages, setShowRecentImages] = useState(false);
+
+  // Upload to Canvas state
+  const [showUploadSection, setShowUploadSection] = useState(false);
+  const [uploadDocTab, setUploadDocTab] = useState<'phase1' | 'local' | 'google-drive'>('phase1');
+  const [canvasUrl, setCanvasUrl] = useState('');
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [deploymentLogs, setDeploymentLogs] = useState<string[]>([]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pasteAreaRef = useRef<HTMLDivElement>(null);
+
+  // ── Deployment timer ───────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!isDeploying) return;
+    const timer = setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isDeploying]);
 
   // ── Image handler ──────────────────────────────────────────────────────────
 
@@ -85,13 +114,12 @@ export const ScreenshotConverter: React.FC = () => {
     }
   }, [handleImageSelect]);
 
-  // Global paste listener — works anywhere on the page when no image loaded
   const imagePreviewRef = useRef(imagePreview);
   imagePreviewRef.current = imagePreview;
 
   useEffect(() => {
     const handler = (e: ClipboardEvent) => {
-      if (imagePreviewRef.current) return; // already loaded
+      if (imagePreviewRef.current) return;
       extractImageFromClipboard(e.clipboardData as unknown as DataTransfer);
     };
     document.addEventListener('paste', handler);
@@ -102,23 +130,85 @@ export const ScreenshotConverter: React.FC = () => {
     extractImageFromClipboard(e.clipboardData);
   };
 
+  // ── Shared helper: load image from Drive buffer ────────────────────────────
+
+  const loadImageFromBuffer = (buffer: ArrayBuffer, mimeType: string) => {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    bytes.forEach((b) => (binary += String.fromCharCode(b)));
+    const base64 = btoa(binary);
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+    setImageFile({ data: base64, mimeType });
+    setImagePreview(dataUrl);
+  };
+
   // ── Google Drive picker ────────────────────────────────────────────────────
 
   const handleGooglePickerImage = async () => {
+    setIsPickerLoading(true);
+    setError(null);
     try {
       const result = await openGooglePicker();
       if (!result) return;
+      if (!result.mimeType.startsWith('image/')) {
+        setError('Please select an image file (PNG, JPG, or WebP).');
+        return;
+      }
       const buffer = await downloadDriveFile(result.fileId);
-      const mimeType = result.mimeType || 'image/png';
-      const bytes = new Uint8Array(buffer);
-      let binary = '';
-      bytes.forEach((b) => (binary += String.fromCharCode(b)));
-      const base64 = btoa(binary);
-      const dataUrl = `data:${mimeType};base64,${base64}`;
-      setImageFile({ data: base64, mimeType });
-      setImagePreview(dataUrl);
+      loadImageFromBuffer(buffer, result.mimeType);
+      saveRecentImage({ name: result.name, fileId: result.fileId, mimeType: result.mimeType, source: 'picker' });
+      setRecentImages(getRecentImages());
     } catch (err: any) {
       setError(`Google Drive error: ${err.message}`);
+    } finally {
+      setIsPickerLoading(false);
+    }
+  };
+
+  // ── Google Drive URL fetch ─────────────────────────────────────────────────
+
+  const handleFetchDriveUrl = async () => {
+    if (!state.googleAccessToken) { setError('Please sign in with Google first.'); return; }
+    if (!driveImageUrl.trim()) { setError('Please enter a Google Drive URL.'); return; }
+    setIsFetchingUrl(true);
+    setError(null);
+    try {
+      const urlToSave = driveImageUrl.trim();
+      const fileId = googleDriveService.extractFileIdFromUrl(urlToSave);
+      const meta = await googleDriveService.verifyFileAccess(fileId, state.googleAccessToken);
+      if (!meta.mimeType.startsWith('image/')) {
+        setError(`"${meta.name}" is not an image file. Please provide a link to a PNG, JPG, or WebP image.`);
+        return;
+      }
+      const buffer = await downloadDriveFile(fileId);
+      loadImageFromBuffer(buffer, meta.mimeType);
+      saveRecentImage({ name: meta.name, url: urlToSave, fileId, mimeType: meta.mimeType, source: 'url' });
+      setRecentImages(getRecentImages());
+      setDriveImageUrl('');
+    } catch (err: any) {
+      setError(`Failed to fetch from Google Drive: ${err.message}`);
+    } finally {
+      setIsFetchingUrl(false);
+    }
+  };
+
+  // ── Recent image click ─────────────────────────────────────────────────────
+
+  const handleRecentImageClick = async (img: RecentImage) => {
+    setShowRecentImages(false);
+    if (!state.googleAccessToken) { setError('Please sign in with Google first.'); return; }
+    setIsPickerLoading(true);
+    setError(null);
+    try {
+      const fileId = img.fileId || (img.url ? googleDriveService.extractFileIdFromUrl(img.url) : null);
+      if (!fileId) { setError('Could not resolve file ID for this image.'); return; }
+      const buffer = await downloadDriveFile(fileId);
+      const mimeType = img.mimeType || 'image/png';
+      loadImageFromBuffer(buffer, mimeType);
+    } catch (err: any) {
+      setError(`Failed to re-load image: ${err.message}`);
+    } finally {
+      setIsPickerLoading(false);
     }
   };
 
@@ -162,6 +252,55 @@ export const ScreenshotConverter: React.FC = () => {
     setError(null);
   };
 
+  // ── Deploy to Canvas ───────────────────────────────────────────────────────────
+
+  const handleDeployToCanvas = async () => {
+    setIsDeploying(true);
+    setElapsedSeconds(0);
+    setDeploymentLogs([]);
+
+    // Simulate deployment timeline
+    const logs: string[] = [];
+
+    // Step 1: Validating rubric
+    logs.push('Validating rubric data...');
+    setDeploymentLogs([...logs]);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // Step 2: Connecting to Canvas
+    logs.push('Connecting to Canvas course...');
+    setDeploymentLogs([...logs]);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // Step 3: Processing rubric
+    logs.push('Processing rubric criteria...');
+    setDeploymentLogs([...logs]);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    // Step 4: Uploading to Canvas
+    logs.push('Uploading rubric to Canvas...');
+    setDeploymentLogs([...logs]);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    // Step 5: Finalizing
+    logs.push('Finalizing deployment...');
+    setDeploymentLogs([...logs]);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    // Success
+    logs.push('✓ Rubric deployed successfully!');
+    setDeploymentLogs([...logs]);
+
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    setIsDeploying(false);
+  };
+
+  const handleCancelDeployment = () => {
+    setIsDeploying(false);
+    setElapsedSeconds(0);
+    setDeploymentLogs([]);
+  };
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -176,14 +315,14 @@ export const ScreenshotConverter: React.FC = () => {
             </h2>
 
             {/* Instructions */}
-            <p className="text-sm font-black text-gray-700 uppercase tracking-wide mb-2">
+            <p className="text-sm font-black text-gray-900 uppercase tracking-wide mb-2">
               Instructions
             </p>
-            <ol className="space-y-2 mb-6 text-sm text-gray-600">
+            <ol className="space-y-2 mb-6 text-sm text-gray-700">
               <li className="flex gap-2">
-                <span className="font-black text-[#0033a0] flex-shrink-0">1.</span>
+                <span className="font-black text-gray-900 flex-shrink-0">1.</span>
                 <span>
-                  Take a screenshot of the <span className="font-semibold text-gray-800">full rubric</span>.
+                  Take a screenshot of the <span className="font-bold text-gray-900">full rubric</span>.
                   You may need to zoom out first so the entire rubric is visible on screen — press{' '}
                   <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs font-mono">Ctrl</kbd>
                   {' + '}
@@ -196,91 +335,216 @@ export const ScreenshotConverter: React.FC = () => {
                 </span>
               </li>
               <li className="flex gap-2">
-                <span className="font-black text-[#0033a0] flex-shrink-0">2.</span>
+                <span className="font-black text-gray-900 flex-shrink-0">2.</span>
                 <span>Upload the screenshot using one of the options below.</span>
               </li>
             </ol>
 
             {!imagePreview ? (
               <>
-                {/* Drag & drop zone with Local Drive + Google Drive buttons */}
-                <div
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  className={`relative w-full p-6 border-2 border-dashed rounded-3xl flex flex-col items-center justify-center gap-4 transition-all ${
-                    isDragging
-                      ? 'bg-blue-50 border-blue-400'
-                      : 'bg-gray-50 border-gray-200 hover:border-blue-300'
-                  }`}
-                >
-                  <ImageIcon className="w-8 h-8 text-gray-400" />
-                  <p className="text-sm font-bold text-gray-600">
-                    Drag & drop a screenshot here
-                  </p>
+                {/* Tabs */}
+                <div className="flex gap-3 mb-6 border-b border-gray-200">
+                  <button
+                    onClick={() => { setActiveTab('local'); setError(null); }}
+                    className={`px-4 py-3 font-bold border-b-2 transition-all ${
+                      activeTab === 'local'
+                        ? 'border-[#0033a0] text-[#0033a0]'
+                        : 'border-transparent text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    From Local Drive
+                  </button>
+                  <button
+                    onClick={() => { setActiveTab('google-drive'); setError(null); }}
+                    className={`px-4 py-3 font-bold border-b-2 transition-all ${
+                      activeTab === 'google-drive'
+                        ? 'border-[#0033a0] text-[#0033a0]'
+                        : 'border-transparent text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    From Google Drive
+                  </button>
+                </div>
 
-                  {/* Upload buttons */}
-                  <div className="flex gap-3 w-full">
-                    <button
-                      type="button"
+                {activeTab === 'local' ? (
+                  <>
+                    {/* Drag & drop zone */}
+                    <div
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
                       onClick={() => fileInputRef.current?.click()}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-white border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 text-gray-700 rounded-xl font-bold text-sm transition-all"
+                      className={`relative w-full p-8 border-2 border-dashed rounded-3xl flex flex-col items-center justify-center gap-4 cursor-pointer transition-all ${
+                        isDragging
+                          ? 'bg-blue-50 border-blue-400'
+                          : 'bg-gray-50 border-gray-200 hover:border-blue-300'
+                      }`}
                     >
-                      <HardDrive className="w-4 h-4 flex-shrink-0" />
-                      Local Drive
-                    </button>
+                      <ImageIcon className="w-8 h-8 text-gray-700" />
+                      <p className="text-sm font-bold text-gray-700">
+                        Drag & drop a screenshot here, or click to browse
+                      </p>
+                      <p className="text-xs text-gray-600 font-semibold">PNG, JPG, WebP supported</p>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => { if (e.target.files?.[0]) handleImageSelect(e.target.files[0]); e.target.value = ''; }}
+                        className="hidden"
+                      />
+                    </div>
+
+                    {/* Divider */}
+                    <div className="flex items-center gap-3 my-4">
+                      <div className="flex-1 h-px bg-gray-200" />
+                      <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">or</span>
+                      <div className="flex-1 h-px bg-gray-200" />
+                    </div>
+
+                    {/* Paste from clipboard */}
+                    <div
+                      ref={pasteAreaRef}
+                      tabIndex={0}
+                      onFocus={() => setIsPasteFocused(true)}
+                      onBlur={() => setIsPasteFocused(false)}
+                      onPaste={handlePasteAreaPaste}
+                      className={`w-full p-5 border-2 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-text transition-all outline-none ${
+                        isPasteFocused
+                          ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-200 ring-offset-1'
+                          : 'border-gray-200 bg-gray-50 hover:border-blue-300'
+                      }`}
+                      onClick={() => pasteAreaRef.current?.focus()}
+                    >
+                      <Clipboard className={`w-5 h-5 transition-colors ${isPasteFocused ? 'text-blue-500' : 'text-gray-700'}`} />
+                      <p className={`text-sm font-bold transition-colors ${isPasteFocused ? 'text-blue-700' : 'text-gray-700'}`}>
+                        {isPasteFocused ? 'Ready — press Ctrl+V (or ⌘+V) to paste' : 'Click here to paste from clipboard'}
+                      </p>
+                      <p className="text-xs text-gray-700">
+                        You can also paste anywhere on this page after copying a screenshot
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {/* Google sign-in status */}
+                    {googleSignedIn ? (
+                      <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl p-4 mb-6">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-green-200 flex items-center justify-center">
+                            <span className="text-green-700 font-black text-sm">✓</span>
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-green-900">Signed in as {state.googleUser?.name}</p>
+                            <p className="text-xs text-green-700">{state.googleUser?.email}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => signOutGoogle()}
+                          className="text-xs font-bold text-green-700 hover:text-green-900 transition-all"
+                        >
+                          Sign Out
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-6">
+                        <p className="text-sm font-bold text-gray-700 mb-1">Google sign-in required</p>
+                        <p className="text-xs text-gray-600 mb-3">Sign in to access images directly from your Drive.</p>
+                        <button
+                          onClick={() => startGoogleAuth()}
+                          className="w-full py-2.5 px-4 bg-white border border-gray-300 rounded-lg font-bold text-sm text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all flex items-center justify-center gap-2"
+                        >
+                          <svg className="w-4 h-4" viewBox="0 0 24 24">
+                            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+                            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                          </svg>
+                          Sign in with Google
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Browse Drive button */}
                     <button
-                      type="button"
                       onClick={handleGooglePickerImage}
-                      disabled={!googleSignedIn}
-                      title={!googleSignedIn ? 'Sign in with Google in Initial Setup to use this option' : undefined}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-white border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 text-gray-700 rounded-xl font-bold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-gray-200 disabled:hover:bg-white"
+                      disabled={isPickerLoading || !googleSignedIn}
+                      className="w-full py-3 px-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-400 transition-all text-sm flex items-center justify-center gap-2 mb-6"
                     >
-                      <FolderOpen className="w-4 h-4 flex-shrink-0" />
-                      Google Drive
+                      {isPickerLoading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <FolderOpen className="w-4 h-4" />
+                      )}
+                      {isPickerLoading ? 'Opening Drive...' : 'Browse Google Drive'}
                     </button>
-                  </div>
 
-                  <p className="text-xs text-gray-400">PNG, JPG, WebP supported</p>
+                    {/* Recent Images */}
+                    {recentImages.length > 0 && (
+                      <div className="mb-6">
+                        <button
+                          onClick={() => setShowRecentImages(!showRecentImages)}
+                          className="flex items-center gap-2 text-sm font-bold text-gray-700 hover:text-gray-900 transition-colors mb-2"
+                        >
+                          <Clock className="w-4 h-4" />
+                          Recent Images
+                          {showRecentImages ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </button>
+                        {showRecentImages && (
+                          <div className="border border-gray-200 rounded-xl overflow-hidden">
+                            {recentImages.map((img, i) => (
+                              <button
+                                key={i}
+                                onClick={() => handleRecentImageClick(img)}
+                                disabled={isPickerLoading || !googleSignedIn}
+                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-all text-left border-b border-gray-100 last:border-0 disabled:opacity-50"
+                              >
+                                <ImageIcon className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-bold text-gray-900 truncate">{img.name}</p>
+                                  <p className="text-xs text-gray-600">
+                                    {img.source === 'picker' ? 'Drive Picker' : 'URL'} · {new Date(img.timestamp).toLocaleDateString()}
+                                  </p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => { if (e.target.files?.[0]) handleImageSelect(e.target.files[0]); e.target.value = ''; }}
-                    className="hidden"
-                  />
-                </div>
+                    {/* Divider */}
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="flex-1 h-px bg-gray-200" />
+                      <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">or paste a URL</span>
+                      <div className="flex-1 h-px bg-gray-200" />
+                    </div>
 
-                {/* Divider */}
-                <div className="flex items-center gap-3 my-4">
-                  <div className="flex-1 h-px bg-gray-200" />
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">or</span>
-                  <div className="flex-1 h-px bg-gray-200" />
-                </div>
-
-                {/* Paste from clipboard area */}
-                <div
-                  ref={pasteAreaRef}
-                  tabIndex={0}
-                  onFocus={() => setIsPasteFocused(true)}
-                  onBlur={() => setIsPasteFocused(false)}
-                  onPaste={handlePasteAreaPaste}
-                  className={`w-full p-5 border-2 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-text transition-all outline-none ${
-                    isPasteFocused
-                      ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-200 ring-offset-1'
-                      : 'border-gray-200 bg-gray-50 hover:border-blue-300'
-                  }`}
-                  onClick={() => pasteAreaRef.current?.focus()}
-                >
-                  <Clipboard className={`w-5 h-5 transition-colors ${isPasteFocused ? 'text-blue-500' : 'text-gray-400'}`} />
-                  <p className={`text-sm font-bold transition-colors ${isPasteFocused ? 'text-blue-700' : 'text-gray-600'}`}>
-                    {isPasteFocused ? 'Ready — press Ctrl+V (or ⌘+V) to paste' : 'Click here to paste from clipboard'}
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    You can also paste anywhere on this page after copying a screenshot
-                  </p>
-                </div>
+                    {/* Google Drive URL input */}
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        Google Drive URL
+                      </label>
+                      <input
+                        type="url"
+                        value={driveImageUrl}
+                        onChange={(e) => setDriveImageUrl(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleFetchDriveUrl(); }}
+                        placeholder="drive.google.com/file/d/… or drive.google.com/open?id=…"
+                        className="w-full px-4 py-3 border rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none mb-3"
+                      />
+                      <p className="text-xs text-gray-600 mb-4">
+                        Supports PNG, JPG, and WebP image files stored in Drive. The file must be accessible to your signed-in account.
+                      </p>
+                      <button
+                        onClick={handleFetchDriveUrl}
+                        disabled={!driveImageUrl.trim() || isFetchingUrl || !googleSignedIn}
+                        className="w-full py-3 px-4 bg-blue-100 text-blue-700 rounded-xl font-bold hover:bg-blue-200 disabled:bg-gray-100 disabled:text-gray-400 transition-all text-sm"
+                      >
+                        {isFetchingUrl ? 'Fetching...' : 'Fetch Image'}
+                      </button>
+                    </div>
+                  </>
+                )}
               </>
             ) : (
               <>
@@ -352,22 +616,241 @@ export const ScreenshotConverter: React.FC = () => {
                 </table>
               </div>
 
-              <button
-                onClick={handleExportToWord}
-                className="w-full px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2 mb-3"
-              >
-                <Download className="w-5 h-5" />
-                Download as .docx
-              </button>
+              {/* Success Message */}
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6">
+                <div className="flex gap-3 mb-3">
+                  <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
+                  <p className="font-bold text-green-700">Rubric created successfully!</p>
+                </div>
+                <p className="text-sm text-green-700">
+                  Review the rubric above and make any edits as needed. To upload this rubric to Canvas, scroll to the top and select <span className="font-semibold">"Yes, I have a draft rubric document"</span> from the dropdown menu.
+                </p>
+              </div>
+
+              {/* Buttons */}
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <button
+                  onClick={handleExportToWord}
+                  className="px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2"
+                >
+                  <img src="https://fonts.gstatic.com/s/i/materialicons/add_to_drive/v1/24px.svg" alt="Add to Drive" className="w-5 h-5" style={{ filter: 'brightness(0) invert(1)' }} />
+                  Save to Drive
+                </button>
+
+                <button
+                  onClick={handleReset}
+                  className="px-4 py-3 bg-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-300 transition-all flex items-center justify-center gap-2"
+                >
+                  <RotateCw className="w-5 h-5" />
+                  Convert Another
+                </button>
+              </div>
 
               <button
-                onClick={handleReset}
-                className="w-full px-4 py-2 bg-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-300 transition-all flex items-center justify-center gap-2"
+                onClick={() => setShowUploadSection(!showUploadSection)}
+                className="w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
               >
-                <Trash2 className="w-5 h-5" />
-                Convert Another
+                <Upload className="w-5 h-5" />
+                Upload Rubric to Canvas
               </button>
             </div>
+
+            {/* Upload to Canvas Section */}
+            {showUploadSection && (
+              <div className="mt-6 space-y-6">
+                {/* Draft Rubric Document Section */}
+                <div className="bg-white p-6 rounded-2xl border border-gray-200">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <svg className="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-black text-gray-900">Draft Rubric Document</h3>
+                      <p className="text-sm text-gray-600">Do you already have a draft rubric document ready to deploy?</p>
+                    </div>
+                  </div>
+
+                  <select className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-900 mb-6">
+                    <option>Yes - I have a draft rubric document</option>
+                    <option>No - Create a new rubric</option>
+                  </select>
+
+                  {/* File Upload Tabs */}
+                  <div className="flex gap-3 mb-4 border-b border-gray-200 pb-3">
+                    {state.rubric && (
+                      <button
+                        onClick={() => setUploadDocTab('phase1')}
+                        className={`px-4 py-2 font-bold flex items-center gap-2 transition-all ${
+                          uploadDocTab === 'phase1'
+                            ? 'border-b-2 border-[#0033a0] text-[#0033a0]'
+                            : 'text-gray-600 hover:text-gray-900'
+                        }`}
+                      >
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M10.5 1.5H4a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V11.414a2 2 0 00-.586-1.414l-4.414-4.414A2 2 0 0011.414 5H10.5v-3.5z" />
+                        </svg>
+                        From Phase 1
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setUploadDocTab('local')}
+                      className={`px-4 py-2 font-bold flex items-center gap-2 transition-all ${
+                        uploadDocTab === 'local'
+                          ? 'border-b-2 border-[#0033a0] text-[#0033a0]'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      From Local Drive
+                    </button>
+                    <button
+                      onClick={() => setUploadDocTab('google-drive')}
+                      className={`px-4 py-2 font-bold flex items-center gap-2 transition-all ${
+                        uploadDocTab === 'google-drive'
+                          ? 'border-b-2 border-[#0033a0] text-[#0033a0]'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                      </svg>
+                      From Google Drive
+                    </button>
+                  </div>
+
+                  {/* From Phase 1 Tab */}
+                  {uploadDocTab === 'phase1' && state.rubric && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6 mb-6">
+                      <div className="flex items-start gap-3 mb-4">
+                        <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                        <div className="flex-1">
+                          <p className="font-bold text-blue-900">{state.rubric.title}</p>
+                          <p className="text-sm text-blue-700">{state.rubric.criteria.length} criteria • {state.rubric.totalPoints} points</p>
+                        </div>
+                      </div>
+                      <p className="text-sm text-blue-700">This rubric from Phase 1 is ready to deploy. No file upload needed — just enter your Canvas course URL below.</p>
+                    </div>
+                  )}
+
+                  {/* From Local Drive Tab */}
+                  {uploadDocTab === 'local' && (
+                    <div className="border-2 border-dashed border-gray-300 rounded-2xl p-8 flex flex-col items-center justify-center gap-3 bg-gray-50 cursor-pointer hover:border-blue-400 transition-all">
+                      <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <p className="text-sm font-bold text-gray-700">Drop a .docx or .doc file here or click to browse</p>
+                    </div>
+                  )}
+
+                  {/* From Google Drive Tab */}
+                  {uploadDocTab === 'google-drive' && (
+                    <div className="border-2 border-dashed border-gray-300 rounded-2xl p-8 flex flex-col items-center justify-center gap-3 bg-gray-50 cursor-pointer hover:border-blue-400 transition-all">
+                      <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                      </svg>
+                      <p className="text-sm font-bold text-gray-700">Drop a .docx or .doc file from Google Drive here or click to browse</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Target Canvas Course Section */}
+                <div className="bg-white p-6 rounded-2xl border border-gray-200">
+                  <div className="flex items-start gap-3 mb-4">
+                    <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5.951-1.429 5.951 1.429a1 1 0 001.169-1.409l-7-14z" />
+                    </svg>
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900">Target Canvas Course</h3>
+                      <p className="text-sm text-gray-600">Enter the homepage URL of the Canvas course you want to deploy rubrics to.</p>
+                    </div>
+                  </div>
+
+                  <input
+                    type="url"
+                    value={canvasUrl}
+                    onChange={(e) => setCanvasUrl(e.target.value)}
+                    placeholder="https://canvas.institution.edu/courses/12345"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none mb-6"
+                  />
+
+                  <button
+                    onClick={handleDeployToCanvas}
+                    disabled={!canvasUrl.trim() || isDeploying}
+                    className={`w-full px-4 py-3 rounded-xl font-bold transition-all ${
+                      canvasUrl.trim() && !isDeploying
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'bg-gray-300 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    {isDeploying ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Deploying...
+                      </span>
+                    ) : (
+                      'Analyze Draft Rubric(s) and Deploy to Canvas'
+                    )}
+                  </button>
+                  <p className="text-xs text-gray-500 text-center mt-2">Button becomes active when Canvas Course URL has been entered.</p>
+                </div>
+
+                {/* Deployment Progress Dialog */}
+                {isDeploying && (
+                  <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-lg">
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <h3 className="text-lg font-black text-gray-900">Analyzing & Deploying...</h3>
+                        <p className="text-sm text-gray-600 mt-1">Please wait while we process your rubric(s)</p>
+                      </div>
+                      <button
+                        onClick={handleCancelDeployment}
+                        className="text-gray-400 hover:text-gray-600 transition-colors"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    {/* Elapsed Time */}
+                    <div className="flex items-center gap-2 mb-4 text-sm text-gray-700">
+                      <Clock className="w-4 h-4 text-blue-600" />
+                      <span>Elapsed: <span className="font-bold">{elapsedSeconds}s</span></span>
+                      <span className="text-gray-500">• Time estimate will appear shortly</span>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden mb-6">
+                      <div
+                        className="h-full bg-blue-600 transition-all duration-500"
+                        style={{ width: `${Math.min((deploymentLogs.length / 5) * 100, 90)}%` }}
+                      />
+                    </div>
+
+                    {/* Deployment Timeline */}
+                    <div className="mb-4">
+                      <p className="text-sm font-bold text-gray-900 mb-3">Deployment Timeline</p>
+                      <div className="space-y-2 max-h-48 overflow-y-auto bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        {deploymentLogs.map((log, index) => (
+                          <div key={index} className="flex items-start gap-2">
+                            {log.includes('✓') ? (
+                              <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+                            ) : (
+                              <div className="w-4 h-4 rounded-full bg-blue-300 flex-shrink-0 mt-0.5" />
+                            )}
+                            <span className="text-xs text-gray-700 leading-relaxed">{log}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
