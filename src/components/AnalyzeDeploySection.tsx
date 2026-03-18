@@ -36,6 +36,7 @@ interface Props {
   uploadedFiles?: UploadedDocFile[];
   courseUrl: string;
   canvasToken: string;
+  onStartOver?: () => void;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -56,6 +57,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
   uploadedFiles = [],
   courseUrl,
   canvasToken,
+  onStartOver,
 }) => {
   const [runStatus, setRunStatus] = useState<RunStatus>('running');
   const [progress, setProgress] = useState(0);
@@ -374,7 +376,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
             </span>
             <button
               onClick={handleCsvYes}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl font-bold text-sm hover:bg-green-700 transition-all active:scale-95"
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-sm hover:bg-gray-50 transition-all active:scale-95"
             >
               <Download className="w-4 h-4" /> Yes, download
             </button>
@@ -448,6 +450,21 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
           <div ref={logsEndRef} />
         </div>
       </div>
+
+      {/* Start Over card — shown when deployment is complete */}
+      {runStatus === 'complete' && onStartOver && (
+        <div className="mt-4 bg-white rounded-2xl border border-gray-200 p-6 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <p className="text-sm font-bold text-gray-800">
+            Deployment attempt complete. Would you like to start over from the beginning?
+          </p>
+          <button
+            onClick={onStartOver}
+            className="flex-shrink-0 px-6 py-2.5 bg-green-600 text-white rounded-xl font-black text-sm uppercase tracking-widest hover:bg-green-700 transition-all active:scale-95 shadow"
+          >
+            Yes, please
+          </button>
+        </div>
+      )}
     </div>
   );
 };

@@ -3,7 +3,7 @@ import { useSession } from '../contexts/SessionContext';
 import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
 import { generateRubricFromDescription } from '../services/geminiService';
 import { exportToWord } from '../services/wordExportService';
-import { Loader2, Download, FileText, CheckCircle, ArrowRight, RotateCw, Home, Columns, X, Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, Download, FileText, CheckCircle, ArrowRight, RotateCw, Home, X, Clock, ChevronDown, ChevronUp, Link, Check } from 'lucide-react';
 import { googleDriveService } from '../services/googleDriveService';
 import ErrorDisplay from './ErrorDisplay';
 import mammoth from 'mammoth';
@@ -33,6 +33,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
     startGoogleAuth,
     signOutGoogle,
     openGooglePicker,
+    setCourseUrl,
   } = useSession();
 
   const [assignmentDescription, setAssignmentDescription] = useState<string>('');
@@ -59,6 +60,58 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
   // Side-by-side comparison
   const [showComparison, setShowComparison] = useState(false);
   const [snapshotDescription, setSnapshotDescription] = useState('');
+
+  // Ready-for-Canvas confirmation checkbox
+  const [readyForCanvas, setReadyForCanvas] = useState(false);
+
+  // Inline replace card
+  const [showReplaceCard, setShowReplaceCard] = useState(false);
+
+  // Inline deploy card
+  const [showDeployCard, setShowDeployCard] = useState(false);
+  const [deployUrlInput, setDeployUrlInput] = useState(() => state.courseUrl || '');
+  const [deployCourseName, setDeployCourseName] = useState<string | null>(null);
+  const [deployCourseNameLoading, setDeployCourseNameLoading] = useState(false);
+
+  const isCourseUrlValid = (url: string) =>
+    /^https?:\/\/.+\/courses\/\d+/i.test(url.trim());
+
+  const deployUrlValid = isCourseUrlValid(deployUrlInput);
+
+  // Fetch course name when deploy URL becomes valid
+  React.useEffect(() => {
+    if (!deployUrlValid || !state.canvasApiToken) {
+      setDeployCourseName(null);
+      return;
+    }
+    let cancelled = false;
+    setDeployCourseNameLoading(true);
+    const fetchName = async () => {
+      try {
+        const url = new URL(deployUrlInput.trim());
+        const match = url.pathname.match(/\/courses\/(\d+)/);
+        if (!match) return;
+        const courseId = match[1];
+        const instanceUrl = `${url.protocol}//${url.host}`;
+        const resp = await fetch(`/canvas-proxy/api/v1/courses/${courseId}`, {
+          headers: {
+            'Authorization': `Bearer ${state.canvasApiToken}`,
+            'X-Canvas-Instance': instanceUrl,
+          },
+        });
+        if (!cancelled && resp.ok) {
+          const data = await resp.json();
+          setDeployCourseName(data.name || null);
+        }
+      } catch {
+        // silently ignore
+      } finally {
+        if (!cancelled) setDeployCourseNameLoading(false);
+      }
+    };
+    fetchName();
+    return () => { cancelled = true; };
+  }, [deployUrlValid, deployUrlInput, state.canvasApiToken]);
 
   const handleFileUpload = async (file: File) => {
     setIsLoading(true);
@@ -288,6 +341,9 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
         setRubric(rubric);
         setProgress({ percentage: 1, itemsProcessed: 1 });
         setError(null);
+        setShowReplaceCard(false);
+        setReadyForCanvas(false);
+        setShowDeployCard(false);
         setTimeout(() => {
           stopProgress();
         }, 500);
@@ -776,30 +832,6 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
           </>
         ) : (
           <>
-            {/* Inline Success Banner */}
-            <div className="flex items-center justify-between gap-3 bg-green-50 border border-green-200 rounded-2xl p-4 mb-6">
-              <div className="flex items-center gap-3">
-                <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0" />
-                <div>
-                  <p className="font-black text-green-900">✓ Draft Rubric Created!</p>
-                  <p className="text-sm text-green-700">Your draft rubric has been generated successfully.</p>
-                </div>
-              </div>
-              {snapshotDescription && (
-                <button
-                  onClick={() => setShowComparison(!showComparison)}
-                  className={`flex items-center gap-2 text-sm font-bold px-3 py-1.5 rounded-lg border transition-all flex-shrink-0 ${
-                    showComparison
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-blue-600 border-blue-300 hover:bg-blue-50'
-                  }`}
-                >
-                  <Columns className="w-4 h-4" />
-                  {showComparison ? 'Hide Source' : 'View Source'}
-                </button>
-              )}
-            </div>
-
             {/* Display Generated Rubric — comparison layout */}
             <div className={showComparison ? 'grid grid-cols-2 gap-8' : ''}>
 
@@ -848,21 +880,23 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                   </table>
                 </div>
 
-                {/* Primary Action */}
-                <button
-                  onClick={handleContinue}
-                  disabled={onAnalyzeDeploy !== undefined && !canAnalyzeDeploy}
-                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all active:scale-95 mb-3 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ArrowRight className="w-5 h-5" />
-                  {onAnalyzeDeploy ? 'Analyze Draft Rubric(s) and Deploy To Canvas' : 'Continue to Part 2: Convert to CSV'}
-                </button>
+                {/* Success Banner — below table */}
+                <div className="bg-green-50 border border-green-200 rounded-2xl p-4 mb-4">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-black text-green-900">✓ Draft Rubric Created!</p>
+                      <p className="text-sm text-green-700">Your draft rubric has been generated successfully.</p>
+                      <p className="text-sm text-green-700 mt-1">We recommend making your own edits to this AI-generated rubric.</p>
+                    </div>
+                  </div>
+                </div>
 
                 {/* Secondary Actions */}
-                <div className="flex gap-3">
+                <div className="flex gap-3 mb-3">
                   <button
                     onClick={handleExportToWord}
-                    className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2 text-sm"
+                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all flex items-center justify-center gap-2 text-sm"
                   >
                     <Download className="w-4 h-4" />
                     Download as .docx
@@ -880,31 +914,269 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                     {savingToDrive ? 'Adding…' : 'Add to Drive'}
                   </button>
                   <button
-                    onClick={handleReset}
+                    onClick={() => setShowReplaceCard(true)}
                     className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
                   >
                     <RotateCw className="w-4 h-4" />
-                    Create Another
+                    Replace Draft Rubric
                   </button>
                   <button
                     onClick={handleDashboard}
                     className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
                   >
                     <Home className="w-4 h-4" />
-                    Dashboard
+                    Back to Dashboard
                   </button>
                 </div>
+
                 {driveSaveSuccess && (
-                  <p className="text-xs text-green-700 font-bold text-center mt-2">✓ {driveSaveSuccess}</p>
+                  <p className="text-xs text-green-700 font-bold text-center mb-3">✓ {driveSaveSuccess}</p>
                 )}
                 {!state.isGoogleAuthenticated && (
-                  <p className="text-xs text-gray-400 text-center mt-2">Sign in with Google on the Dashboard to enable Add to Drive.</p>
+                  <p className="text-xs text-gray-400 text-center mb-3">Sign in with Google on the Dashboard to enable Add to Drive.</p>
+                )}
+
+                {/* Ready confirmation checkbox */}
+                {onAnalyzeDeploy && (
+                  <label className="flex items-start gap-3 mb-3 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={readyForCanvas}
+                      onChange={(e) => {
+                        setReadyForCanvas(e.target.checked);
+                        if (!e.target.checked) setShowDeployCard(false);
+                      }}
+                      className="mt-0.5 w-4 h-4 accent-green-600 flex-shrink-0"
+                    />
+                    <span className="text-sm text-gray-700">
+                      No further revision is needed. The rubric currently displayed above is ready for Canvas.
+                    </span>
+                  </label>
+                )}
+
+                {/* Deploy Action — bottom */}
+                <button
+                  onClick={() => {
+                    if (onAnalyzeDeploy) {
+                      setShowDeployCard(true);
+                    } else {
+                      handleContinue();
+                    }
+                  }}
+                  disabled={!!(onAnalyzeDeploy && (!canAnalyzeDeploy || !readyForCanvas))}
+                  className={`w-full py-4 bg-green-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-green-700 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${showDeployCard ? 'opacity-50 pointer-events-none' : ''}`}
+                >
+                  <ArrowRight className="w-5 h-5" />
+                  {onAnalyzeDeploy ? 'Deploy Displayed Rubric to Canvas' : 'Continue to Part 2: Convert to CSV'}
+                </button>
+
+                {/* Inline Canvas Course URL card */}
+                {showDeployCard && onAnalyzeDeploy && (
+                  <div className={`mt-4 bg-white rounded-2xl border-2 p-6 shadow-sm transition-all duration-300 ${
+                    deployUrlValid
+                      ? 'border-green-400 ring-2 ring-green-300 ring-offset-1 shadow-green-100'
+                      : 'border-gray-200'
+                  }`}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Link className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                      <h3 className="font-black text-lg text-gray-900">Target Canvas Course</h3>
+                      {deployUrlValid && <Check className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
+                    </div>
+                    <p className="text-sm text-gray-600 mb-3">Enter the homepage URL of the Canvas course you want to deploy this rubric to.</p>
+                    <input
+                      type="url"
+                      value={deployUrlInput}
+                      onChange={(e) => {
+                        setDeployUrlInput(e.target.value);
+                        setDeployCourseName(null);
+                      }}
+                      placeholder="https://canvas.institution.edu/courses/12345"
+                      className={`w-full px-4 py-3 border-2 rounded-xl text-sm focus:outline-none transition-all ${
+                        deployUrlInput && !deployUrlValid
+                          ? 'border-red-300 focus:border-red-400'
+                          : deployUrlValid
+                          ? 'border-green-400 focus:border-green-500'
+                          : 'border-gray-200 focus:border-blue-400'
+                      }`}
+                    />
+                    {deployUrlInput && !deployUrlValid && (
+                      <p className="text-xs text-red-600 mt-2 flex items-center gap-1">
+                        <X className="w-3 h-3" /> URL must include a /courses/&lt;ID&gt; path
+                      </p>
+                    )}
+                    {deployUrlValid && (
+                      <div className="mt-3 flex items-center gap-2 min-h-[1.5rem]">
+                        {deployCourseNameLoading ? (
+                          <Loader2 className="w-4 h-4 text-green-500 animate-spin" />
+                        ) : deployCourseName ? (
+                          <>
+                            <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
+                            <span className="text-sm font-bold text-green-700">{deployCourseName}</span>
+                          </>
+                        ) : null}
+                      </div>
+                    )}
+                    <div className="flex gap-3 mt-5">
+                      <button
+                        onClick={() => setShowDeployCard(false)}
+                        className="flex-1 py-3 px-4 bg-gray-100 text-gray-700 rounded-2xl font-bold hover:bg-gray-200 transition-all text-sm"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!deployUrlValid) return;
+                          setCourseUrl(deployUrlInput.trim());
+                          handleContinue();
+                        }}
+                        disabled={!deployUrlValid}
+                        className="flex-[2] py-3 px-6 bg-green-600 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-lg flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ArrowRight className="w-4 h-4" />
+                        Deploy Now
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
           </>
         )}
       </div>
+
+      {/* Replace Draft Rubric card — appears below main card */}
+      {showReplaceCard && state.rubric && (
+        <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 w-full max-w-2xl mt-4">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-xl font-black text-gray-900">Replace Draft Rubric</h3>
+              <p className="text-sm text-gray-600 mt-1">Generate a new rubric to replace the one currently displayed.</p>
+            </div>
+            <button
+              onClick={() => setShowReplaceCard(false)}
+              className="text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0 ml-4"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Settings */}
+          <div className="grid grid-cols-2 gap-4 mb-6 p-4 bg-gray-50 border border-gray-200 rounded-2xl">
+            <div>
+              <label className="text-sm font-bold text-gray-700 block mb-2">Total Points</label>
+              <input
+                type="number"
+                value={settings.totalPoints}
+                onChange={(e) => setSettings({ ...settings, totalPoints: parseInt(e.target.value) || 100 })}
+                className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-bold text-gray-700 block mb-2">Point Style</label>
+              <div className="flex gap-4 pt-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="replace-pointStyle" value="range" checked={(settings.pointStyle as string) === 'range'} onChange={() => setSettings({ ...settings, pointStyle: 'range' as any })} className="w-4 h-4 accent-blue-600" />
+                  <span className="text-sm font-medium text-gray-700">Ranges</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="replace-pointStyle" value="single" checked={(settings.pointStyle as string) === 'single'} onChange={() => setSettings({ ...settings, pointStyle: 'single' as any })} className="w-4 h-4 accent-blue-600" />
+                  <span className="text-sm font-medium text-gray-700">Single Values</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Input mode tabs */}
+          <div className="flex gap-3 mb-6 border-b border-gray-200">
+            <button
+              onClick={() => { setInputMode('text'); setGoogleDocUrl(''); setError(null); }}
+              className={`px-4 py-3 font-bold border-b-2 transition-all ${inputMode === 'text' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-600 hover:text-gray-900'}`}
+            >
+              From Local Drive
+            </button>
+            <button
+              onClick={() => { setInputMode('google-doc'); setError(null); }}
+              className={`px-4 py-3 font-bold border-b-2 transition-all ${inputMode === 'google-doc' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-600 hover:text-gray-900'}`}
+            >
+              From Google Drive
+            </button>
+          </div>
+
+          {inputMode === 'text' ? (
+            <>
+              <div
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(e) => { e.preventDefault(); setIsDragging(false); if (e.dataTransfer.files[0]) handleFileUpload(e.dataTransfer.files[0]); }}
+                className={`relative w-full p-6 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer transition-all mb-4 ${isDragging ? 'bg-blue-50 border-blue-400' : 'bg-gray-50 border-gray-200 hover:border-blue-300'}`}
+              >
+                <FileText className="w-7 h-7 text-gray-500" />
+                <p className="text-sm font-bold text-gray-800">Drop a .txt, .docx, or .pdf file here or click to browse</p>
+                <input type="file" accept=".txt,.docx,.pdf" onChange={(e) => { if (e.target.files?.[0]) handleFileUpload(e.target.files[0]); }} className="hidden" id="replace-file-input" />
+                <label htmlFor="replace-file-input" className="absolute inset-0 cursor-pointer" />
+              </div>
+              <textarea
+                value={assignmentDescription}
+                onChange={(e) => setAssignmentDescription(e.target.value)}
+                placeholder="Or paste your assignment description here..."
+                className="w-full h-40 p-4 border rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none resize-none mb-4"
+              />
+            </>
+          ) : (
+            <div className="mb-4">
+              {state.isGoogleAuthenticated ? (
+                <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl p-3 mb-4">
+                  <span className="text-sm font-bold text-green-900">{state.googleUser?.name}</span>
+                  <button onClick={() => signOutGoogle()} className="text-xs font-bold text-green-700 hover:text-green-900">Sign Out</button>
+                </div>
+              ) : (
+                <button onClick={() => startGoogleAuth()} className="w-full py-2.5 px-4 bg-white border border-gray-300 rounded-lg font-bold text-sm text-gray-700 hover:bg-gray-50 transition-all flex items-center justify-center gap-2 mb-4">
+                  Sign in with Google
+                </button>
+              )}
+              <button
+                onClick={handlePickerOpen}
+                disabled={isPickerLoading || fetchingGoogleDoc || !state.isGoogleAuthenticated}
+                className="w-full py-3 px-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 transition-all text-sm flex items-center justify-center gap-2 mb-4"
+              >
+                {(isPickerLoading || fetchingGoogleDoc) ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {isPickerLoading ? 'Opening Drive...' : fetchingGoogleDoc ? 'Fetching...' : 'Browse Google Drive'}
+              </button>
+              <input
+                type="url"
+                value={googleDocUrl}
+                onChange={(e) => setGoogleDocUrl(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleFetchGoogleDoc(); }}
+                placeholder="Or paste a Google Drive URL..."
+                className="w-full px-4 py-3 border rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none mb-2"
+              />
+              <button
+                onClick={handleFetchGoogleDoc}
+                disabled={!googleDocUrl.trim() || fetchingGoogleDoc || !state.isGoogleAuthenticated}
+                className="w-full py-2.5 px-4 bg-blue-100 text-blue-700 rounded-xl font-bold hover:bg-blue-200 disabled:bg-gray-100 disabled:text-gray-400 transition-all text-sm"
+              >
+                {fetchingGoogleDoc ? 'Fetching...' : 'Fetch Document'}
+              </button>
+            </div>
+          )}
+
+          {state.error && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-2xl mb-4">
+              <p className="text-sm text-red-700 font-bold">{state.error}</p>
+            </div>
+          )}
+
+          <button
+            onClick={handleGenerateRubric}
+            disabled={isGenerating || !assignmentDescription.trim()}
+            className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"
+          >
+            {isGenerating && <Loader2 className="w-5 h-5 animate-spin" />}
+            {isGenerating ? 'Generating Rubric...' : 'Generate Replacement Rubric'}
+          </button>
+        </div>
+      )}
     </div>
   );
 };

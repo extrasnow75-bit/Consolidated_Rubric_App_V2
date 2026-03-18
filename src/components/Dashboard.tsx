@@ -66,6 +66,7 @@ export const Dashboard: React.FC = () => {
     setHelpOpen,
     openGooglePicker,
     downloadDriveFile,
+    setRubric,
   } = useSession();
 
   // ── Gemini API Key ──
@@ -1012,8 +1013,15 @@ export const Dashboard: React.FC = () => {
           <AnalyzeDeploySection
             phase1Rubric={analyzeRubricSource === 'no' ? (state.rubric ?? undefined) : undefined}
             uploadedFiles={analyzeRubricSource === 'yes' ? uploadedFiles : undefined}
-            courseUrl={courseUrlInput}
+            courseUrl={analyzeRubricSource === 'no' ? (state.courseUrl || courseUrlInput) : courseUrlInput}
             canvasToken={state.canvasApiToken ?? ''}
+            onStartOver={() => {
+              setShowAnalyze(false);
+              setAnalyzeRubricSource(null);
+              setHasDraftRubricLocal('');
+              setPhase1Mode('none');
+              setRubric(null);
+            }}
           />
         </div>
       )}
