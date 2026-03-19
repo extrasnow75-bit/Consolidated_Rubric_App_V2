@@ -1,7 +1,7 @@
 import React from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode } from '../types';
-import { HelpCircle, ChevronLeft, Camera, Lightbulb } from 'lucide-react';
+import { HelpCircle, ChevronLeft, Camera, Lightbulb, RotateCcw } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -57,7 +57,7 @@ const CanvasLogo = () => (
 
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const { state, setCurrentStep, setHelpOpen } = useSession();
+  const { state, setCurrentStep, setHelpOpen, clearSession, setHasDraftRubric } = useSession();
 
   const getRibbonContent = () => {
     const baseClasses = 'flex items-center gap-3';
@@ -146,6 +146,15 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
         {/* Right Side: Help & Return Button */}
         <div className="flex items-center gap-6 ml-auto">
+          {state.hasDraftRubric !== null && (
+            <button
+              onClick={() => { clearSession(); setHasDraftRubric(null); }}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-red-50 hover:border-red-200 hover:text-red-700 text-gray-700 rounded-xl transition-all font-bold text-sm border border-gray-200 active:scale-95"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Clear Work & Start Over</span>
+            </button>
+          )}
           <button
             onClick={() => setHelpOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl transition-all font-bold text-sm border border-gray-200 active:scale-95"

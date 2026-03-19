@@ -600,6 +600,173 @@ export async function generateRubricFromScreenshot(
   }, signal);
 }
 
+/**
+ * Extract an existing rubric from document text (e.g., a .docx the user has edited).
+ * Does NOT generate new content — parses and structures what is already in the document.
+ */
+export async function extractRubricFromDocument(
+  documentText: string,
+  signal?: AbortSignal,
+): Promise<RubricData> {
+  await throttle(signal);
+
+  return retryWithBackoff(async () => {
+    if (signal?.aborted) throw new Error('Request cancelled');
+    const ai = getClient();
+
+    const prompt = `
+    Act as an expert in instructional design and assessment.
+
+    The following document contains an existing rubric. Extract and structure it into the RubricData JSON format.
+    Do NOT generate new content, modify criteria, or change any point values.
+    Simply read what is already there and return it in the required JSON structure.
+
+    DOCUMENT CONTENT:
+    ${documentText}
+
+    IMPORTANT:
+    - Preserve all existing category names, descriptions, and rating text exactly as written.
+    - Preserve all existing point values exactly as they appear in the document.
+    - Map the four rating columns to: exemplary (highest), proficient, developing, unsatisfactory (lowest).
+    - The title should be the rubric's title or assignment name found in the document.
+    - Calculate totalPoints as the sum of all individual criterion totalPoints.
+    `;
+
+    const rubricSchema = {
+      type: Type.OBJECT,
+      properties: {
+        title: { type: Type.STRING },
+        totalPoints: { type: Type.NUMBER },
+        criteria: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              category: { type: Type.STRING },
+              description: { type: Type.STRING },
+              exemplary: {
+                type: Type.OBJECT,
+                properties: { text: { type: Type.STRING }, points: { type: Type.STRING } },
+                required: ["text", "points"],
+              },
+              proficient: {
+                type: Type.OBJECT,
+                properties: { text: { type: Type.STRING }, points: { type: Type.STRING } },
+                required: ["text", "points"],
+              },
+              developing: {
+                type: Type.OBJECT,
+                properties: { text: { type: Type.STRING }, points: { type: Type.STRING } },
+                required: ["text", "points"],
+              },
+              unsatisfactory: {
+                type: Type.OBJECT,
+                properties: { text: { type: Type.STRING }, points: { type: Type.STRING } },
+                required: ["text", "points"],
+              },
+              totalPoints: { type: Type.NUMBER },
+            },
+            required: ["category", "description", "exemplary", "proficient", "developing", "unsatisfactory", "totalPoints"],
+          },
+        },
+      },
+      required: ["title", "totalPoints", "criteria"],
+    };
+
+    const response = await ai.models.generateContent({
+      model: PRIMARY_MODEL,
+      contents: prompt,
+      config: { responseMimeType: "application/json", responseSchema: rubricSchema },
+    });
+
+    if (!response.text) throw new Error("Failed to extract rubric from document.");
+    return JSON.parse(response.text.trim()) as RubricData;
+  }, signal);
+}
+
+/**
+ * Apply user-requested changes to an existing rubric via Gemini.
+ * Returns a new RubricData object with only the requested changes applied.
+ */
+export async function applyRubricChanges(
+  rubric: RubricData,
+  changeRequest: string,
+  signal?: AbortSignal,
+): Promise<RubricData> {
+  await throttle(signal);
+
+  return retryWithBackoff(async () => {
+    if (signal?.aborted) throw new Error('Request cancelled');
+    const ai = getClient();
+
+    const prompt = `
+    Act as an expert in instructional design and assessment.
+
+    You are given an existing rubric in JSON format and a set of requested changes from the user.
+    Apply ONLY the requested changes. Preserve all other content exactly as-is.
+
+    CURRENT RUBRIC:
+    ${JSON.stringify(rubric, null, 2)}
+
+    REQUESTED CHANGES:
+    ${changeRequest}
+
+    Return the modified rubric in the same JSON structure.
+    Only change point totals if the user explicitly requests a redistribution of points.
+    `;
+
+    const rubricSchema = {
+      type: Type.OBJECT,
+      properties: {
+        title: { type: Type.STRING },
+        totalPoints: { type: Type.NUMBER },
+        criteria: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              category: { type: Type.STRING },
+              description: { type: Type.STRING },
+              exemplary: {
+                type: Type.OBJECT,
+                properties: { text: { type: Type.STRING }, points: { type: Type.STRING } },
+                required: ["text", "points"],
+              },
+              proficient: {
+                type: Type.OBJECT,
+                properties: { text: { type: Type.STRING }, points: { type: Type.STRING } },
+                required: ["text", "points"],
+              },
+              developing: {
+                type: Type.OBJECT,
+                properties: { text: { type: Type.STRING }, points: { type: Type.STRING } },
+                required: ["text", "points"],
+              },
+              unsatisfactory: {
+                type: Type.OBJECT,
+                properties: { text: { type: Type.STRING }, points: { type: Type.STRING } },
+                required: ["text", "points"],
+              },
+              totalPoints: { type: Type.NUMBER },
+            },
+            required: ["category", "description", "exemplary", "proficient", "developing", "unsatisfactory", "totalPoints"],
+          },
+        },
+      },
+      required: ["title", "totalPoints", "criteria"],
+    };
+
+    const response = await ai.models.generateContent({
+      model: PRIMARY_MODEL,
+      contents: prompt,
+      config: { responseMimeType: "application/json", responseSchema: rubricSchema },
+    });
+
+    if (!response.text) throw new Error("Failed to apply rubric changes.");
+    return JSON.parse(response.text.trim()) as RubricData;
+  }, signal);
+}
+
 // ─── Phase 3: CSV pre-upload analysis ───────────────────────────────
 
 export interface CsvAnalysisResult {
