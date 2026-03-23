@@ -131,7 +131,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Blue Banner */}
       <div className="bg-[#0033a0] text-white py-6 px-8 sm:px-12 flex items-center justify-between shadow-lg z-50">
         <div>
-          <h1 className="text-xl font-black">eCampus Center Rubric Creator <span className="font-normal opacity-75">V.2</span></h1>
+          <h1 className="text-xl font-black">The Canvas Rubric Creator App <span className="font-normal opacity-75">V.2</span></h1>
           <p className="text-xs text-blue-100">Streamlined rubric workflow</p>
         </div>
         <p className="text-xs text-blue-200 font-medium self-end">Part of the IDS TOOLKIT</p>

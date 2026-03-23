@@ -577,7 +577,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
       <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6 max-w-2xl w-full">
         <h3 className="text-sm font-black text-gray-900 mb-1">About Phase 1</h3>
         <p className="text-sm text-gray-700">
-          Upload or paste an assignment description to generate draft rubrics in MS Word form based on the eCampus Center template.
+          Upload/paste an assignment description or a screenshot from another rubric. Then the app will generate editable draft rubrics in MS Word or Google Docs form. In Phase 2, the app can upload the rubrics to Canvas for you.
         </p>
       </div>
 
@@ -1008,7 +1008,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                   <button
                     onClick={handleSaveToDrive}
                     disabled={savingToDrive || !state.isGoogleAuthenticated}
-                    className="flex-1 px-4 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold hover:bg-gray-50 disabled:opacity-50 transition-all text-sm flex items-center justify-center gap-2"
+                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-900 rounded-xl font-bold hover:bg-gray-200 disabled:opacity-50 transition-all text-sm flex items-center justify-center gap-2"
                   >
                     {savingToDrive ? <Loader2 className="w-4 h-4 animate-spin" /> : (
                       <svg className="w-4 h-4 flex-shrink-0" viewBox="0 -960 960 960" fill="currentColor" xmlns="http://www.w3.org/2000/svg">

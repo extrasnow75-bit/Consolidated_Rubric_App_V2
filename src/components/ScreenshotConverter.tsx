@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
-import { generateRubricFromScreenshot } from '../services/geminiService';
+import { generateRubricFromScreenshot, applyRubricChanges, extractRubricFromDocument } from '../services/geminiService';
+import mammoth from 'mammoth';
+import * as pdfjsLib from 'pdfjs-dist';
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
 import { exportToWord } from '../services/wordExportService';
-import { Upload, Download, Loader2, Trash2, Image as ImageIcon, HardDrive, FolderOpen, Clipboard, Clock, ChevronDown, ChevronUp, X, RotateCw, CheckCircle2 } from 'lucide-react';
+import { Upload, Download, Loader2, Trash2, Image as ImageIcon, HardDrive, FolderOpen, Clipboard, Clock, ChevronDown, ChevronUp, X, RotateCw, CheckCircle2, CheckCircle, FileText } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import { googleDriveService } from '../services/googleDriveService';
 import { getRecentImages, saveRecentImage, RecentImage } from '../utils/recentImages';
@@ -52,6 +55,28 @@ export const ScreenshotConverter: React.FC = () => {
   const [isDeploying, setIsDeploying] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [deploymentLogs, setDeploymentLogs] = useState<string[]>([]);
+
+  // Request Changes
+  const [showRequestChangesCard, setShowRequestChangesCard] = useState(false);
+  const [requestChangesText, setRequestChangesText] = useState('');
+  const [isApplyingChanges, setIsApplyingChanges] = useState(false);
+
+  // Upload Replacement Rubric
+  const [showReplaceCard, setShowReplaceCard] = useState(false);
+  const [replaceFileText, setReplaceFileText] = useState<string | null>(null);
+  const [replaceFileName, setReplaceFileName] = useState<string | null>(null);
+  const [replaceIsDragging, setReplaceIsDragging] = useState(false);
+  const [isProcessingReplacement, setIsProcessingReplacement] = useState(false);
+
+  // Rubric source — controls which success banner to show
+  const [rubricSource, setRubricSource] = useState<'generated' | 'uploaded' | 'revised' | null>(null);
+
+  // Drive save
+  const [savingToDrive, setSavingToDrive] = useState(false);
+  const [driveSaveSuccess, setDriveSaveSuccess] = useState<string | null>(null);
+
+  // Ready for Canvas checkbox
+  const [readyForCanvas, setReadyForCanvas] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pasteAreaRef = useRef<HTMLDivElement>(null);
@@ -230,6 +255,7 @@ export const ScreenshotConverter: React.FC = () => {
       if (signal.aborted) { setError('Screenshot processing cancelled'); return; }
       setProgress({ currentStep: 'Finalizing rubric...', percentage: 0.9 });
       setRubric(rubric);
+      setRubricSource('generated');
       setProgress({ percentage: 1, itemsProcessed: 1 });
     } catch (err: any) {
       if (!getAbortSignal().aborted) setError(`Failed to process screenshot: ${err.message}`);
@@ -250,6 +276,12 @@ export const ScreenshotConverter: React.FC = () => {
     setImagePreview(null);
     setRubric(null);
     setError(null);
+    setRubricSource(null);
+    setShowReplaceCard(false);
+    setShowRequestChangesCard(false);
+    setReadyForCanvas(false);
+    setDriveSaveSuccess(null);
+    setShowUploadSection(false);
   };
 
   // ── Deploy to Canvas ───────────────────────────────────────────────────────────
@@ -299,6 +331,124 @@ export const ScreenshotConverter: React.FC = () => {
     setIsDeploying(false);
     setElapsedSeconds(0);
     setDeploymentLogs([]);
+  };
+
+  // ── Save to Google Drive ───────────────────────────────────────────────────
+
+  const handleSaveToDrive = async () => {
+    if (!state.rubric || !state.googleAccessToken) return;
+    setSavingToDrive(true);
+    setDriveSaveSuccess(null);
+    try {
+      const folder = await googleDriveService.openFolderPicker(state.googleAccessToken);
+      if (!folder) { setSavingToDrive(false); return; }
+      const rubric = state.rubric;
+      const lines: string[] = [
+        rubric.title,
+        '',
+        ...rubric.criteria.flatMap(c => [
+          `${c.category}`,
+          c.description ? `  ${c.description}` : '',
+          `  Exemplary (${c.exemplary.points} pts): ${c.exemplary.text}`,
+          `  Proficient (${c.proficient.points} pts): ${c.proficient.text}`,
+          `  Developing (${c.developing.points} pts): ${c.developing.text}`,
+          `  Unsatisfactory (${c.unsatisfactory.points} pts): ${c.unsatisfactory.text}`,
+          '',
+        ]),
+        `Total Points: ${rubric.totalPoints}`,
+      ];
+      await googleDriveService.uploadFileToDrive(
+        state.googleAccessToken,
+        lines.join('\n'),
+        rubric.title,
+        'text/plain',
+        'application/vnd.google-apps.document',
+        folder.folderId,
+      );
+      setDriveSaveSuccess(`Saved to "${folder.folderName}"`);
+    } catch (err: any) {
+      setError(`Google Drive save failed: ${err.message}`);
+    } finally {
+      setSavingToDrive(false);
+    }
+  };
+
+  // ── Upload Replacement Rubric ──────────────────────────────────────────────
+
+  const handleReplaceFileUpload = async (file: File) => {
+    setError(null);
+    try {
+      if (!file.name.toLowerCase().match(/\.(docx?|pdf|txt)$/)) {
+        setError('Please upload a .docx, .pdf, or .txt file.');
+        return;
+      }
+      const name = file.name.toLowerCase();
+      let text = '';
+      if (name.endsWith('.docx') || name.endsWith('.doc')) {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        text = result.value;
+      } else if (name.endsWith('.pdf')) {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const pages: string[] = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          pages.push(content.items.map((item: any) => item.str).join(' '));
+        }
+        text = pages.join('\n\n');
+      } else {
+        text = await file.text();
+      }
+      setReplaceFileText(text);
+      setReplaceFileName(file.name);
+    } catch (err: any) {
+      setError(`Failed to read file: ${err.message}`);
+    }
+  };
+
+  const handleProcessReplacement = async () => {
+    if (!replaceFileText) return;
+    setIsProcessingReplacement(true);
+    setError(null);
+    try {
+      const signal = getAbortSignal();
+      const parsed = await extractRubricFromDocument(replaceFileText, signal);
+      setRubric(parsed);
+      setRubricSource('uploaded');
+      setShowReplaceCard(false);
+      setReplaceFileText(null);
+      setReplaceFileName(null);
+      setReadyForCanvas(false);
+      setShowUploadSection(false);
+    } catch (err: any) {
+      setError(`Failed to process rubric: ${err.message}`);
+    } finally {
+      setIsProcessingReplacement(false);
+    }
+  };
+
+  // ── Request Changes ────────────────────────────────────────────────────────
+
+  const handleApplyChanges = async () => {
+    if (!state.rubric || !requestChangesText.trim()) return;
+    setIsApplyingChanges(true);
+    setError(null);
+    try {
+      const signal = getAbortSignal();
+      const updated = await applyRubricChanges(state.rubric, requestChangesText, signal);
+      setRubric(updated);
+      setRubricSource('revised');
+      setShowRequestChangesCard(false);
+      setRequestChangesText('');
+      setReadyForCanvas(false);
+      setShowUploadSection(false);
+    } catch (err: any) {
+      setError(`Failed to apply changes: ${err.message}`);
+    } finally {
+      setIsApplyingChanges(false);
+    }
   };
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -616,44 +766,101 @@ export const ScreenshotConverter: React.FC = () => {
                 </table>
               </div>
 
-              {/* Success Message */}
-              <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6">
-                <div className="flex gap-3 mb-3">
-                  <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
-                  <p className="font-bold text-green-700">Rubric created successfully!</p>
+              {/* Success Banner */}
+              <div className="bg-green-50 border border-green-200 rounded-2xl p-4 mb-4">
+                <div className="flex items-start gap-3">
+                  <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    {rubricSource === 'uploaded' ? (
+                      <>
+                        <p className="font-black text-green-900">✓ Draft Rubric Received!</p>
+                        <p className="text-sm text-green-700">Your uploaded rubric has been processed and is ready to review.</p>
+                      </>
+                    ) : rubricSource === 'revised' ? (
+                      <>
+                        <p className="font-black text-green-900">✓ Draft Rubric Updated!</p>
+                        <p className="text-sm text-green-700">Your requested changes have been applied to the rubric.</p>
+                        <p className="text-sm text-green-700 mt-1">We recommend reviewing all changes before deploying to Canvas.</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-black text-green-900">✓ Draft Rubric Created!</p>
+                        <p className="text-sm text-green-700">Your draft rubric has been generated successfully.</p>
+                        <p className="text-sm text-green-700 mt-1">We recommend making your own edits to this AI-generated rubric.</p>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <p className="text-sm text-green-700">
-                  Review the rubric above and make any edits as needed. To upload this rubric to Canvas, scroll to the top and select <span className="font-semibold">"Yes, I have a draft rubric document"</span> from the dropdown menu.
-                </p>
               </div>
 
-              {/* Buttons */}
-              <div className="grid grid-cols-2 gap-3 mb-3">
+              {/* Secondary Actions */}
+              <div className="flex gap-3 mb-3">
                 <button
                   onClick={handleExportToWord}
-                  className="px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2"
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all flex items-center justify-center gap-2 text-sm"
                 >
-                  <svg className="w-5 h-5 flex-shrink-0" viewBox="0 -960 960 960" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M220-100q-17 0-34.5-10.5T160-135L60-310q-8-14-8-34.5t8-34.5l260-446q8-14 25.5-24.5T380-860h200q17 0 34.5 10.5T640-825l182 312q-23-6-47.5-8t-48.5 2L574-780H386L132-344l94 164h316q11 23 25.5 43t33.5 37H220Zm70-180-29-51 183-319h72l101 176q-17 13-31.5 28.5T560-413l-80-139-110 192h164q-7 19-10.5 39t-3.5 41H290Zm430 160v-120H600v-80h120v-120h80v120h120v80H800v120h-80Z"/>
-                  </svg>
-                  Add to Drive
+                  <Download className="w-4 h-4" />
+                  Download as .docx
                 </button>
-
                 <button
-                  onClick={handleReset}
-                  className="px-4 py-3 bg-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-300 transition-all flex items-center justify-center gap-2"
+                  onClick={handleSaveToDrive}
+                  disabled={savingToDrive || !state.isGoogleAuthenticated}
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-900 rounded-xl font-bold hover:bg-gray-200 disabled:opacity-50 transition-all text-sm flex items-center justify-center gap-2"
                 >
-                  <RotateCw className="w-5 h-5" />
-                  Convert Another
+                  {savingToDrive ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+                    <svg className="w-4 h-4 flex-shrink-0" viewBox="0 -960 960 960" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M220-100q-17 0-34.5-10.5T160-135L60-310q-8-14-8-34.5t8-34.5l260-446q8-14 25.5-24.5T380-860h200q17 0 34.5 10.5T640-825l182 312q-23-6-47.5-8t-48.5 2L574-780H386L132-344l94 164h316q11 23 25.5 43t33.5 37H220Zm70-180-29-51 183-319h72l101 176q-17 13-31.5 28.5T560-413l-80-139-110 192h164q-7 19-10.5 39t-3.5 41H290Zm430 160v-120H600v-80h120v-120h80v120h120v80H800v120h-80Z"/>
+                    </svg>
+                  )}
+                  {savingToDrive ? 'Adding…' : 'Add to Drive'}
+                </button>
+                <button
+                  onClick={() => { setShowReplaceCard(true); setShowRequestChangesCard(false); }}
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
+                >
+                  <RotateCw className="w-4 h-4" />
+                  Upload Replacement Rubric
+                </button>
+                <button
+                  onClick={() => { setShowRequestChangesCard(true); setShowReplaceCard(false); }}
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
+                >
+                  <RotateCw className="w-4 h-4" />
+                  Request Changes
                 </button>
               </div>
 
+              {driveSaveSuccess && (
+                <p className="text-xs text-green-700 font-bold text-center mb-3">✓ {driveSaveSuccess}</p>
+              )}
+              {!state.isGoogleAuthenticated && (
+                <p className="text-xs text-gray-400 text-center mb-3">Sign in with Google on the Dashboard to enable Add to Drive.</p>
+              )}
+
+              {/* Ready confirmation checkbox */}
+              <label className="flex items-start gap-3 mb-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={readyForCanvas}
+                  onChange={(e) => {
+                    setReadyForCanvas(e.target.checked);
+                    if (!e.target.checked) setShowUploadSection(false);
+                  }}
+                  className="mt-0.5 w-4 h-4 accent-green-600 flex-shrink-0"
+                />
+                <span className="text-sm text-gray-700">
+                  No further revision is needed. The rubric currently displayed above is ready for Canvas.
+                </span>
+              </label>
+
+              {/* Deploy Action — bottom */}
               <button
                 onClick={() => setShowUploadSection(!showUploadSection)}
-                className="w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+                disabled={!readyForCanvas}
+                className={`w-full py-4 bg-green-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-green-700 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${showUploadSection ? 'opacity-50 pointer-events-none' : ''}`}
               >
                 <Upload className="w-5 h-5" />
-                Upload Rubric to Canvas
+                Deploy Displayed Rubric to Canvas
               </button>
             </div>
 
@@ -847,6 +1054,115 @@ export const ScreenshotConverter: React.FC = () => {
           </>
         )}
       </div>
+
+      {/* Upload Replacement Rubric card — appears below main card */}
+      {showReplaceCard && state.rubric && (
+        <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 w-full max-w-2xl mt-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xl font-black text-gray-900">Upload Replacement Rubric</h3>
+            <button
+              onClick={() => { setShowReplaceCard(false); setReplaceFileText(null); setReplaceFileName(null); setError(null); }}
+              className="text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0 ml-4"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          <p className="text-sm text-gray-600 mb-6">
+            Upload your modified draft rubric document (.docx, .pdf, or .txt) to replace the one currently displayed.
+          </p>
+
+          <div
+            onDragOver={(e) => { e.preventDefault(); setReplaceIsDragging(true); }}
+            onDragLeave={() => setReplaceIsDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setReplaceIsDragging(false);
+              if (e.dataTransfer.files[0]) handleReplaceFileUpload(e.dataTransfer.files[0]);
+            }}
+            className={`relative w-full p-6 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer transition-all mb-4 ${replaceIsDragging ? 'bg-blue-50 border-blue-400' : 'bg-gray-50 border-gray-200 hover:border-blue-300'}`}
+          >
+            <FileText className="w-7 h-7 text-gray-400" />
+            <p className="text-sm font-bold text-gray-800">Drop your modified rubric file here or click to browse</p>
+            <p className="text-xs text-gray-600">Supports .docx, .pdf, and .txt</p>
+            <input
+              type="file"
+              accept=".docx,.doc,.pdf,.txt"
+              onChange={(e) => { if (e.target.files?.[0]) handleReplaceFileUpload(e.target.files[0]); }}
+              className="hidden"
+              id="replace-file-input-sc"
+            />
+            <label htmlFor="replace-file-input-sc" className="absolute inset-0 cursor-pointer" />
+          </div>
+
+          {replaceFileName && (
+            <div className="flex items-center gap-2 mb-4 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl">
+              <FileText className="w-4 h-4 text-blue-600 flex-shrink-0" />
+              <span className="text-sm font-bold text-blue-800 truncate flex-1">{replaceFileName}</span>
+              <button
+                onClick={() => { setReplaceFileName(null); setReplaceFileText(null); }}
+                className="text-blue-400 hover:text-blue-600 flex-shrink-0 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {state.error && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-2xl mb-4">
+              <p className="text-sm text-red-700 font-bold">{state.error}</p>
+            </div>
+          )}
+
+          <button
+            onClick={handleProcessReplacement}
+            disabled={isProcessingReplacement || !replaceFileText}
+            className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"
+          >
+            {isProcessingReplacement && <Loader2 className="w-5 h-5 animate-spin" />}
+            {isProcessingReplacement ? 'Processing Rubric...' : 'Use This Rubric'}
+          </button>
+        </div>
+      )}
+
+      {/* Request Changes card — appears below main card */}
+      {showRequestChangesCard && state.rubric && (
+        <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 w-full max-w-2xl mt-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xl font-black text-gray-900">Request Changes</h3>
+            <button
+              onClick={() => { setShowRequestChangesCard(false); setRequestChangesText(''); setError(null); }}
+              className="text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0 ml-4"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          <p className="text-sm text-gray-600 mb-6">
+            Describe the changes you'd like made to the rubric above. The AI will apply your changes and update the displayed rubric.
+          </p>
+
+          <textarea
+            value={requestChangesText}
+            onChange={(e) => setRequestChangesText(e.target.value)}
+            placeholder="e.g. Add a new category for Peer Collaboration worth 10 points. Rename 'Communication' to 'Written Communication'. Increase the Exemplary threshold for Problem Analysis to 24-22 pts."
+            className="w-full h-40 p-4 border rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none resize-none mb-4 text-sm"
+          />
+
+          {state.error && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-2xl mb-4">
+              <p className="text-sm text-red-700 font-bold">{state.error}</p>
+            </div>
+          )}
+
+          <button
+            onClick={handleApplyChanges}
+            disabled={isApplyingChanges || !requestChangesText.trim()}
+            className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"
+          >
+            {isApplyingChanges && <Loader2 className="w-5 h-5 animate-spin" />}
+            {isApplyingChanges ? 'Applying Changes...' : 'Apply Changes'}
+          </button>
+        </div>
+      )}
     </div>
   );
 };
