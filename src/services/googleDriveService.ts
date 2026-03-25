@@ -60,7 +60,7 @@ class GoogleDriveService {
           'This usually means the Picker API is not enabled in your Google Cloud project, ' +
           'or the API key is restricted. Please refresh and try again.'
         ));
-      }, 60_000);
+      }, 10_000);
 
       const gapi = (window as any).gapi;
       if (!gapi) {
@@ -376,8 +376,12 @@ class GoogleDriveService {
 
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
-        reject(new Error('Google Drive folder picker timed out. Please refresh and try again.'));
-      }, 60_000);
+        reject(new Error(
+          'Google Drive folder picker timed out. ' +
+          'This may be caused by a domain authorization issue — please ensure the app domain is listed as an ' +
+          'authorized JavaScript origin for the Picker API key in Google Cloud Console, then refresh and try again.'
+        ));
+      }, 10_000);
 
       const gapi = (window as any).gapi;
       if (!gapi) {
@@ -413,10 +417,22 @@ class GoogleDriveService {
               } else if (data.action === google.picker.Action.CANCEL) {
                 clearTimeout(timeoutId);
                 resolve(null);
+              } else if (data.action === 'error' || data.viewToken?.[0] === 'upload') {
+                clearTimeout(timeoutId);
+                reject(new Error('Google Picker encountered an error. Please try again.'));
               }
             });
 
-          builder.build().setVisible(true);
+          try {
+            builder.build().setVisible(true);
+          } catch (err: any) {
+            clearTimeout(timeoutId);
+            reject(new Error(
+              'Google Drive Picker failed to open. ' +
+              'Please ensure the app domain is an authorized JavaScript origin for your API key in Google Cloud Console. ' +
+              (err?.message ? `(${err.message})` : '')
+            ));
+          }
         },
         onerror: () => {
           clearTimeout(timeoutId);

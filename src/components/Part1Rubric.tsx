@@ -1022,7 +1022,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                     className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
                   >
                     <RotateCw className="w-4 h-4" />
-                    Upload Replacement Rubric
+                    Upload Replacement Rubric to App
                   </button>
                   <button
                     onClick={() => { setShowRequestChangesCard(true); setShowReplaceCard(false); }}
