@@ -400,12 +400,22 @@ class GoogleDriveService {
               return;
             }
 
-            const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+            const recentView = new google.picker.View(google.picker.ViewId.RECENTLY_PICKED);
+
+            const myDriveFoldersView = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
               .setSelectFolderEnabled(true)
               .setMimeTypes('application/vnd.google-apps.folder');
 
+            const sharedFoldersView = new google.picker.DocsView()
+              .setOwnedByMe(false)
+              .setSelectFolderEnabled(true)
+              .setIncludeFolders(true)
+              .setMimeTypes('application/vnd.google-apps.folder');
+
             const builder = new google.picker.PickerBuilder()
-              .addView(view)
+              .addView(recentView)
+              .addView(myDriveFoldersView)
+              .addView(sharedFoldersView)
               .setOAuthToken(accessToken)
               .setDeveloperKey(this.pickerApiKey)
               .setOrigin(window.location.protocol + '//' + window.location.host)
