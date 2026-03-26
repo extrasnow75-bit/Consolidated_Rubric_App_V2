@@ -129,12 +129,12 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   return (
     <div className="flex flex-col h-screen bg-gray-50 relative overflow-hidden">
       {/* Blue Banner */}
-      <div className="bg-[#0033a0] text-white py-6 px-8 sm:px-12 flex items-center justify-between shadow-lg z-50">
-        <div>
+      <div className="bg-[#0033a0] text-white py-6 px-8 sm:px-12 flex items-center justify-center shadow-lg z-50 relative">
+        <div className="text-center">
           <h1 className="text-xl font-black">The Canvas Rubric Creator App <span className="font-normal opacity-75">V.2</span></h1>
           <p className="text-xs text-blue-100">Streamlined rubric workflow</p>
         </div>
-        <p className="text-xs text-blue-200 font-medium self-end">Part of the IDS TOOLKIT</p>
+        <p className="text-xs text-blue-200 font-medium absolute right-8 sm:right-12">Part of the IDS TOOLKIT</p>
       </div>
 
       {/* White Ribbon Bar */}
