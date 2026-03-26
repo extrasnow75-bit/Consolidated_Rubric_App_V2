@@ -392,46 +392,42 @@ class GoogleDriveService {
 
       gapi.load('picker', {
         callback: () => {
-          const google = (window as any).google;
-          if (!google?.picker) {
-            clearTimeout(timeoutId);
-            reject(new Error('Google Picker failed to load. Please refresh and try again.'));
-            return;
-          }
-
-          const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
-            .setSelectFolderEnabled(true)
-            .setSelectableMimeTypes('application/vnd.google-apps.folder');
-
-          const builder = new google.picker.PickerBuilder()
-            .addView(view)
-            .setOAuthToken(accessToken)
-            .setDeveloperKey(this.pickerApiKey)
-            .setOrigin(window.location.protocol + '//' + window.location.host)
-            .setTitle('Choose a folder to save to')
-            .setCallback((data: any) => {
-              if (data.action === google.picker.Action.PICKED) {
-                clearTimeout(timeoutId);
-                const doc = data.docs[0];
-                resolve({ folderId: doc.id, folderName: doc.name });
-              } else if (data.action === google.picker.Action.CANCEL) {
-                clearTimeout(timeoutId);
-                resolve(null);
-              } else if (data.action === 'error' || data.viewToken?.[0] === 'upload') {
-                clearTimeout(timeoutId);
-                reject(new Error('Google Picker encountered an error. Please try again.'));
-              }
-            });
-
           try {
+            const google = (window as any).google;
+            if (!google?.picker) {
+              clearTimeout(timeoutId);
+              reject(new Error('Google Picker failed to load. Please refresh and try again.'));
+              return;
+            }
+
+            const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+              .setSelectFolderEnabled(true)
+              .setMimeTypes('application/vnd.google-apps.folder');
+
+            const builder = new google.picker.PickerBuilder()
+              .addView(view)
+              .setOAuthToken(accessToken)
+              .setDeveloperKey(this.pickerApiKey)
+              .setOrigin(window.location.protocol + '//' + window.location.host)
+              .setTitle('Choose a folder to save to')
+              .setCallback((data: any) => {
+                if (data.action === google.picker.Action.PICKED) {
+                  clearTimeout(timeoutId);
+                  const doc = data.docs[0];
+                  resolve({ folderId: doc.id, folderName: doc.name });
+                } else if (data.action === google.picker.Action.CANCEL) {
+                  clearTimeout(timeoutId);
+                  resolve(null);
+                } else if (data.action === 'error') {
+                  clearTimeout(timeoutId);
+                  reject(new Error('Google Picker encountered an error. Please try again.'));
+                }
+              });
+
             builder.build().setVisible(true);
           } catch (err: any) {
             clearTimeout(timeoutId);
-            reject(new Error(
-              'Google Drive Picker failed to open. ' +
-              'Please ensure the app domain is an authorized JavaScript origin for your API key in Google Cloud Console. ' +
-              (err?.message ? `(${err.message})` : '')
-            ));
+            reject(new Error(`Google Drive Picker failed to open: ${err?.message || 'Unknown error'}`));
           }
         },
         onerror: () => {
