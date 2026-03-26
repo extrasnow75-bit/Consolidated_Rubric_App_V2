@@ -1000,7 +1000,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                 <div className="flex gap-3 mb-3">
                   <button
                     onClick={handleExportToWord}
-                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all flex items-center justify-center gap-2 text-sm"
+                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-900 rounded-xl font-bold hover:bg-gray-200 transition-all flex items-center justify-center gap-2 text-sm"
                   >
                     <Download className="w-4 h-4" />
                     Download as .docx
@@ -1019,14 +1019,14 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                   </button>
                   <button
                     onClick={() => { setShowReplaceCard(true); setShowRequestChangesCard(false); }}
-                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
+                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-900 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
                   >
                     <RotateCw className="w-4 h-4" />
                     Upload Replacement Rubric to App
                   </button>
                   <button
                     onClick={() => { setShowRequestChangesCard(true); setShowReplaceCard(false); }}
-                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
+                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-900 rounded-xl font-bold hover:bg-gray-200 transition-all text-sm flex items-center justify-center gap-2"
                   >
                     <RotateCw className="w-4 h-4" />
                     Request Changes
