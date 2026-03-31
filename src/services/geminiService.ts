@@ -230,7 +230,8 @@ You must produce CSV files that match the standard Canvas Rubric Import template
    - Col D: Criteria Enable Range ('TRUE' or 'FALSE').
    - Col E, F, G: Rating triplets (repeating).
 3. **Data Integrity:** Ratings MUST be ordered from HIGHEST points to LOWEST points.
-4. **Formatting:** Wrap cells in double quotes if they contain commas. Output ONLY the CSV inside a markdown code block labeled "csv".
+4. **Point Range Format:** When using point ranges, boundaries MUST overlap (e.g., "10-8", "8-4", "4-0", "0-0"). Do NOT use decimal offsets like "10-8.1", "8-4.1". The upper bound of each lower tier must equal the lower bound of the tier above it.
+5. **Formatting:** Wrap cells in double quotes if they contain commas. Output ONLY the CSV inside a markdown code block labeled "csv".
 
 **Part 2 Behavior (Extraction):**
 - Analyze the structure of the document text provided.
@@ -445,7 +446,7 @@ export async function generateRubricFromDescription(
     - Total points for the entire assignment must be exactly ${settings.totalPoints}.
     - Point style preference: ${
       settings.pointStyle === PointStyle.RANGE
-        ? "Point ranges (e.g., 10-9 pts)"
+        ? "Point ranges with overlapping boundaries (e.g., 10-8, 8-4, 4-0, 0-0). The upper bound of each range must equal the lower bound of the range above it. Do NOT use decimal offsets like 10-8.1."
         : "Single point values (e.g., 10 pts)"
     }.
     - Ratings columns MUST BE: Exemplary, Proficient, Developing, and Unsatisfactory.
@@ -848,7 +849,7 @@ export async function generateCsvForRubric(
 
     const scoringDetail =
       scoringMethod === 'ranges'
-        ? 'Set "Criteria Enable Range" to TRUE. Use point ranges (e.g., "90-100", "80-89").'
+        ? 'Set "Criteria Enable Range" to TRUE. Use point ranges with overlapping boundaries (e.g., "100-90", "90-80", "80-70"). The upper bound of each range must equal the lower bound of the range above it. Do NOT use decimal offsets like "90-80.1".'
         : 'Set "Criteria Enable Range" to FALSE. Use fixed single points (e.g., "10", "8").';
 
     const prompt = `Extract the rubric named "${rubricName}" from this document and convert it to a Canvas-compatible CSV.
@@ -1015,7 +1016,7 @@ DATA RULES:
 2. "Rubric Name" column: populate ONLY on the first data row of each CSV; leave blank on all subsequent rows.
 3. Ratings must be ordered HIGHEST to LOWEST points.
 4. Detect the scoring method from the source document for each rubric:
-   - If the rubric uses point ranges (e.g., "40–50 pts", "90-100"), set "Criteria Enable Range" to TRUE and format Rating Points as ranges (e.g., "90-100", "80-89").
+   - If the rubric uses point ranges (e.g., "40–50 pts", "90-100"), set "Criteria Enable Range" to TRUE and format Rating Points as overlapping ranges (e.g., "100-90", "90-80", "80-70"). The upper bound of each range must equal the lower bound of the range above it. Do NOT use decimal offsets like "90-80.1".
    - If the rubric uses single fixed values (e.g., "10 pts", "8"), set "Criteria Enable Range" to FALSE and use plain numbers only (e.g., "10", "8").
 5. Wrap any field containing a comma in double quotes.
 6. No markdown fences, no prose — only raw CSV content in each csv field.
