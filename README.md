@@ -16,7 +16,7 @@ A unified React + TypeScript + Vite application that provides a complete workflo
 - "New Session" to clear everything and reset
 
 ### 💾 Persistent UI
--Handles single rubrics or large batches
+- Handles single rubrics or large batches
 - Google Drive Picker functionality
 - Make edits to rubric content within the app
 - Save draft rubrics and/or CSV files or just push rubrics to Canvas and disgard draft documents
