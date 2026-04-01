@@ -8,7 +8,7 @@ A unified React + TypeScript + Vite application that provides a complete workflo
 - **Part 1: Create Rubric** - Transform assignment descriptions into professional rubrics using AI
 - **Part 2: Convert to CSV** - Convert Word/PDF/Google Docs files to Canvas-compatible CSV format
 - **Part 3: Upload to Canvas** - Push rubrics directly to Canvas LMS
-- **Screenshot Converter** - Convert Canvas rubric screenshots to editable Word/Google documents
+- **Screenshot Converter** - Convert Canvas rubric screenshots to editable Word/Google documents to Canvas rubrics
 
 ### 🔄 Session Memory
 - Data persists as you move between workflow steps
