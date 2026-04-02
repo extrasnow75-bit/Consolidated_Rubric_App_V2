@@ -890,8 +890,62 @@ DATA RULES:
     const text = response.text ?? '';
     // Strip markdown code fences if the model includes them despite instructions
     const fenceMatch = text.match(/```(?:csv)?\n?([\s\S]*?)\n?```/);
-    return fenceMatch ? fenceMatch[1].trim() : text.trim();
+    const rawCsv = fenceMatch ? fenceMatch[1].trim() : text.trim();
+    // Gemini doesn't reliably write the correct Enable Range value, so force it
+    // programmatically based on the scoringMethod we already know.
+    return forceEnableRangeColumn(rawCsv, scoringMethod);
   }, signal);
+}
+
+/**
+ * Programmatically override the "Criteria Enable Range" column in a
+ * Gemini-generated CSV.  Gemini is instructed to set it, but the instruction
+ * is not always followed, so we enforce the correct value here.
+ *
+ * Walks each data row with full quote-awareness so quoted fields containing
+ * commas (e.g. long criterion descriptions) are handled correctly.
+ */
+function forceEnableRangeColumn(csv: string, scoringMethod: 'ranges' | 'fixed'): string {
+  const targetValue = scoringMethod === 'ranges' ? 'true' : 'false';
+  const rows = csv.split(/\r?\n/);
+  if (rows.length < 2) return csv;
+
+  // Locate the column index from the header row (unquoted, no commas in names)
+  const headerCells = rows[0].split(',').map(h => h.toLowerCase().replace(/"/g, '').trim());
+  const colIdx = headerCells.findIndex(h => h.includes('enable range'));
+  if (colIdx === -1) return csv;
+
+  /**
+   * Replace the value at `fieldIndex` inside a single CSV line,
+   * skipping over any quoted fields that may contain commas.
+   */
+  const replaceField = (line: string, fieldIndex: number, value: string): string => {
+    let count = 0;
+    let inQuote = false;
+    let fieldStart = 0;
+
+    for (let i = 0; i <= line.length; i++) {
+      const ch = i < line.length ? line[i] : ','; // treat EOL as a delimiter
+      if (ch === '"') {
+        inQuote = !inQuote;
+      } else if (ch === ',' && !inQuote) {
+        if (count === fieldIndex) {
+          return line.slice(0, fieldStart) + value + line.slice(i);
+        }
+        count++;
+        fieldStart = i + 1;
+      }
+    }
+    // Last field
+    if (count === fieldIndex) {
+      return line.slice(0, fieldStart) + value;
+    }
+    return line;
+  };
+
+  return rows
+    .map((row, i) => (i === 0 || !row.trim() ? row : replaceField(row, colIdx, targetValue)))
+    .join('\n');
 }
 
 // ─── Phase 2: Rubric discovery (pass 1 of 2) ────────────────────────
