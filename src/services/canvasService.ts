@@ -124,6 +124,7 @@ export const pushRubricToCanvas = async (
     const idxRatingStart = headers.findIndex(
       (h) => h.includes("rating") && (h.includes("name") || h.includes("1"))
     );
+    const idxEnableRange = headers.findIndex((h) => h.includes("enable range"));
 
     if (idxRubricName === -1 || idxCriteriaName === -1 || idxRatingStart === -1) {
       return {
@@ -173,10 +174,15 @@ export const pushRubricToCanvas = async (
         }
       }
 
+      const enableRange =
+        idxEnableRange >= 0 &&
+        row[idxEnableRange]?.toLowerCase().trim() === 'true';
+
       criteria[criterionKey] = {
         description: criterionName,
         long_description: criterionDesc,
         ratings,
+        ...(enableRange ? { criterion_use_range: true } : {}),
       };
     });
 
