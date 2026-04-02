@@ -906,7 +906,7 @@ DATA RULES:
  * commas (e.g. long criterion descriptions) are handled correctly.
  */
 function forceEnableRangeColumn(csv: string, scoringMethod: 'ranges' | 'fixed'): string {
-  const targetValue = scoringMethod === 'ranges' ? 'true' : 'false';
+  const targetValue = scoringMethod === 'ranges' ? 'TRUE' : 'FALSE';
   const rows = csv.split(/\r?\n/);
   if (rows.length < 2) return csv;
 
@@ -1145,7 +1145,7 @@ export function generateCsvFromRubricObject(
     'Rating Name,Rating Description,Rating Points,' +
     'Rating Name,Rating Description,Rating Points';
 
-  const enableRange = scoringMethod === 'ranges' ? 'true' : 'false';
+  const enableRange = scoringMethod === 'ranges' ? 'TRUE' : 'FALSE';
 
   /** Wrap a field in double-quotes if it contains commas, quotes, or newlines. */
   const q = (s: string): string => {
