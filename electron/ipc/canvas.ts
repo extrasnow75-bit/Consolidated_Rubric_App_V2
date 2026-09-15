@@ -11,6 +11,7 @@
  * and load the token from the keychain themselves at the moment they build the request.
  */
 import { getCanvasToken } from './credentials'
+import { readSettings } from './settings'
 import { buildRubricPayload, parseCourseUrl, type CourseRef } from './canvasUtils'
 
 export interface CanvasResult {
@@ -24,6 +25,41 @@ const BAD_URL_MESSAGE =
 
 const NO_TOKEN_MESSAGE =
   'No Canvas token is saved. Add one in Initial Setup so rubrics can be sent to your course.'
+
+const NO_COURSE_MESSAGE =
+  'No Canvas course is saved yet. Add your course URL in Initial Setup first.'
+
+const HOST_MISMATCH_MESSAGE =
+  'That course is on a different Canvas site than the one saved in Initial Setup. ' +
+  'Change the saved course URL first if you meant to switch institutions.'
+
+/**
+ * Resolve the course this request is for, refusing any host but the saved one.
+ *
+ * This is the actual host pinning, and it lives here because this is the only place that matters:
+ * the function that attaches the token. An earlier version validated the renderer's URL —
+ * requiring HTTPS, rejecting loopback and private ranges — and then used it. That is not pinning.
+ * `https://attacker.example/courses/1` passes every one of those checks, so a single IPC call was
+ * enough to send an instructor's Canvas token, and with it every student record it can read, to
+ * any host on the internet. CSP does not help: this fetch happens in the main process.
+ *
+ * The renderer may still name a course, because the UI legitimately looks one up while the user
+ * is typing — but only on the host already saved. Switching hosts goes through
+ * `canvas:setCourseUrl`, which asks the user natively (see main.ts); a compromised renderer
+ * cannot click that dialog.
+ */
+function resolveCourse(requested?: string): { ref: CourseRef } | { error: string } {
+  const savedUrl = readSettings().canvasCourseUrl
+  const pinned = savedUrl ? parseCourseUrl(savedUrl) : null
+  if (!pinned) return { error: NO_COURSE_MESSAGE }
+
+  if (!requested) return { ref: pinned }
+
+  const ref = parseCourseUrl(requested)
+  if (!ref) return { error: BAD_URL_MESSAGE }
+  if (ref.host !== pinned.host) return { error: HOST_MISMATCH_MESSAGE }
+  return { ref }
+}
 
 /**
  * Build the headers for a Canvas request.
@@ -68,11 +104,12 @@ async function readError(response: Response): Promise<string> {
  * "the app is broken", whereas the same failure in the setup panel reads as "my token expired",
  * which is both true and actionable.
  */
-export async function verifyToken(args: {
-  courseUrl: string
+export async function verifyToken(args?: {
+  courseUrl?: string
 }): Promise<{ ok: boolean; name?: string; message?: string }> {
-  const ref = parseCourseUrl(args.courseUrl)
-  if (!ref) return { ok: false, message: BAD_URL_MESSAGE }
+  const resolved = resolveCourse(args?.courseUrl)
+  if ('error' in resolved) return { ok: false, message: resolved.error }
+  const { ref } = resolved
 
   const token = getCanvasToken()
   if (!token) return { ok: false, message: NO_TOKEN_MESSAGE }
@@ -103,11 +140,12 @@ export async function verifyToken(args: {
 }
 
 /** Look up the course name, so the UI can confirm the user is pointed at the right course. */
-export async function getCourseName(args: {
-  courseUrl: string
+export async function getCourseName(args?: {
+  courseUrl?: string
 }): Promise<{ ok: boolean; name?: string; message?: string }> {
-  const ref = parseCourseUrl(args.courseUrl)
-  if (!ref) return { ok: false, message: BAD_URL_MESSAGE }
+  const resolved = resolveCourse(args?.courseUrl)
+  if ('error' in resolved) return { ok: false, message: resolved.error }
+  const { ref } = resolved
 
   const token = getCanvasToken()
   if (!token) return { ok: false, message: NO_TOKEN_MESSAGE }
@@ -130,10 +168,11 @@ export async function getCourseName(args: {
 /** Push one rubric CSV to a course's Rubrics list. */
 export async function pushRubric(args: {
   csvContent: string
-  courseUrl: string
+  courseUrl?: string
 }): Promise<CanvasResult> {
-  const ref: CourseRef | null = parseCourseUrl(args.courseUrl)
-  if (!ref) return { success: false, message: BAD_URL_MESSAGE }
+  const resolved = resolveCourse(args.courseUrl)
+  if ('error' in resolved) return { success: false, message: resolved.error }
+  const { ref } = resolved
 
   const token = getCanvasToken()
   if (!token) return { success: false, message: NO_TOKEN_MESSAGE }

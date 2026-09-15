@@ -11,6 +11,7 @@
  *      the in-app browser built on it is better in the ways that were annoying anyway: no
  *      separate Picker API key, no 403 overlay, no ten-second timeout.
  */
+import { randomBytes } from 'crypto'
 import { getAccessToken } from './googleAuth'
 
 const DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files'
@@ -87,6 +88,22 @@ async function driveError(response: Response, noun: string): Promise<Error> {
   }
   const detail = await parseGoogleError(response)
   return new Error(`Google Drive error (${response.status})${detail ? `: ${detail}` : ''}`)
+}
+
+/**
+ * A Drive file id, checked before it is interpolated into an API path.
+ *
+ * Drive ids are URL-safe base64, so this is their real alphabet rather than a guess. Without the
+ * check, an id of `../../../oauth2/v3/userinfo` normalises out of the Drive namespace and issues
+ * an authorized request to a different googleapis endpoint; `?` or `#` would let the renderer
+ * append its own query parameters. The host cannot be changed either way, so this widens reach
+ * rather than leaking the token — but it is one regex.
+ */
+function assertFileId(fileId: string): string {
+  if (!/^[a-zA-Z0-9_-]+$/.test(fileId)) {
+    throw new Error('That does not look like a Google Drive file id.')
+  }
+  return fileId
 }
 
 async function authorized(url: string, init?: RequestInit): Promise<Response> {
@@ -214,7 +231,10 @@ export async function listFiles(
 }
 
 /** Confirm a file exists and is reachable, and report what it is. */
-export async function getFileMetadata(fileId: string): Promise<{ name: string; mimeType: string }> {
+export async function getFileMetadata(
+  rawFileId: string,
+): Promise<{ name: string; mimeType: string }> {
+  const fileId = assertFileId(rawFileId)
   const params = new URLSearchParams({ fields: 'name,mimeType', supportsAllDrives: 'true' })
   const response = await authorized(`${DRIVE_FILES}/${fileId}?${params.toString()}`)
   if (!response.ok) throw await driveError(response, 'file')
@@ -227,14 +247,16 @@ export async function getFileMetadata(fileId: string): Promise<{ name: string; m
  * Exported through Drive rather than read through the Docs API, which keeps this to one API and
  * one scope, and handles multi-tab documents without walking the tab tree by hand.
  */
-export async function getGoogleDocText(fileId: string): Promise<string> {
+export async function getGoogleDocText(rawFileId: string): Promise<string> {
+  const fileId = assertFileId(rawFileId)
   const response = await authorized(`${DRIVE_FILES}/${fileId}/export?mimeType=text/plain`)
   if (!response.ok) throw await driveError(response, 'document')
   return response.text()
 }
 
 /** A Google Sheet as CSV. */
-export async function getGoogleSheetCsv(fileId: string): Promise<string> {
+export async function getGoogleSheetCsv(rawFileId: string): Promise<string> {
+  const fileId = assertFileId(rawFileId)
   const response = await authorized(`${DRIVE_FILES}/${fileId}/export?mimeType=text/csv`)
   if (!response.ok) throw await driveError(response, 'sheet')
   return response.text()
@@ -249,7 +271,8 @@ export const DOCX_MIME =
  * Used when a document is headed for Gemini rather than for display: mammoth reads .docx and
  * preserves the table structure a rubric lives in, which a plain-text export flattens away.
  */
-export async function exportDocAsDocx(fileId: string): Promise<Uint8Array> {
+export async function exportDocAsDocx(rawFileId: string): Promise<Uint8Array> {
+  const fileId = assertFileId(rawFileId)
   const response = await authorized(
     `${DRIVE_FILES}/${fileId}/export?mimeType=${encodeURIComponent(DOCX_MIME)}`,
   )
@@ -265,8 +288,9 @@ export async function exportDocAsDocx(fileId: string): Promise<Uint8Array> {
  * Doing the branch here also means the renderer never assembles a Google API URL.
  */
 export async function fetchFileForProcessing(
-  fileId: string,
+  rawFileId: string,
 ): Promise<{ name: string; mimeType: string; bytes: Uint8Array }> {
+  const fileId = assertFileId(rawFileId)
   const meta = await getFileMetadata(fileId)
 
   if (meta.mimeType === GOOGLE_DOC_MIME) {
@@ -283,7 +307,8 @@ export async function fetchFileForProcessing(
  * Returned as a Uint8Array because that is what survives the IPC structured clone; the renderer
  * turns it back into an ArrayBuffer for mammoth or pdf.js.
  */
-export async function downloadFileBytes(fileId: string): Promise<Uint8Array> {
+export async function downloadFileBytes(rawFileId: string): Promise<Uint8Array> {
+  const fileId = assertFileId(rawFileId)
   const response = await authorized(`${DRIVE_FILES}/${fileId}?alt=media&supportsAllDrives=true`)
   if (!response.ok) throw await driveError(response, 'file')
   return new Uint8Array(await response.arrayBuffer())
@@ -305,7 +330,9 @@ export async function uploadToDrive(args: {
   folderId?: string
 }): Promise<UploadResult> {
   const accessToken = await getAccessToken()
-  const boundary = `rubriccreator${Date.now()}`
+  // Random, not Date.now(): the body below contains renderer-supplied content, and a
+  // guessable boundary lets that content close the part and inject its own.
+  const boundary = `rubriccreator${randomBytes(16).toString('hex')}`
 
   const metadata: Record<string, unknown> = { name: args.name }
   if (args.targetMimeType) metadata.mimeType = args.targetMimeType

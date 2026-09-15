@@ -202,18 +202,26 @@ ipcMain.handle('credentials:geminiKeyStatus', (): CredentialStatus => geminiKeyS
 // ─── Canvas ───────────────────────────────────────────────────────────────────
 
 /**
- * Save the course URL, and teach the external-link allowlist about its host.
+ * Save the course URL, asking the user natively before moving to a different Canvas site.
  *
- * Validated here rather than trusted, because this one value decides two things that matter: the
- * only host the Canvas token will ever be sent to, and the only Canvas host `openExternal` will
- * open. Rejected URLs are not stored, so a bad value cannot widen either.
+ * This value decides two things the renderer must not decide for itself: the only host the Canvas
+ * token is sent to, and the only Canvas host `openExternal` will open. Validating it was not
+ * enough — the renderer could simply save `https://attacker.example/courses/1` and then ask for a
+ * push or a link, which is how the earlier version turned both controls into an exfiltration
+ * channel in two calls.
+ *
+ * So a change of HOST is confirmed in a native dialog. A compromised renderer can call this
+ * handler but cannot click that dialog, which is the property the whole design rests on. Changing
+ * the course NUMBER on a host already in use needs no confirmation, so the common case — a
+ * designer moving between courses at their own institution, typing as they go — is untouched.
  */
-ipcMain.handle('canvas:setCourseUrl', (_e, url: string | null) => {
+ipcMain.handle('canvas:setCourseUrl', async (e, url: string | null) => {
   if (!url) {
     updateSettings({ canvasCourseUrl: undefined })
     setAllowedCanvasHost(null)
     return { ok: true as const }
   }
+
   const ref = parseCourseUrl(url)
   if (!ref) {
     return {
@@ -223,6 +231,34 @@ ipcMain.handle('canvas:setCourseUrl', (_e, url: string | null) => {
         'https://yourschool.instructure.com/courses/12345 — paste a link from inside your course.',
     }
   }
+
+  const currentUrl = readSettings().canvasCourseUrl
+  const currentHost = currentUrl ? parseCourseUrl(currentUrl)?.host : undefined
+
+  if (ref.host !== currentHost) {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const detail =
+      `The app will send your Canvas access token to ${ref.host} to read and create rubrics ` +
+      'there.\n\nThat token can read your courses, enrolments and student records, so only ' +
+      'continue if this is your institution\u2019s Canvas address and you typed or pasted it ' +
+      'yourself.'
+    const { response } = win
+      ? await dialog.showMessageBox(win, {
+          type: 'warning',
+          buttons: ['Cancel', `Use ${ref.host}`],
+          defaultId: 0,
+          cancelId: 0,
+          title: 'Use a different Canvas site?',
+          message: `Send your Canvas token to ${ref.host}?`,
+          detail,
+        })
+      : { response: 0 }
+
+    if (response !== 1) {
+      return { ok: false as const, message: 'Cancelled — the saved Canvas course was not changed.' }
+    }
+  }
+
   updateSettings({ canvasCourseUrl: url.trim() })
   setAllowedCanvasHost(url.trim())
   return { ok: true as const }
@@ -230,9 +266,11 @@ ipcMain.handle('canvas:setCourseUrl', (_e, url: string | null) => {
 
 ipcMain.handle('canvas:getCourseUrl', () => readSettings().canvasCourseUrl ?? null)
 
-ipcMain.handle('canvas:verifyToken', (_e, args: { courseUrl: string }) => verifyToken(args))
-ipcMain.handle('canvas:getCourseName', (_e, args: { courseUrl: string }) => getCourseName(args))
-ipcMain.handle('canvas:pushRubric', (_e, args: { csvContent: string; courseUrl: string }) =>
+// These take an OPTIONAL courseUrl. It may only name a course on the already-saved host; any
+// other host is refused in resolveCourse (see canvas.ts). Omitted, they use the saved course.
+ipcMain.handle('canvas:verifyToken', (_e, args?: { courseUrl?: string }) => verifyToken(args))
+ipcMain.handle('canvas:getCourseName', (_e, args?: { courseUrl?: string }) => getCourseName(args))
+ipcMain.handle('canvas:pushRubric', (_e, args: { csvContent: string; courseUrl?: string }) =>
   pushRubric(args),
 )
 
@@ -447,9 +485,15 @@ ipcMain.handle(
     _e,
     args: { defaultName: string; ext: string; label: string; content: string | Uint8Array },
   ) => {
+    // basename only: the renderer chooses this, and an absolute defaultPath would point the
+    // dialog at a directory of its choosing (a startup folder, a dotfile) with the user one
+    // Enter away from accepting it. The user still confirms, but they should be confirming a
+    // filename rather than a location something else picked.
+    const safeName = (args.defaultName || 'export').replace(/[/\\]/g, '_').replace(/^\.+/, '')
+    const safeExt = /^[A-Za-z0-9]{1,8}$/.test(args.ext) ? args.ext : 'txt'
     const { filePath } = await dialog.showSaveDialog({
-      defaultPath: args.defaultName,
-      filters: [{ name: args.label, extensions: [args.ext] }],
+      defaultPath: safeName,
+      filters: [{ name: args.label, extensions: [safeExt] }],
     })
     if (!filePath) return { ok: false as const, cancelled: true as const }
 
