@@ -40,7 +40,13 @@ const ProgressDisplay: React.FC<ProgressDisplayProps> = ({ progress, onStop }) =
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3 flex-1">
             <Loader2 className="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" />
-            <div className="min-w-0 flex-1">
+            {/*
+              role="status" on the step text only. A generation runs for tens of seconds to
+              minutes, and without this a screen-reader user gets no feedback at all. Deliberately
+              not wrapping the percentage: it changes ten times a second, and announcing that
+              would be worse than announcing nothing.
+            */}
+            <div className="min-w-0 flex-1" role="status" aria-live="polite">
               <p className="text-sm font-bold text-gray-900">{progress.currentStep}</p>
               {showItemCount && (
                 <p className="text-xs text-gray-600">

@@ -39,7 +39,7 @@ const CodeBlock = ({ className, children, filename, ...props }: any) => {
   return (
     <div className="my-8 rounded-2xl overflow-hidden border border-gray-200 shadow-lg bg-gray-50 transition-all hover:shadow-xl">
       <div className="flex flex-wrap items-center justify-between px-5 py-3 bg-gray-100 border-b border-gray-200 gap-3">
-        <span className="text-xs font-black text-gray-500 uppercase tracking-[0.2em]">{language || 'text'} content</span>
+        <span className="text-xs font-black text-gray-600 uppercase tracking-[0.2em]">{language || 'text'} content</span>
         <div className="flex flex-wrap items-center gap-2">
           {isCSV && (
             <button

@@ -577,7 +577,7 @@ export const Part3Upload: React.FC = () => {
             className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
               uploadMode === 'from-phase2'
                 ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                : 'border-transparent text-gray-600 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
             From Phase 2
@@ -587,7 +587,7 @@ export const Part3Upload: React.FC = () => {
             className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
               uploadMode === 'google-drive'
                 ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                : 'border-transparent text-gray-600 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
             From Google Drive
@@ -597,7 +597,7 @@ export const Part3Upload: React.FC = () => {
             className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
               uploadMode === 'batch'
                 ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                : 'border-transparent text-gray-600 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
             Batch Upload
@@ -625,7 +625,7 @@ export const Part3Upload: React.FC = () => {
                         className="p-3 bg-gray-50 border border-gray-200 rounded-xl flex items-center gap-3"
                       >
                         {(!st || st.status === 'pending') && (
-                          <Upload className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                          <Upload className="w-5 h-5 text-gray-600 flex-shrink-0" />
                         )}
                         {st?.status === 'uploading' && (
                           <div className="w-5 h-5 rounded-full border-2 border-gray-300 border-t-blue-600 animate-spin flex-shrink-0" />
@@ -639,7 +639,7 @@ export const Part3Upload: React.FC = () => {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-bold text-gray-900 truncate">{item.name}</p>
                           {st?.message && (
-                            <p className="text-xs text-gray-500 truncate">{st.message}</p>
+                            <p className="text-xs text-gray-600 truncate">{st.message}</p>
                           )}
                         </div>
                       </div>
@@ -702,7 +702,7 @@ export const Part3Upload: React.FC = () => {
                     {!state.isGoogleAuthenticated && (
                       <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
                         <p className="text-sm font-bold text-gray-700 mb-1">Google sign-in required</p>
-                        <p className="text-xs text-gray-500 mb-3">Sign in to pick CSV files directly from your Drive.</p>
+                        <p className="text-xs text-gray-600 mb-3">Sign in to pick CSV files directly from your Drive.</p>
                         <button
                           onClick={() => startGoogleAuth()}
                           className="w-full py-2.5 px-4 bg-white border border-gray-300 rounded-lg font-bold text-sm text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all flex items-center justify-center gap-2"
@@ -721,7 +721,7 @@ export const Part3Upload: React.FC = () => {
                     {/* OR divider */}
                     <div className="flex items-center gap-3">
                       <div className="flex-1 h-px bg-gray-200" />
-                      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">or paste a URL</span>
+                      <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">or paste a URL</span>
                       <div className="flex-1 h-px bg-gray-200" />
                     </div>
 
@@ -767,11 +767,11 @@ export const Part3Upload: React.FC = () => {
                     onChange={(e) => handleFileSelect(e.target.files)}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   />
-                  <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                  <Upload className="w-8 h-8 text-gray-600 mx-auto mb-2" />
                   <p className="text-sm font-bold text-gray-700">
                     Drag & drop CSV files or ZIP archive here
                   </p>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-600 mt-1">
                     Supports .csv files and .zip archives containing CSV files
                   </p>
                 </div>
@@ -792,7 +792,7 @@ export const Part3Upload: React.FC = () => {
                             <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
                           )}
                           {file.status === 'pending' && (
-                            <Upload className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                            <Upload className="w-5 h-5 text-gray-600 flex-shrink-0" />
                           )}
                           {file.status === 'uploading' && (
                             <div className="w-5 h-5 rounded-full border-2 border-gray-300 border-t-blue-600 animate-spin flex-shrink-0" />
@@ -811,7 +811,7 @@ export const Part3Upload: React.FC = () => {
                         {file.status === 'pending' && (
                           <button
                             onClick={() => removeBatchFile(file.id)}
-                            className="ml-2 text-gray-400 hover:text-red-600 flex-shrink-0"
+                            className="ml-2 text-gray-600 hover:text-red-600 flex-shrink-0"
                           >
                             <X className="w-5 h-5" />
                           </button>
@@ -841,13 +841,13 @@ export const Part3Upload: React.FC = () => {
                   <button
                     onClick={() => navigator.clipboard.writeText(deploymentLogs.join('\n'))}
                     disabled={deploymentLogs.length === 0}
-                    className="text-xs text-gray-500 hover:text-gray-300 font-bold disabled:opacity-40"
+                    className="text-xs text-gray-300 hover:text-gray-300 font-bold disabled:opacity-40"
                   >
                     Copy Logs
                   </button>
                   <button
                     onClick={() => setDeploymentLogs([])}
-                    className="text-xs text-gray-500 hover:text-gray-300 font-bold"
+                    className="text-xs text-gray-300 hover:text-gray-300 font-bold"
                   >
                     Clear
                   </button>
@@ -855,7 +855,7 @@ export const Part3Upload: React.FC = () => {
               </div>
               <div className="p-4 h-64 overflow-y-auto font-mono text-xs">
                 {deploymentLogs.length === 0 ? (
-                  <p className="text-gray-600">No activity yet. Upload CSVs to start deployment.</p>
+                  <p className="text-gray-300">No activity yet. Upload CSVs to start deployment.</p>
                 ) : (
                   deploymentLogs.map((log, i) => {
                     const isSuccess = log.includes('✓');
@@ -864,7 +864,7 @@ export const Part3Upload: React.FC = () => {
                       <div
                         key={i}
                         className={`whitespace-pre-wrap break-words mb-1 ${
-                          isSuccess ? 'text-green-400' : isError ? 'text-red-400' : 'text-gray-400'
+                          isSuccess ? 'text-green-400' : isError ? 'text-red-400' : 'text-gray-300'
                         }`}
                       >
                         {log}
@@ -967,7 +967,7 @@ export const Part3Upload: React.FC = () => {
                   )}
                 </button>
                 {!validationResult && (!courseUrl.trim() || !hasToken) && (
-                  <p className="text-xs text-gray-400 text-center">
+                  <p className="text-xs text-gray-600 text-center">
                     {!courseUrl.trim() ? 'Enter Canvas URL (with course ID)' : 'Enter API Token'} to enable validation
                   </p>
                 )}
@@ -1033,24 +1033,24 @@ export const Part3Upload: React.FC = () => {
 
               {/* Time estimate */}
               {!isUploading && uploadMode === 'batch' && batchFiles.length > 0 && (
-                <p className="text-xs text-gray-500 text-center mt-2">
+                <p className="text-xs text-gray-600 text-center mt-2">
                   {batchFiles.length === 1
                     ? 'Estimated time: ~2s'
                     : `Estimated time: ~${batchFiles.length * 2 + (batchFiles.length - 1) * 10}s (${batchFiles.length} uploads + ${batchFiles.length - 1}×10s gaps)`}
                 </p>
               )}
               {!isUploading && uploadMode === 'from-phase2' && phase2Items.length > 1 && (
-                <p className="text-xs text-gray-500 text-center mt-2">
+                <p className="text-xs text-gray-600 text-center mt-2">
                   {`Estimated time: ~${phase2Items.length * 2 + (phase2Items.length - 1) * 10}s (${phase2Items.length} uploads + ${phase2Items.length - 1}×10s gaps)`}
                 </p>
               )}
               {!isUploading && uploadMode === 'from-phase2' && phase2Items.length === 1 && (
-                <p className="text-xs text-gray-500 text-center mt-2">
+                <p className="text-xs text-gray-600 text-center mt-2">
                   Estimated time: ~2 seconds
                 </p>
               )}
               {!isUploading && uploadMode === 'from-phase2' && phase2Items.length === 0 && csvToUse.trim() && (
-                <p className="text-xs text-gray-500 text-center mt-2">
+                <p className="text-xs text-gray-600 text-center mt-2">
                   Estimated time: ~2 seconds
                 </p>
               )}

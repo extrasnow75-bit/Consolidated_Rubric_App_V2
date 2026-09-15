@@ -526,7 +526,12 @@ export const Dashboard: React.FC = () => {
                         placeholder="Paste your Canvas token here..."
                         className={`w-full px-4 py-3 border-2 rounded-xl text-sm font-mono focus:outline-none transition-all pr-10 ${canvasTokenError ? 'border-red-400' : 'border-gray-200 focus:border-red-400'}`}
                       />
-                      <button type="button" onClick={() => setShowCanvasToken((v) => !v)} className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600">
+                      <button
+                        type="button"
+                        onClick={() => setShowCanvasToken((v) => !v)}
+                        aria-label={showCanvasToken ? 'Hide Canvas token' : 'Show Canvas token'}
+                        className="absolute right-3 top-3.5 text-gray-600 hover:text-gray-900"
+                      >
                         {showCanvasToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
@@ -563,7 +568,7 @@ export const Dashboard: React.FC = () => {
                     <div className="flex items-center gap-2 mb-1">
                       <GoogleIcon />
                       <h3 className="font-black text-lg text-gray-900">Google Sign-In</h3>
-                      <span className="ml-auto text-xs text-gray-400 font-bold uppercase tracking-wide">Optional</span>
+                      <span className="ml-auto text-xs text-gray-600 font-bold uppercase tracking-wide">Optional</span>
                     </div>
                     <p className="text-sm text-gray-600 mb-4">Sign in to select rubric documents directly from Google Drive.</p>
                     <button
@@ -589,7 +594,7 @@ export const Dashboard: React.FC = () => {
                         <p className="font-black text-gray-900 truncate">{state.googleUser?.name}</p>
                         <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
                       </div>
-                      <p className="text-xs text-gray-500 truncate">{state.googleUser?.email}</p>
+                      <p className="text-xs text-gray-600 truncate">{state.googleUser?.email}</p>
                     </div>
                     <button onClick={() => signOutGoogle()} className="px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-xs flex items-center gap-1 flex-shrink-0">
                       <LogOut className="w-3 h-3" /> Sign Out
@@ -622,7 +627,7 @@ export const Dashboard: React.FC = () => {
                 <option value="yes">Yes - I have a draft rubric document</option>
                 <option value="no">No - I need to create one first</option>
               </select>
-              <ChevronDown className="absolute right-3 top-3.5 w-4 h-4 text-gray-400 pointer-events-none" />
+              <ChevronDown className="absolute right-3 top-3.5 w-4 h-4 text-gray-600 pointer-events-none" />
             </div>
 
             {/* "Yes" path — tabbed file upload area */}
@@ -636,7 +641,7 @@ export const Dashboard: React.FC = () => {
                     className={`flex items-center gap-1.5 px-4 py-2.5 font-bold text-sm transition-all border-b-2 -mb-px ${
                       docUploadTab === 'local'
                         ? 'border-[#0033a0] text-[#0033a0]'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                        : 'border-transparent text-gray-600 hover:text-gray-700 hover:border-gray-300'
                     }`}
                   >
                     <HardDrive className="w-4 h-4" /> From Local Drive
@@ -646,7 +651,7 @@ export const Dashboard: React.FC = () => {
                     className={`flex items-center gap-1.5 px-4 py-2.5 font-bold text-sm transition-all border-b-2 -mb-px ${
                       docUploadTab === 'google'
                         ? 'border-[#0033a0] text-[#0033a0]'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                        : 'border-transparent text-gray-600 hover:text-gray-700 hover:border-gray-300'
                     }`}
                   >
                     <FolderOpen className="w-4 h-4" /> From Google Drive
@@ -665,7 +670,7 @@ export const Dashboard: React.FC = () => {
                       }`}
                       onClick={() => fileInputRef.current?.click()}
                     >
-                      <FileText className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                      <FileText className="w-8 h-8 text-gray-600 mx-auto mb-2" />
                       <p className="text-sm font-bold text-gray-700">Drop a .docx or .doc file here or click to browse</p>
                     </div>
                   </>
@@ -686,7 +691,7 @@ export const Dashboard: React.FC = () => {
                         </div>
                         <button
                           onClick={() => signOutGoogle()}
-                          className="text-xs font-bold text-gray-500 hover:text-red-600 transition-colors"
+                          className="text-xs font-bold text-gray-600 hover:text-red-600 transition-colors"
                         >
                           Sign Out
                         </button>
@@ -741,7 +746,7 @@ export const Dashboard: React.FC = () => {
                                 onClick={() => handleRecentDocClick(doc)}
                                 className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-all text-left border-b border-gray-100 last:border-0"
                               >
-                                <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                <FileText className="w-4 h-4 text-gray-600 flex-shrink-0" />
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm font-bold text-gray-900 truncate">{doc.name}</p>
                                   <p className="text-xs text-gray-600">
@@ -758,7 +763,7 @@ export const Dashboard: React.FC = () => {
                     {/* OR divider */}
                     <div className="flex items-center gap-3">
                       <div className="flex-1 h-px bg-gray-200" />
-                      <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Or Paste a URL</span>
+                      <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">Or Paste a URL</span>
                       <div className="flex-1 h-px bg-gray-200" />
                     </div>
 
@@ -778,7 +783,7 @@ export const Dashboard: React.FC = () => {
                       )}
                       <p className="text-xs text-blue-700 mt-1.5">
                         Supports Google Docs, Word (.docx), and PDF files stored in Drive.{' '}
-                        <span className="text-gray-500">The file must be accessible to your signed-in account.</span>
+                        <span className="text-gray-600">The file must be accessible to your signed-in account.</span>
                       </p>
                       <button
                         onClick={handleFetchFromDriveUrl}
@@ -807,7 +812,11 @@ export const Dashboard: React.FC = () => {
                       <div key={i} className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm">
                         <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
                         <span className="flex-1 truncate font-medium text-gray-800">{f.name}</span>
-                        <button onClick={() => setUploadedFiles((prev) => prev.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-500 transition-colors flex-shrink-0">
+                        <button
+                          onClick={() => setUploadedFiles((prev) => prev.filter((_, j) => j !== i))}
+                          aria-label={`Remove ${f.name}`}
+                          className="text-gray-600 hover:text-red-600 transition-colors flex-shrink-0"
+                        >
                           <X className="w-4 h-4" />
                         </button>
                       </div>
@@ -873,13 +882,13 @@ export const Dashboard: React.FC = () => {
             className={`w-full py-4 rounded-2xl font-black text-base uppercase tracking-widest transition-all active:scale-95 ${
               allRequiredValid
                 ? 'bg-[#0033a0] text-white hover:bg-blue-900 shadow-xl cursor-pointer'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
+                : 'bg-gray-200 text-gray-600 cursor-not-allowed shadow-none'
             }`}
           >
             Analyze Draft Rubric(s) and Deploy To Canvas
           </button>
           {!allRequiredValid && (
-            <p className="text-center text-sm text-gray-500 mt-2">
+            <p className="text-center text-sm text-gray-600 mt-2">
               Button becomes active when form is completely filled out.
             </p>
           )}

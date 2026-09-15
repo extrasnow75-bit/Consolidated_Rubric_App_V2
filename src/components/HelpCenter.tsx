@@ -1,6 +1,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
+import { useDialogFocus, useInertWhenHidden } from '../hooks/useDialogFocus';
 
 /**
  * The eCampus Help Center article for this app.
@@ -34,6 +35,17 @@ type ManualCheckResult =
 
 const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
   const panelRef = useRef<HTMLElement>(null);
+  /**
+   * The panel stays mounted so it can slide, which means that while "closed" it is only
+   * translated off-screen — every link and button inside stayed focusable and readable by
+   * assistive tech. A keyboard user tabbing through the app landed on controls they could not
+   * see, with no visible focus ring. `inert` removes the subtree from focus and from the
+   * accessibility tree without disturbing the transition.
+   */
+  useInertWhenHidden(panelRef, !isOpen);
+  // trapFocus: false — this is a side drawer rather than a modal; taking focus and closing on
+  // Escape is the useful part, and holding Tab captive in a scrolling reference panel is not.
+  useDialogFocus(isOpen, onClose, { trapFocus: false, ref: panelRef });
   const [appVersion, setAppVersion] = useState('');
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<ManualCheckResult | null>(null);
@@ -93,6 +105,10 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
       {/* Side Panel */}
       <aside
         ref={panelRef}
+        role="dialog"
+        aria-modal="false"
+        aria-label="Help Center"
+        aria-hidden={!isOpen}
         className={`fixed top-0 right-0 h-full w-full sm:w-[400px] bg-white shadow-2xl z-[70] transform transition-transform duration-300 ease-in-out ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         } overflow-y-auto`}
@@ -104,7 +120,8 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400 hover:text-gray-900"
+            aria-label="Close Help Center"
+            className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-600 hover:text-gray-900"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
@@ -117,7 +134,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
           {/* Updates — first, so "am I on the current version?" is answerable without
               reading past anything else. */}
           <section id="updates">
-            <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-3">Updates</h3>
+            <h3 className="text-xs font-black text-gray-600 uppercase tracking-[0.2em] mb-3">Updates</h3>
             <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl space-y-3">
               <p className="text-sm text-gray-600">
                 The app checks for a newer version each time it starts, and shows a bar across the
@@ -197,7 +214,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
 
           {/* AI Setup */}
           <section>
-            <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-3">AI Setup</h3>
+            <h3 className="text-xs font-black text-gray-600 uppercase tracking-[0.2em] mb-3">AI Setup</h3>
             <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl space-y-3">
               <p className="text-sm font-black text-gray-900">How To Get a Gemini API Key</p>
               <ol className="list-decimal list-inside space-y-1 text-sm text-gray-600">
@@ -213,7 +230,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
                 <li>Copy and paste the key. A string of letters and numbers will appear. Copy it immediately.</li>
                 <li>Use it: Go back to your app and paste it into the appropriate place.</li>
               </ol>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-600">
                 Source:{' '}
                 <a
                   href="https://docs.google.com/document/d/1Ce1gOTozOD3TGd8ntPz3oEWJjU-Y07K2akuIJHXnzHk/edit?tab=t.0#heading=h.xaazhwt982j4"
@@ -229,7 +246,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
 
           {/* Canvas Access Token — inline steps */}
           <section id="canvas-setup">
-            <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-3">Canvas Setup</h3>
+            <h3 className="text-xs font-black text-gray-600 uppercase tracking-[0.2em] mb-3">Canvas Setup</h3>
             <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl space-y-3">
               <p className="text-sm font-black text-gray-900">How to Generate a Canvas Access Token</p>
               <ol className="list-decimal list-inside space-y-1 text-sm text-gray-600">
@@ -240,7 +257,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
                 <li>Give it a name and click <span className="font-bold">Generate Token</span>.</li>
                 <li>Copy the token and paste it into the app.</li>
               </ol>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-600">
                 Source:{' '}
                 <a
                   href="https://community.instructure.com/en/kb/articles/662901-how-do-i-manage-api-access-tokens-in-my-user-account"
@@ -256,7 +273,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
 
           {/* Resources & Training */}
           <section>
-            <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Resources & Training</h3>
+            <h3 className="text-xs font-black text-gray-600 uppercase tracking-[0.2em] mb-4">Resources & Training</h3>
             <div className="space-y-3">
               {/* The eCampus Help Center article. Hidden until HELP_CENTER_ARTICLE_URL is set —
                   see the note on that constant for why a placeholder link is not left in. */}
@@ -270,7 +287,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
                   <span className="text-sm font-bold text-blue-900">
                     Canvas Rubric Creator — Help Center article
                   </span>
-                  <span className="text-blue-500 ml-3"><ExternalLinkIcon /></span>
+                  <span className="text-blue-700 ml-3"><ExternalLinkIcon /></span>
                 </a>
               ) : (
                 <div className="p-4 bg-gray-50 border border-dashed border-gray-300 rounded-2xl">
@@ -291,7 +308,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
                 className="flex items-center justify-between p-4 bg-gray-50 hover:bg-blue-50 border border-gray-100 hover:border-blue-200 rounded-2xl transition-all group"
               >
                 <span className="text-sm font-bold text-gray-800 group-hover:text-blue-700">Selected Training Documents</span>
-                <span className="text-gray-400 group-hover:text-blue-500 ml-3"><ExternalLinkIcon /></span>
+                <span className="text-gray-600 group-hover:text-blue-700 ml-3"><ExternalLinkIcon /></span>
               </a>
 
               <a
@@ -301,14 +318,14 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
                 className="flex items-center justify-between p-4 bg-gray-50 hover:bg-blue-50 border border-gray-100 hover:border-blue-200 rounded-2xl transition-all group"
               >
                 <span className="text-sm font-bold text-gray-800 group-hover:text-blue-700">How To Manually Upload a Rubric CSV File To Canvas</span>
-                <span className="text-gray-400 group-hover:text-blue-500 ml-3"><ExternalLinkIcon /></span>
+                <span className="text-gray-600 group-hover:text-blue-700 ml-3"><ExternalLinkIcon /></span>
               </a>
             </div>
           </section>
 
           {/* App Suggestions */}
           <section className="pt-8 border-t border-gray-100">
-            <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Find bugs? Have improvement requests?</h3>
+            <h3 className="text-xs font-black text-gray-600 uppercase tracking-[0.2em] mb-4">Find bugs? Have improvement requests?</h3>
             <a
               href="https://docs.google.com/document/d/1UALeUcbTKGx6ytt7tY4aCqja28rvRdIR-tW8nGYhFn8/edit?tab=t.0"
               target="_blank"
@@ -316,7 +333,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
               className="flex items-center justify-between p-4 bg-gray-50 hover:bg-blue-50 border border-gray-100 hover:border-blue-200 rounded-2xl transition-all group"
             >
               <span className="text-sm font-bold text-gray-800 group-hover:text-blue-700">App Suggestions Document</span>
-              <span className="text-gray-400 group-hover:text-blue-500 ml-3"><ExternalLinkIcon /></span>
+              <span className="text-gray-600 group-hover:text-blue-700 ml-3"><ExternalLinkIcon /></span>
             </a>
           </section>
 
@@ -324,7 +341,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
           <section className="pt-4">
             <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl">
               <p className="text-sm font-black text-gray-900 flex items-center gap-2 mb-2">
-                <svg className="w-4 h-4 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                <svg className="w-4 h-4 text-gray-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
                 AI Models Used
               </p>
               <ul className="space-y-1 text-sm text-gray-600 ml-6">

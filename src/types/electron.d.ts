@@ -129,7 +129,7 @@ declare global {
         validateAssignmentDescription(a: {
           text: string
           jobId?: string
-        }): Promise<{ isValid: boolean; reason: string; suggestion: string }>
+        }): Promise<{ isValid: boolean; message: string }>
         generateRubricFromDescription(a: {
           assignmentDescription: string
           settings: GenerationSettings

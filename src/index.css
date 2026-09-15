@@ -86,3 +86,27 @@
 .titlebar-no-drag {
   -webkit-app-region: no-drag;
 }
+
+/*
+ * Respect a reduced-motion preference.
+ *
+ * The spinners stay: they are short, essential status indicators, and WCAG exempts them. What
+ * goes is the decorative movement — the Help Center slide-in, the backdrop fade, and the
+ * `active:scale-95` press effects — which is what actually troubles vestibular-sensitive users.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* The loading spinners are informative, not decorative — keep them turning. */
+  .animate-spin {
+    animation-duration: 1s !important;
+    animation-iteration-count: infinite !important;
+  }
+}

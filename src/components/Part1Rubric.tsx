@@ -326,9 +326,12 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
       setProgress({ currentStep: 'Creating evaluation scales...', percentage: 0.5 });
       await new Promise((resolve) => setTimeout(resolve, 100));
 
+      // `signal` third: without it withCancellation never sends gemini:cancel, so Stop did
+      // nothing and the user watched a dead button through the retry back-off — up to minutes.
       const rubric = await generateRubricFromDescription(
         assignmentDescription,
-        settings
+        settings,
+        signal,
       );
 
       if (signal.aborted) {
@@ -709,7 +712,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                   : 'bg-gray-50 border-gray-200 hover:border-blue-300'
               }`}
             >
-              <FileText className="w-8 h-8 text-gray-500" />
+              <FileText className="w-8 h-8 text-gray-600" />
               <p className="text-sm font-bold text-gray-800">
                 Drop an assignment description document here or click to browse
               </p>
@@ -756,7 +759,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                   {isGenerating ? 'Generating Rubric...' : 'Generate Rubric'}
                 </button>
                 {assignmentDescription.trim() && (
-                  <p className="text-xs text-gray-400 text-center mt-2 italic">
+                  <p className="text-xs text-gray-600 text-center mt-2 italic">
                     This usually takes less than a minute to generate a rubric.
                   </p>
                 )}
@@ -822,7 +825,11 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                   <div className="flex items-center gap-2 mb-4 mt-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl">
                     <FileText className="w-4 h-4 text-blue-600 flex-shrink-0" />
                     <span className="text-sm font-bold text-blue-800 truncate flex-1">{pickedFileName}</span>
-                    <button onClick={() => setPickedFileName(null)} className="text-blue-400 hover:text-blue-600 flex-shrink-0 transition-colors">
+                    <button
+                      onClick={() => setPickedFileName(null)}
+                      aria-label="Remove selected file"
+                      className="text-blue-600 hover:text-blue-800 flex-shrink-0 transition-colors"
+                    >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
@@ -848,7 +855,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                             disabled={isPickerLoading}
                             className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-all text-left border-b border-gray-100 last:border-0 disabled:opacity-50"
                           >
-                            <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                            <FileText className="w-4 h-4 text-gray-600 flex-shrink-0" />
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-bold text-gray-900 truncate">{doc.name}</p>
                               <p className="text-xs text-gray-600">
@@ -921,7 +928,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
               {/* Left column: original assignment text */}
               {showComparison && snapshotDescription && (
                 <div className="flex flex-col">
-                  <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Original Assignment</h3>
+                  <h3 className="text-xs font-black text-gray-600 uppercase tracking-widest mb-3">Original Assignment</h3>
                   <div className="flex-1 h-96 overflow-y-auto p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-700 whitespace-pre-wrap leading-relaxed font-mono">
                     {snapshotDescription}
                   </div>
@@ -1037,7 +1044,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                   <p className="text-xs text-green-700 font-bold text-center mb-3">✓ {driveSaveSuccess}</p>
                 )}
                 {!state.isGoogleAuthenticated && (
-                  <p className="text-xs text-gray-400 text-center mb-3">Sign in with Google on the Dashboard to enable Add to Drive.</p>
+                  <p className="text-xs text-gray-600 text-center mb-3">Sign in with Google on the Dashboard to enable Add to Drive.</p>
                 )}
 
                 {/* Ready confirmation checkbox */}
@@ -1155,7 +1162,8 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
             <h3 className="text-xl font-black text-gray-900">Upload Replacement Rubric</h3>
             <button
               onClick={() => { setShowReplaceCard(false); setReplaceFileText(null); setReplaceFileName(null); setError(null); }}
-              className="text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0 ml-4"
+              aria-label="Close upload replacement rubric"
+              className="text-gray-600 hover:text-gray-900 transition-colors flex-shrink-0 ml-4"
             >
               <X className="w-6 h-6" />
             </button>
@@ -1175,7 +1183,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
             }}
             className={`relative w-full p-6 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer transition-all mb-4 ${replaceIsDragging ? 'bg-blue-50 border-blue-400' : 'bg-gray-50 border-gray-200 hover:border-blue-300'}`}
           >
-            <FileText className="w-7 h-7 text-gray-400" />
+            <FileText className="w-7 h-7 text-gray-600" />
             <p className="text-sm font-bold text-gray-800">Drop your modified rubric file here or click to browse</p>
             <p className="text-xs text-gray-600">Supports .docx, .pdf, and .txt</p>
             <input
@@ -1195,7 +1203,8 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
               <span className="text-sm font-bold text-blue-800 truncate flex-1">{replaceFileName}</span>
               <button
                 onClick={() => { setReplaceFileName(null); setReplaceFileText(null); }}
-                className="text-blue-400 hover:text-blue-600 flex-shrink-0 transition-colors"
+                aria-label="Remove replacement file"
+                className="text-blue-600 hover:text-blue-800 flex-shrink-0 transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1226,7 +1235,8 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
             <h3 className="text-xl font-black text-gray-900">Request Changes</h3>
             <button
               onClick={() => { setShowRequestChangesCard(false); setRequestChangesText(''); setError(null); }}
-              className="text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0 ml-4"
+              aria-label="Close request changes"
+              className="text-gray-600 hover:text-gray-900 transition-colors flex-shrink-0 ml-4"
             >
               <X className="w-6 h-6" />
             </button>

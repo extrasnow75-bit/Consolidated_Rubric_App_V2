@@ -9,21 +9,41 @@
 **WCAG AA Compliance Required** — all body text must meet WCAG AA contrast ratios (4.5:1 for normal text, 3:1 for large text).
 
 #### Never Use (Too Light)
-- ❌ `text-gray-400` — only 5.3:1, use for intentionally disabled UI only (e.g., greyed-out buttons)
-- ❌ `text-gray-500` — only 5.8:1, insufficient for body text
-- ❌ `text-blue-400` — insufficient contrast on white
-- ❌ `text-blue-500` — borderline (4.54:1), avoid for body text
+- ❌ `text-gray-400` — **2.54:1**. Fails even the 3:1 large-text floor. Disabled UI only.
+- ❌ `text-gray-500` — **4.83:1**. Clears the 4.5:1 body floor by a hair, with no margin for
+  anti-aliasing or a tinted background. Use `text-gray-600`.
+- ❌ `text-blue-400` — **2.54:1**.
+- ❌ `text-blue-500` — **3.68:1**. Fails body text; passes only as large text or a UI boundary.
 
 #### Always Use (Sufficient Contrast)
-- ✅ `text-gray-600` — 7.5:1 contrast (**body text, descriptions, secondary info**)
-- ✅ `text-gray-700` — 9.6:1 contrast (**body text, labels, highlights**)
-- ✅ `text-gray-800` — 12.6:1 contrast (**emphasis, important labels**)
-- ✅ `text-gray-900` — 21:1 contrast (**headings, primary content, strong emphasis**)
+- ✅ `text-gray-600` — **7.56:1** (**body text, descriptions, secondary info**)
+- ✅ `text-gray-700` — **10.31:1** (**body text, labels, highlights**)
+- ✅ `text-gray-800` — **14.68:1** (**emphasis, important labels**)
+- ✅ `text-gray-900` — **17.74:1** (**headings, primary content, strong emphasis**)
+- ✅ `text-blue-600` — **5.17:1** (links and interactive text)
+- ✅ `text-blue-700` — **6.70:1** (links needing more weight)
+
+> **These figures were re-measured in September 2026 and three were wrong.** The originals had
+> `text-gray-400` at 5.3:1 (it is 2.54:1 — the problem was twice as bad as stated),
+> `text-gray-500` at 5.8:1 (it is 4.83:1), and brand blue at 3.95:1 (it is 10.60:1 — see below).
+> Anything waved through on the strength of the old numbers is worth re-checking.
+>
+> To reproduce any of these, use the WCAG relative-luminance formula:
+> linearise each sRGB channel (`c/12.92` when `c ≤ 0.03928`, else `((c+0.055)/1.055) ** 2.4`),
+> weight them `0.2126 R + 0.7152 G + 0.0722 B`, then `(lighter + 0.05) / (darker + 0.05)`.
 
 ### Brand Blue (`#0033a0`)
-- **Active/Selected state** — tab underlines, active buttons
-- **NOT for body text** — insufficient contrast (3.95:1)
-- Always pair with darker text for readability
+- **10.60:1 on white** — comfortably passes WCAG AA and AAA for body text.
+- Safe for headings, body text, links and active/selected states alike.
+- An earlier version of this file gave 3.95:1 and said "NOT for body text". That was wrong, and
+  it meant the brand colour was being avoided for no reason.
+
+### Dark Backgrounds
+The ratios above are against white. On `bg-gray-900` the scale inverts and the light-background
+rules do not carry over:
+- ❌ `text-gray-600` on `bg-gray-900` — **2.35:1**
+- ❌ `text-gray-500` on `bg-gray-900` — **3.67:1**
+- ✅ `text-gray-300` on `bg-gray-900` — **12.04:1**
 
 ### Emphasis Text
 - Use `font-bold` + `text-gray-900` for inline emphasis (e.g., "full rubric")

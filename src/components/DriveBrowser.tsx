@@ -13,6 +13,7 @@ import {
   HardDrive,
   Users,
   AlertCircle,
+  Check,
 } from 'lucide-react';
 
 /**
@@ -253,6 +254,7 @@ export const DriveBrowser: React.FC<DriveBrowserProps> = ({
                 // Emptying the box returns to the current tab rather than leaving stale results.
                 if (e.target.value === '') setActiveSearch('');
               }}
+              aria-label="Search your Drive by file name"
               placeholder="Search your Drive by file name…"
               className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
             />
@@ -306,7 +308,7 @@ export const DriveBrowser: React.FC<DriveBrowserProps> = ({
             </div>
           ) : files.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full py-16 px-8 text-center">
-              <Folder className="w-8 h-8 text-gray-400 mb-3" />
+              <Folder className="w-8 h-8 text-gray-600 mb-3" />
               <p className="text-sm text-gray-700">
                 {activeSearch
                   ? `Nothing in your Drive matches “${activeSearch}”.`
@@ -319,36 +321,62 @@ export const DriveBrowser: React.FC<DriveBrowserProps> = ({
             <ul className="divide-y divide-gray-100">
               {files.map((file) => {
                 const isSelected = selected?.id === file.id;
+                const selectable = mode !== 'folder' || file.isFolder;
                 return (
-                  <li key={file.id}>
+                  <li key={file.id} className="flex items-stretch">
+                    {/*
+                      Two sibling buttons, not one button with another nested inside it.
+
+                      The row used to be a single <button> containing a <span role="button">Open</span>.
+                      Interactive content inside a button is invalid HTML — screen readers commonly
+                      strip it from the accessibility tree — and that span was never focusable, so
+                      "Open" existed for mouse users only.
+                    */}
                     <button
-                      onClick={() => (mode === 'folder' && !file.isFolder ? undefined : setSelected(file))}
+                      onClick={() => (selectable ? setSelected(file) : undefined)}
                       onDoubleClick={() => openRow(file)}
-                      className={`w-full text-left px-6 py-3 flex items-center gap-3 transition-colors ${
+                      onKeyDown={(e) => {
+                        // Enter opens a folder, matching double-click. Without this a keyboard
+                        // user could only ever reach files at the top level of a tab: Enter
+                        // selected the folder, and the footer button then *picked* it rather
+                        // than going inside, so anything filed in a subfolder was unreachable.
+                        if (e.key === 'Enter' && file.isFolder) {
+                          e.preventDefault();
+                          openRow(file);
+                        }
+                      }}
+                      aria-pressed={selectable ? isSelected : undefined}
+                      className={`flex-1 min-w-0 text-left px-6 py-3 flex items-center gap-3 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0033a0] ${
                         isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'
                       }`}
                     >
+                      {/* A marker independent of the background tint: bg-blue-50 against
+                          hover:bg-gray-50 is two near-identical pale greys, so selection was
+                          conveyed by colour alone. */}
+                      <span className="w-4 flex-shrink-0 text-[#0033a0]" aria-hidden="true">
+                        {isSelected ? <Check className="w-4 h-4" /> : null}
+                      </span>
                       <FileIcon file={file} />
                       <span className="flex-1 min-w-0">
                         <span className="block text-sm font-bold text-gray-900 truncate">
                           {file.name}
                         </span>
-                        {file.modifiedTime && (
-                          <span className="block text-xs text-gray-600">
-                            Modified {formatDate(file.modifiedTime)}
-                          </span>
-                        )}
-                      </span>
-                      {file.isFolder && (
-                        <span
-                          onClick={(e) => { e.stopPropagation(); openRow(file); }}
-                          className="text-xs font-bold text-[#0033a0] hover:underline px-2 py-1 flex-shrink-0"
-                          role="button"
-                        >
-                          Open
+                        <span className="block text-xs text-gray-600">
+                          {file.isFolder ? 'Folder' : 'File'}
+                          {file.modifiedTime ? ` · Modified ${formatDate(file.modifiedTime)}` : ''}
                         </span>
-                      )}
+                      </span>
                     </button>
+
+                    {file.isFolder && (
+                      <button
+                        onClick={() => openRow(file)}
+                        aria-label={`Open folder ${file.name}`}
+                        className="px-4 text-xs font-bold text-[#0033a0] hover:underline hover:bg-gray-50 flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0033a0]"
+                      >
+                        Open
+                      </button>
+                    )}
                   </li>
                 );
               })}
@@ -361,7 +389,7 @@ export const DriveBrowser: React.FC<DriveBrowserProps> = ({
           <p className="text-xs text-gray-600">
             {mode === 'folder'
               ? 'Open a folder to go inside it, or select one and choose it.'
-              : 'Double-click a file to choose it.'}
+              : 'Select a file and choose it below, or double-click it.'}
           </p>
           <div className="flex items-center gap-3">
             <button

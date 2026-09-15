@@ -237,10 +237,18 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     }));
   }, []);
 
+  /**
+   * Cancel whatever is running, and retire the controller.
+   *
+   * Nulling the ref is the whole fix. Only `startProgress` replaced the controller, so after one
+   * Stop every later call to `getAbortSignal` handed back the *aborted* signal — and the four
+   * features that take a signal without calling `startProgress` first (Replace from file, Request
+   * changes, and two in the screenshot converter) failed instantly with "Request cancelled",
+   * permanently, until the app was restarted.
+   */
   const requestCancel = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
   }, []);
 
   const getAbortSignal = useCallback((): AbortSignal => {

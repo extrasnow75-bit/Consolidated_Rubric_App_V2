@@ -215,6 +215,9 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      // Abort too, not just the timer. Without this, navigating away mid-run left the loop
+      // POSTing rubrics to Canvas and calling setState on an unmounted component.
+      abortRef.current?.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -278,7 +281,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
     if (isRunning) {
       return (
         <div className="flex items-center gap-3">
-          <Loader2 className="w-6 h-6 text-blue-500 animate-spin flex-shrink-0" />
+          <Loader2 className="w-6 h-6 text-blue-700 animate-spin flex-shrink-0" />
           <div>
             <p className="font-black text-gray-900">Analyzing & Deploying…</p>
             <p className="text-sm text-gray-600">Please wait while we process your rubric(s)</p>
@@ -352,7 +355,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
         </div>
 
         {/* Timing row */}
-        <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
+        <div className="flex items-center justify-between mt-2 text-xs text-gray-600">
           <span>Elapsed: {formatMs(elapsedMs)}</span>
           {isRunning && (
             estimatedMs > 0
@@ -409,14 +412,14 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
           <div className="flex items-center gap-3">
             <button
               onClick={handleCopyLogs}
-              className="text-xs text-gray-400 hover:text-gray-200 font-bold flex items-center gap-1 transition-colors"
+              className="text-xs text-gray-600 hover:text-gray-200 font-bold flex items-center gap-1 transition-colors"
             >
               <Copy className="w-3 h-3" />
               Copy Logs
             </button>
             <button
               onClick={handleClearLogs}
-              className="text-xs text-gray-400 hover:text-gray-200 font-bold flex items-center gap-1 transition-colors"
+              className="text-xs text-gray-600 hover:text-gray-200 font-bold flex items-center gap-1 transition-colors"
             >
               <Trash2 className="w-3 h-3" />
               Clear
@@ -427,11 +430,11 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
         {/* Log body */}
         <div className="bg-[#0d0d1a] p-4 h-56 overflow-y-auto font-mono text-xs space-y-1">
           {logs.length === 0 ? (
-            <p className="text-gray-500 italic">No activity yet.</p>
+            <p className="text-gray-600 italic">No activity yet.</p>
           ) : (
             logs.map((entry, i) => (
               <div key={i} className="flex gap-2">
-                <span className="text-gray-500 flex-shrink-0">[{entry.timestamp}]</span>
+                <span className="text-gray-600 flex-shrink-0">[{entry.timestamp}]</span>
                 <span
                   className={
                     entry.type === 'success'

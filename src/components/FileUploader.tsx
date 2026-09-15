@@ -60,7 +60,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ onFilesSelected, disabled }
         type="button"
         onClick={() => fileInputRef.current?.click()}
         disabled={disabled}
-        className="p-2 text-gray-500 hover:text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="p-2 text-gray-600 hover:text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         title="Attach file"
       >
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">

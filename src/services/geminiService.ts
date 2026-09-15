@@ -106,7 +106,7 @@ export const extractRubricMetadata = (
 export const validateAssignmentDescription = (
   text: string,
   signal?: AbortSignal,
-): Promise<{ isValid: boolean; reason: string; suggestion: string }> =>
+): Promise<{ isValid: boolean; message: string }> =>
   withCancellation(signal, (jobId) =>
     window.api.gemini.validateAssignmentDescription({ text, jobId }),
   );
