@@ -8,7 +8,12 @@
  * access token. Credentials travel renderer → main only, and come back as status. If a method
  * that returns one ever appears here, that is a bug, not a feature.
  */
-import type { RubricData } from '../types'
+import type { RubricData, RubricMeta, GenerationSettings, Attachment } from '../types'
+import type {
+  CsvAnalysisResult,
+  RubricDiscovery,
+  BatchRubricResult,
+} from '../services/geminiService'
 
 export {}
 
@@ -99,39 +104,70 @@ declare global {
         openInBrowser(fileId: string): Promise<void>
       }
       gemini: {
-        /** Stops a running generation. */
+        /**
+         * Real return types, not `unknown` or `never`.
+         *
+         * These were placeholders, and `never` in particular was actively harmful: it is
+         * assignable to everything, so the wrapper in geminiService.ts type-checked against
+         * whatever it claimed to return while this file asserted nothing at all. Since this
+         * declaration, the preload and the main-process handlers are kept in step BY HAND —
+         * the two processes compile separately — the only checking on these shapes is the
+         * accuracy of what is written here.
+         */
         cancel(jobId: string): Promise<boolean>
         validateKey(apiKey: string): Promise<boolean>
         startNewChat(): Promise<void>
-        sendMessage(a: { text: string; attachments?: unknown[]; jobId?: string }): Promise<string>
-        extractRubricMetadata(a: { attachments: unknown[]; jobId?: string }): Promise<never>
-        validateAssignmentDescription(a: { text: string; jobId?: string }): Promise<never>
+        sendMessage(a: {
+          text: string
+          attachments?: Attachment[]
+          jobId?: string
+        }): Promise<string>
+        extractRubricMetadata(a: {
+          attachments: Attachment[]
+          jobId?: string
+        }): Promise<RubricMeta[]>
+        validateAssignmentDescription(a: {
+          text: string
+          jobId?: string
+        }): Promise<{ isValid: boolean; reason: string; suggestion: string }>
         generateRubricFromDescription(a: {
           assignmentDescription: string
-          settings: unknown
+          settings: GenerationSettings
           jobId?: string
-        }): Promise<never>
+        }): Promise<RubricData>
         generateRubricFromScreenshot(a: {
           imageData: { data: string; mimeType: string }
-          settings: unknown
+          settings: GenerationSettings
           jobId?: string
-        }): Promise<never>
-        extractRubricFromDocument(a: { documentText: string; jobId?: string }): Promise<never>
+        }): Promise<RubricData>
+        extractRubricFromDocument(a: {
+          documentText: string
+          jobId?: string
+        }): Promise<RubricData>
         applyRubricChanges(a: {
-          rubric: unknown
+          rubric: RubricData
           changeRequest: string
           jobId?: string
-        }): Promise<never>
-        analyzeCsvForCanvas(a: { csvContent: string; jobId?: string }): Promise<never>
+        }): Promise<RubricData>
+        analyzeCsvForCanvas(a: {
+          csvContent: string
+          jobId?: string
+        }): Promise<CsvAnalysisResult>
         generateCsvForRubric(a: {
           rubricName: string
           totalPoints: string
           scoringMethod: 'ranges' | 'fixed'
-          attachment: unknown
+          attachment: Attachment
           jobId?: string
         }): Promise<string>
-        discoverRubricTitles(a: { attachment: unknown; jobId?: string }): Promise<never>
-        generateAllCsvsFromDoc(a: { attachment: unknown; jobId?: string }): Promise<never>
+        discoverRubricTitles(a: {
+          attachment: Attachment
+          jobId?: string
+        }): Promise<RubricDiscovery[]>
+        generateAllCsvsFromDoc(a: {
+          attachment: Attachment
+          jobId?: string
+        }): Promise<BatchRubricResult[]>
       }
       credentials: {
         keychainAvailable(): Promise<boolean>
