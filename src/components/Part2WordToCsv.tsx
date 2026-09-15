@@ -175,25 +175,34 @@ export const Part2WordToCsv: React.FC = () => {
 
   // ── Helpers ───────────────────────────────────────────────────────────
 
-  /** Core download utility — appends anchor to DOM, clicks, then revokes after delay. */
-  const downloadBlob = useCallback((blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, []);
+  /**
+   * Save generated content through the native save dialog.
+   *
+   * The anchor-click download trick this replaces does not work here: the page is served from
+   * file://, and the sandbox blocks a download the page starts itself. It failed silently, which
+   * is the worst way for a save button to fail.
+   */
+  const saveGenerated = useCallback(
+    async (content: string | Uint8Array, filename: string, label: string) => {
+      const ext = filename.split('.').pop() ?? 'txt';
+      const result = await window.api.file.saveText({
+        defaultName: filename,
+        ext,
+        label,
+        content,
+      });
+      if (!result.ok && !result.cancelled && result.message) setError(result.message);
+    },
+    [setError],
+  );
 
-  /** Download a CSV string as a .csv file. */
+  /** Save a CSV string to a file the user picks. */
   const downloadCsv = useCallback(
     (content: string, filename: string) => {
       const safeFilename = filename.endsWith('.csv') ? filename : `${filename}.csv`;
-      downloadBlob(new Blob([content], { type: 'text/csv;charset=utf-8;' }), safeFilename);
+      void saveGenerated(content, safeFilename, 'CSV file');
     },
-    [downloadBlob],
+    [saveGenerated],
   );
 
   const resetForNewFile = () => {
@@ -502,8 +511,9 @@ export const Part2WordToCsv: React.FC = () => {
       zip.file(`${safeName}.csv`, result.csvContent!);
     }
 
-    const blob = await zip.generateAsync({ type: 'blob' });
-    downloadBlob(blob, 'all-rubrics.zip');
+    // uint8array rather than blob: the bytes have to cross IPC, and a Blob does not.
+    const bytes = (await zip.generateAsync({ type: 'uint8array' })) as Uint8Array;
+    await saveGenerated(bytes, 'all-rubrics.zip', 'Zip archive');
   };
 
   // ── Other handlers ────────────────────────────────────────────────────

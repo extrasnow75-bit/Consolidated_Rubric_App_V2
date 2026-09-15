@@ -8,6 +8,8 @@
  * access token. Credentials travel renderer → main only, and come back as status. If a method
  * that returns one ever appears here, that is a bug, not a feature.
  */
+import type { RubricData } from '../types'
+
 export {}
 
 declare global {
@@ -33,15 +35,25 @@ declare global {
         /** Returns an unsubscribe function. */
         onZoomChanged(callback: (level: number) => void): () => void
       }
-      dialog: {
-        /** Resolves to null if the user cancelled. */
-        saveFile(opts: {
+      file: {
+        /** Dialog and write happen together in main; the path never reaches the renderer. */
+        saveText(args: {
           defaultName: string
           ext: string
           label: string
-        }): Promise<string | null>
-        /** Only accepts a path that `saveFile` issued; any other is refused in main. */
-        writeFile(args: { path: string; data: string | Uint8Array }): Promise<{ ok: true }>
+          content: string | Uint8Array
+        }): Promise<{ ok: boolean; path?: string; cancelled?: boolean; message?: string }>
+      }
+      rubric: {
+        /** Creates a Google Doc in Drive and opens it. Needs a Google sign-in. */
+        exportToDrive(args: {
+          rubric: RubricData
+          folderId?: string
+        }): Promise<{ ok: boolean; fileId?: string; webViewLink?: string; message?: string }>
+        /** Saves the same rubric as .html. Works with no Google account. */
+        saveHtml(args: {
+          rubric: RubricData
+        }): Promise<{ ok: boolean; path?: string; cancelled?: boolean; message?: string }>
       }
       google: {
         signIn(options?: { useAnotherAccount?: boolean }): Promise<GoogleSignInStatus>

@@ -226,26 +226,28 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
   const handleDownloadCsvs = async () => {
     const withCsv = results.filter((r) => r.csvContent);
     if (withCsv.length === 0) return;
+    // Saved through the native dialog: an anchor-click download does not work from a file://
+    // page, and used to fail silently.
     if (withCsv.length === 1) {
-      const blob = new Blob([withCsv[0].csvContent!], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${withCsv[0].name.replace(/[^a-z0-9]/gi, '_')}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await window.api.file.saveText({
+        defaultName: `${withCsv[0].name.replace(/[^a-z0-9]/gi, '_')}.csv`,
+        ext: 'csv',
+        label: 'CSV file',
+        content: withCsv[0].csvContent!,
+      });
     } else {
       const zip = new JSZip();
       withCsv.forEach((r) => {
         zip.file(`${r.name.replace(/[^a-z0-9]/gi, '_')}.csv`, r.csvContent!);
       });
-      const blob = await zip.generateAsync({ type: 'blob' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'rubric_csvs.zip';
-      a.click();
-      URL.revokeObjectURL(url);
+      // uint8array rather than blob: the bytes have to cross IPC, and a Blob does not.
+      const bytes = (await zip.generateAsync({ type: 'uint8array' })) as Uint8Array;
+      await window.api.file.saveText({
+        defaultName: 'rubric_csvs.zip',
+        ext: 'zip',
+        label: 'Zip archive',
+        content: bytes,
+      });
     }
   };
 

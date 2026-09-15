@@ -3,7 +3,6 @@ import { useSession } from '../contexts/SessionContext';
 import { useDrivePicker } from '../contexts/DrivePickerContext';
 import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
 import { generateRubricFromDescription, extractRubricFromDocument, applyRubricChanges } from '../services/geminiService';
-import { exportToWord } from '../services/wordExportService';
 import { Loader2, Download, FileText, CheckCircle, ArrowRight, RotateCw, Home, X, Clock, ChevronDown, ChevronUp, Link, Check } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import mammoth from 'mammoth';
@@ -361,56 +360,63 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
     }
   };
 
-  const handleExportToWord = async () => {
-    if (!state.rubric) return;
-    try {
-      await exportToWord(state.rubric);
-    } catch (err: any) {
-      setError(`Failed to export: ${err.message}`);
-    }
-  };
-
   const [savingToDrive, setSavingToDrive] = useState(false);
+  const [savingLocal, setSavingLocal] = useState(false);
   const [driveSaveSuccess, setDriveSaveSuccess] = useState<string | null>(null);
 
-  const handleSaveToDrive = async () => {
-    if (!state.rubric || !state.isGoogleAuthenticated) return;
+  /**
+   * The default: create a Google Doc in Drive and open it.
+   *
+   * The rubric is rendered as an HTML table and handed to Drive to convert, which preserves the
+   * table. The previous version of this flattened the rubric into plain-text lines before
+   * uploading, so everything below the words — the grid, the ratings columns, the points — was
+   * lost on the way to Drive.
+   */
+  const handleExportToDrive = async () => {
+    if (!state.rubric) return;
     setSavingToDrive(true);
     setDriveSaveSuccess(null);
     try {
-      const folder = await pickFolder();
-      if (!folder) { setSavingToDrive(false); return; }
+      const folder = await pickFolder({ title: 'Where should the rubric go?' });
+      if (!folder) return;
 
-      // Format the rubric as readable plain text for a Google Doc
-      const rubric = state.rubric;
-      const lines: string[] = [
-        rubric.title,
-        '',
-        ...rubric.criteria.flatMap(c => [
-          `${c.category}`,
-          c.description ? `  ${c.description}` : '',
-          `  Exemplary (${c.exemplary.points} pts): ${c.exemplary.text}`,
-          `  Proficient (${c.proficient.points} pts): ${c.proficient.text}`,
-          `  Developing (${c.developing.points} pts): ${c.developing.text}`,
-          `  Unsatisfactory (${c.unsatisfactory.points} pts): ${c.unsatisfactory.text}`,
-          '',
-        ]),
-        `Total Points: ${rubric.totalPoints}`,
-      ];
-      const text = lines.join('\n');
-
-      await window.api.drive.upload({
-        content: text,
-        name: rubric.title,
-        sourceMimeType: 'text/plain',
-        targetMimeType: 'application/vnd.google-apps.document',
+      const result = await window.api.rubric.exportToDrive({
+        rubric: state.rubric,
         folderId: folder.folderId,
       });
-      setDriveSaveSuccess(`Saved to "${folder.folderName}"`);
-    } catch (err: any) {
-      setError(`Google Drive save failed: ${err.message}`);
+      if (result.ok) {
+        setDriveSaveSuccess(`Opened in your browser, saved to "${folder.folderName}"`);
+      } else {
+        setError(result.message ?? 'Could not create the Google Doc.');
+      }
+    } catch (err) {
+      setError(`Google Drive save failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSavingToDrive(false);
+    }
+  };
+
+  /**
+   * The fallback: write the same HTML to a file on this computer.
+   *
+   * Deliberately available whether or not the user is signed in. Google sign-in is the part of
+   * this app most likely to be broken for someone — refresh tokens expire weekly while the
+   * consent screen is in Testing, and new staff hit consent problems — and a rubric they cannot
+   * get out of the app is worse than one in a slightly less convenient format.
+   */
+  const handleSaveLocal = async () => {
+    if (!state.rubric) return;
+    setSavingLocal(true);
+    setDriveSaveSuccess(null);
+    try {
+      const result = await window.api.rubric.saveHtml({ rubric: state.rubric });
+      if (result.ok) {
+        setDriveSaveSuccess(`Saved to ${result.path}`);
+      } else if (!result.cancelled) {
+        setError(result.message ?? 'Could not save the file.');
+      }
+    } finally {
+      setSavingLocal(false);
     }
   };
 
@@ -987,23 +993,29 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                 {/* Secondary Actions */}
                 <div className="flex gap-3 mb-3">
                   <button
-                    onClick={handleExportToWord}
-                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-900 rounded-xl font-bold hover:bg-gray-200 transition-all flex items-center justify-center gap-2 text-sm"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download as .docx
-                  </button>
-                  <button
-                    onClick={handleSaveToDrive}
+                    onClick={handleExportToDrive}
                     disabled={savingToDrive || !state.isGoogleAuthenticated}
-                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-900 rounded-xl font-bold hover:bg-gray-200 disabled:opacity-50 transition-all text-sm flex items-center justify-center gap-2"
+                    title={
+                      state.isGoogleAuthenticated
+                        ? undefined
+                        : 'Sign in to Google under Initial Setup to use this'
+                    }
+                    className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-400 transition-all text-sm flex items-center justify-center gap-2"
                   >
                     {savingToDrive ? <Loader2 className="w-4 h-4 animate-spin" /> : (
                       <svg className="w-4 h-4 flex-shrink-0" viewBox="0 -960 960 960" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                         <path d="M220-100q-17 0-34.5-10.5T160-135L60-310q-8-14-8-34.5t8-34.5l260-446q8-14 25.5-24.5T380-860h200q17 0 34.5 10.5T640-825l182 312q-23-6-47.5-8t-48.5 2L574-780H386L132-344l94 164h316q11 23 25.5 43t33.5 37H220Zm70-180-29-51 183-319h72l101 176q-17 13-31.5 28.5T560-413l-80-139-110 192h164q-7 19-10.5 39t-3.5 41H290Zm430 160v-120H600v-80h120v-120h80v120h120v80H800v120h-80Z"/>
                       </svg>
                     )}
-                    {savingToDrive ? 'Adding…' : 'Add to Drive'}
+                    {savingToDrive ? 'Creating\u2026' : 'Open in Google Docs'}
+                  </button>
+                  <button
+                    onClick={handleSaveLocal}
+                    disabled={savingLocal}
+                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-900 rounded-xl font-bold hover:bg-gray-200 disabled:opacity-50 transition-all flex items-center justify-center gap-2 text-sm"
+                  >
+                    {savingLocal ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                    {savingLocal ? 'Saving\u2026' : 'Save to this computer'}
                   </button>
                   <button
                     onClick={() => { setShowReplaceCard(true); setShowRequestChangesCard(false); }}

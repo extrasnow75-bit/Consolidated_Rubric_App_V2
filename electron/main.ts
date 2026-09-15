@@ -16,6 +16,7 @@ import { parseCourseUrl } from './ipc/canvasUtils'
 import { signIn, getStatus, clearTokens } from './ipc/googleAuth'
 import { withJob, cancelJob } from './ipc/jobs'
 import * as gemini from './ipc/gemini'
+import { buildRubricHtml, rubricFileName } from './ipc/rubricHtml'
 import type { Attachment, GenerationSettings, RubricData } from './ipc/geminiTypes'
 import {
   listFiles,
@@ -26,9 +27,9 @@ import {
   fetchFileForProcessing,
   uploadToDrive,
   extractFileIdFromUrl,
+  GOOGLE_DOC_MIME,
   type ListFilesArgs,
 } from './ipc/googleDrive'
-import { rememberSavePath, consumeSavePath } from './ipc/savePaths'
 import { checkForUpdate, checkNow, RELEASES_PAGE } from './ipc/updateCheck'
 import {
   applyZoomLevel,
@@ -175,37 +176,6 @@ ipcMain.handle('app:stepZoom', (e, delta: number) => {
 ipcMain.handle('app:resetZoom', (e) => {
   const win = windowFor(e)
   return win ? applyZoomLevel(win, 0) : 0
-})
-
-// ─── Local file save ──────────────────────────────────────────────────────────
-
-ipcMain.handle(
-  'dialog:saveFile',
-  async (_e, opts: { defaultName: string; ext: string; label: string }) => {
-    const { filePath } = await dialog.showSaveDialog({
-      defaultPath: opts.defaultName,
-      filters: [{ name: opts.label, extensions: [opts.ext] }],
-    })
-    if (!filePath) return null
-    // Writes are only permitted to paths this dialog issued; see savePaths.ts.
-    rememberSavePath(filePath)
-    return filePath
-  },
-)
-
-/**
- * Write a file the user chose in the save dialog.
- *
- * `consumeSavePath` is what makes this safe to expose. The renderer hands back a path string, and
- * a string is a string — nothing about the round trip proves it is the one the dialog returned.
- * Without the check, anything able to run script in the renderer could write attacker-influenced
- * bytes (rubric text is AI-generated) to any path the user can write.
- */
-ipcMain.handle('dialog:writeFile', async (_e, args: { path: string; data: string | Uint8Array }) => {
-  const target = consumeSavePath(args.path)
-  const bytes = typeof args.data === 'string' ? Buffer.from(args.data, 'utf-8') : Buffer.from(args.data)
-  await writeFile(target, bytes)
-  return { ok: true as const }
 })
 
 // ─── Credentials ──────────────────────────────────────────────────────────────
@@ -420,6 +390,80 @@ ipcMain.handle(
   'gemini:generateAllCsvsFromDoc',
   (_e, a: { attachment: Attachment; jobId?: string }) =>
     withJob(a.jobId, (s) => gemini.generateAllCsvsFromDoc(a.attachment, s)),
+)
+
+// ─── Rubric export ────────────────────────────────────────────────────────────
+//
+// One HTML builder, two destinations. Google Doc is the default because the finished rubric is
+// nearly always headed for Drive anyway; the local .html exists so that nothing here depends on
+// a working Google sign-in — which is the point, given that Testing-mode refresh tokens expire
+// weekly and new staff hit sign-in problems most.
+
+/** Build the rubric as a Google Doc in the user's Drive, and open it in their browser. */
+ipcMain.handle(
+  'rubric:exportToDrive',
+  async (_e, args: { rubric: RubricData; folderId?: string }) => {
+    try {
+      const { fileId, webViewLink } = await uploadToDrive({
+        content: buildRubricHtml(args.rubric),
+        name: args.rubric.title || 'Rubric',
+        sourceMimeType: 'text/html',
+        targetMimeType: GOOGLE_DOC_MIME,
+        folderId: args.folderId,
+      })
+      await openExternalSafely(webViewLink)
+      return { ok: true as const, fileId, webViewLink }
+    } catch (e) {
+      return { ok: false as const, message: e instanceof Error ? e.message : String(e) }
+    }
+  },
+)
+
+/**
+ * Save the rubric as a .html file the user picks.
+ *
+ * Opens the dialog and writes in one call, rather than handing the path back to the renderer to
+ * pass in again. Fewer moving parts, and the path never leaves the main process.
+ */
+ipcMain.handle('rubric:saveHtml', async (_e, args: { rubric: RubricData }) => {
+  const { filePath } = await dialog.showSaveDialog({
+    defaultPath: rubricFileName(args.rubric, 'html'),
+    filters: [{ name: 'Web page', extensions: ['html'] }],
+  })
+  if (!filePath) return { ok: false as const, cancelled: true as const }
+
+  try {
+    await writeFile(filePath, Buffer.from(buildRubricHtml(args.rubric), 'utf-8'))
+    return { ok: true as const, path: filePath }
+  } catch (e) {
+    return { ok: false as const, message: e instanceof Error ? e.message : String(e) }
+  }
+})
+
+/** Save arbitrary generated text — a CSV, or the zip of them — to a file the user picks. */
+ipcMain.handle(
+  'file:saveText',
+  async (
+    _e,
+    args: { defaultName: string; ext: string; label: string; content: string | Uint8Array },
+  ) => {
+    const { filePath } = await dialog.showSaveDialog({
+      defaultPath: args.defaultName,
+      filters: [{ name: args.label, extensions: [args.ext] }],
+    })
+    if (!filePath) return { ok: false as const, cancelled: true as const }
+
+    try {
+      const bytes =
+        typeof args.content === 'string'
+          ? Buffer.from(args.content, 'utf-8')
+          : Buffer.from(args.content)
+      await writeFile(filePath, bytes)
+      return { ok: true as const, path: filePath }
+    } catch (e) {
+      return { ok: false as const, message: e instanceof Error ? e.message : String(e) }
+    }
+  },
 )
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────

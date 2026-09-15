@@ -21,20 +21,19 @@ const CodeBlock = ({ className, children, filename, ...props }: any) => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDownload = () => {
-    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    
-    // Use the provided filename or fallback to default
-    const downloadName = filename ? (filename.endsWith('.csv') ? filename : `${filename}.csv`) : 'canvas_rubric_template.csv';
-    
-    link.setAttribute('href', url);
-    link.setAttribute('download', downloadName);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleDownload = async () => {
+    // Native save dialog: an anchor-click download is blocked from a file:// page.
+    const downloadName = filename
+      ? filename.endsWith('.csv')
+        ? filename
+        : `${filename}.csv`
+      : 'canvas_rubric_template.csv';
+    await window.api.file.saveText({
+      defaultName: downloadName,
+      ext: 'csv',
+      label: 'CSV file',
+      content,
+    });
   };
 
   return (

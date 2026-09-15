@@ -58,13 +58,35 @@ contextBridge.exposeInMainWorld('api', {
       return () => ipcRenderer.removeListener('app:zoomChanged', listener)
     },
   },
-  dialog: {
-    /** Opens the native save dialog. Resolves to null if the user cancelled. */
-    saveFile: (opts: { defaultName: string; ext: string; label: string }): Promise<string | null> =>
-      ipcRenderer.invoke('dialog:saveFile', opts),
-    /** Writes to a path `saveFile` issued. Any other path is refused in main. */
-    writeFile: (args: { path: string; data: string | Uint8Array }): Promise<{ ok: true }> =>
-      ipcRenderer.invoke('dialog:writeFile', args),
+  file: {
+    /**
+     * Save generated content to a file the user picks.
+     *
+     * The dialog and the write happen together in the main process, so the chosen path is never
+     * handed to the renderer and passed back. That removes the need to prove a returned path is
+     * the one the dialog issued — a check the earlier two-step version had to carry, because
+     * rubric text is AI-generated and a renderer-supplied path would be a write primitive.
+     */
+    saveText: (args: {
+      defaultName: string
+      ext: string
+      label: string
+      content: string | Uint8Array
+    }): Promise<{ ok: boolean; path?: string; cancelled?: boolean; message?: string }> =>
+      ipcRenderer.invoke('file:saveText', args),
+  },
+  rubric: {
+    /** Creates a Google Doc in Drive and opens it in the browser. Needs a Google sign-in. */
+    exportToDrive: (args: {
+      rubric: unknown
+      folderId?: string
+    }): Promise<{ ok: boolean; fileId?: string; webViewLink?: string; message?: string }> =>
+      ipcRenderer.invoke('rubric:exportToDrive', args),
+    /** Saves the same rubric as a .html file. Works with no Google account at all. */
+    saveHtml: (args: {
+      rubric: unknown
+    }): Promise<{ ok: boolean; path?: string; cancelled?: boolean; message?: string }> =>
+      ipcRenderer.invoke('rubric:saveHtml', args),
   },
   google: {
     signIn: (options?: {

@@ -5,7 +5,6 @@ import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../type
 import { generateRubricFromScreenshot, applyRubricChanges, extractRubricFromDocument } from '../services/geminiService';
 import mammoth from 'mammoth';
 import { pdfjsLib } from '../utils/pdfWorker';
-import { exportToWord } from '../services/wordExportService';
 import { Upload, Download, Loader2, Trash2, Image as ImageIcon, HardDrive, FolderOpen, Clipboard, Clock, ChevronDown, ChevronUp, X, RotateCw, CheckCircle2, CheckCircle, FileText } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import { getRecentImages, saveRecentImage, RecentImage } from '../utils/recentImages';
@@ -271,10 +270,27 @@ export const ScreenshotConverter: React.FC = () => {
     }
   };
 
-  const handleExportToWord = async () => {
+  /** Create a Google Doc in Drive and open it. Needs a Google sign-in. */
+  const handleExportToDrive = async () => {
     if (!state.rubric) return;
-    try { await exportToWord(state.rubric); }
-    catch (err: any) { setError(`Failed to export: ${err.message}`); }
+    try {
+      const folder = await pickFolder({ title: 'Where should the rubric go?' });
+      if (!folder) return;
+      const result = await window.api.rubric.exportToDrive({
+        rubric: state.rubric,
+        folderId: folder.folderId,
+      });
+      if (!result.ok) setError(result.message ?? 'Could not create the Google Doc.');
+    } catch (err) {
+      setError(`Failed to export: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  /** Save the same rubric to this computer. Works with no Google account. */
+  const handleSaveLocal = async () => {
+    if (!state.rubric) return;
+    const result = await window.api.rubric.saveHtml({ rubric: state.rubric });
+    if (!result.ok && !result.cancelled) setError(result.message ?? 'Could not save the file.');
   };
 
   const handleReset = () => {
@@ -801,11 +817,11 @@ export const ScreenshotConverter: React.FC = () => {
               {/* Secondary Actions */}
               <div className="flex gap-3 mb-3">
                 <button
-                  onClick={handleExportToWord}
+                  onClick={handleExportToDrive}
                   className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all flex items-center justify-center gap-2 text-sm"
                 >
                   <Download className="w-4 h-4" />
-                  Download as .docx
+                  Open in Google Docs
                 </button>
                 <button
                   onClick={handleSaveToDrive}
