@@ -155,18 +155,23 @@ export const Dashboard: React.FC = () => {
     }
     let cancelled = false;
     setCourseNameLoading(true);
-    window.api.canvas
-      .getCourseName({ courseUrl: courseUrlInput.trim() })
-      .then((result) => {
-        if (!cancelled) setCourseName(result.ok ? result.name ?? null : null);
-      })
-      .catch(() => {
-        // A failed lookup is cosmetic — it only means the course name is not shown.
-      })
-      .finally(() => {
-        if (!cancelled) setCourseNameLoading(false);
-      });
-    return () => { cancelled = true; };
+    // Debounced: the effect depends on the live input, so every additional character typed
+    // after the URL first became valid fired another authenticated request to the institution's
+    // Canvas. The `cancelled` flag protected the state, not the network.
+    const timer = window.setTimeout(() => {
+      window.api.canvas
+        .getCourseName({ courseUrl: courseUrlInput.trim() })
+        .then((result) => {
+          if (!cancelled) setCourseName(result.ok ? result.name ?? null : null);
+        })
+        .catch(() => {
+          // A failed lookup is cosmetic — it only means the course name is not shown.
+        })
+        .finally(() => {
+          if (!cancelled) setCourseNameLoading(false);
+        });
+    }, 500);
+    return () => { cancelled = true; window.clearTimeout(timer); };
   }, [courseUrlValid, canvasTokenValid, courseUrlInput]);
 
   // ─── Handlers ────────────────────────────────────────────────────────────────

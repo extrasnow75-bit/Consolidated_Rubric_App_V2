@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useRef, useState, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useRef, useState, ReactNode } from 'react';
 import { DriveBrowser, DriveBrowserMode } from '../components/DriveBrowser';
 
 /**
@@ -89,8 +89,12 @@ export const DrivePickerProvider: React.FC<{ children: ReactNode }> = ({ childre
     [open],
   );
 
+  // Stable identity: the provider re-renders on every open/close and mode change, and a
+  // fresh object literal here would re-render every picker consumer with it.
+  const api = useMemo(() => ({ pickFile, pickFolder }), [pickFile, pickFolder]);
+
   return (
-    <DrivePickerContext.Provider value={{ pickFile, pickFolder }}>
+    <DrivePickerContext.Provider value={api}>
       {children}
       <DriveBrowser
         isOpen={isOpen}

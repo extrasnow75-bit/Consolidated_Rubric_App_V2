@@ -97,6 +97,8 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
     }
     let cancelled = false;
     setDeployCourseNameLoading(true);
+    // Debounced for the same reason as Dashboard: one authenticated Canvas call per keystroke.
+    const timer = window.setTimeout(() => {
     window.api.canvas
       .getCourseName({ courseUrl: deployUrlInput.trim() })
       .then((result) => {
@@ -108,7 +110,8 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
       .finally(() => {
         if (!cancelled) setDeployCourseNameLoading(false);
       });
-    return () => { cancelled = true; };
+    }, 500);
+    return () => { cancelled = true; window.clearTimeout(timer); };
   }, [deployUrlValid, deployUrlInput, state.canvasTokenStatus?.hasValue]);
 
   const handleFileUpload = async (file: File) => {

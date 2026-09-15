@@ -430,11 +430,12 @@ export const Part2WordToCsv: React.FC = () => {
         const remaining = MIN_GAP_MS - elapsed;
         if (remaining > 0) {
           await new Promise<void>((resolve) => {
-            const timer = setTimeout(resolve, remaining);
-            controller.signal.addEventListener('abort', () => {
-              clearTimeout(timer);
-              resolve();
-            }, { once: true });
+            // Listener removed on the normal path too: this gap runs once per rubric against
+            // one long-lived signal, so leaving them attached accumulates across the batch.
+            const onAbort = () => { clearTimeout(timer); cleanup(); resolve(); };
+            const cleanup = () => controller.signal.removeEventListener('abort', onAbort);
+            const timer = setTimeout(() => { cleanup(); resolve(); }, remaining);
+            controller.signal.addEventListener('abort', onAbort, { once: true });
           });
         }
       }

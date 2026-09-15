@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode, useRef, useEffect } from 'react';
 import {
   SessionState,
   AppMode,
@@ -219,7 +219,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
           },
         };
       });
-    }, 100);
+    }, 250);
   }, []);
 
   const stopProgress = useCallback(() => {
@@ -503,7 +503,19 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     return () => unsubscribe();
   }, []);
 
-  const value = {
+  /**
+   * Memoised, and the progress timer slowed to 250ms.
+   *
+   * `startProgress` ticks a timer that produces a new state object each time (timeElapsed
+   * changes), and this object literal was rebuilt on every render — so every `useSession()`
+   * consumer, which is essentially the whole app, re-rendered ten times a second for the
+   * duration of every generation, conversion and upload. Part 3's batch path holds that open
+   * across its ten-second inter-upload waits, so it ran for minutes at a time.
+   *
+   * The dependency list is every value below. It is long, but a missing entry here means a
+   * stale closure in a consumer, which is a far worse failure than an extra render.
+   */
+  const value = useMemo(() => ({
     state,
     setCurrentStep,
     setRubric,
@@ -534,7 +546,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     extractGoogleDocText,
     extractGoogleSheetCsv,
     downloadDriveFile,
-  };
+  }), [state]);
 
   return (
     <SessionContext.Provider value={value}>

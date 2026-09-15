@@ -105,12 +105,13 @@ async function throttle(signal?: AbortSignal): Promise<void> {
     () =>
       new Promise<void>((resolve, reject) => {
         if (signal?.aborted) { reject(new Error('Request cancelled')); return; }
-        const timer = setTimeout(resolve, MIN_REQUEST_INTERVAL_MS);
-        signal?.addEventListener(
-          'abort',
-          () => { clearTimeout(timer); reject(new Error('Request cancelled')); },
-          { once: true },
-        );
+        // The listener is removed on the normal path too. Batch runs reuse one signal across
+        // every rubric in the document, so a listener left behind per call accumulates — and
+        // past ten, Node prints MaxListenersExceededWarning, which a 13-rubric document reaches.
+        const onAbort = () => { clearTimeout(timer); cleanup(); reject(new Error('Request cancelled')); };
+        const cleanup = () => signal?.removeEventListener('abort', onAbort);
+        const timer = setTimeout(() => { cleanup(); resolve(); }, MIN_REQUEST_INTERVAL_MS);
+        signal?.addEventListener('abort', onAbort, { once: true });
       }),
   );
 
@@ -172,11 +173,10 @@ async function retryWithBackoff<T>(
       const delay = Math.round(base * (1 - JITTER + Math.random() * JITTER * 2));
       console.warn(`Rate limit hit. Retrying in ${(delay / 1000).toFixed(1)}s… (attempt ${attempt + 1}/${maxRetries})`);
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, delay);
-        signal?.addEventListener('abort', () => {
-          clearTimeout(timer);
-          reject(new Error('Request cancelled'));
-        }, { once: true });
+        const onAbort = () => { clearTimeout(timer); cleanup(); reject(new Error('Request cancelled')); };
+        const cleanup = () => signal?.removeEventListener('abort', onAbort);
+        const timer = setTimeout(() => { cleanup(); resolve(); }, delay);
+        signal?.addEventListener('abort', onAbort, { once: true });
       });
     }
   }

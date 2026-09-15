@@ -297,11 +297,30 @@ const SIGN_IN_REQUIRED =
   'Sign in to Google under Initial Setup so this can open in your Google Drive. ' +
   'You can also save it to this computer instead, which needs no Google account.'
 
+/**
+ * A refresh already in flight, so concurrent callers share one.
+ *
+ * Every Drive call fetches its own token. With an expired one, a batch that lists, downloads and
+ * uploads at once had each call POST to Google's token endpoint independently and each write the
+ * result — an encrypt plus a synchronous file write — with last-write-wins. Same pattern
+ * updateCheck.ts already uses for the manual check.
+ */
+let refreshInFlight: Promise<string> | null = null
+
 /** Return a valid access token, refreshing it if it has expired (or is about to). */
 export async function getAccessToken(): Promise<string> {
   const t = loadTokens()
   if (!t?.refreshToken) throw new Error(SIGN_IN_REQUIRED)
   if (t.accessToken && Date.now() < t.expiry - 60_000) return t.accessToken
+
+  if (refreshInFlight) return refreshInFlight
+  refreshInFlight = refreshAccessToken(t).finally(() => {
+    refreshInFlight = null
+  })
+  return refreshInFlight
+}
+
+async function refreshAccessToken(t: StoredTokens): Promise<string> {
 
   const res = await fetch(TOKEN_ENDPOINT, {
     method: 'POST',
