@@ -240,8 +240,11 @@ export interface SessionState {
   // Progress tracking
   progress: ProgressState;
 
-  // Gemini API Key (user-provided)
-  geminiApiKey: string | null;
+  /**
+   * Whether a Gemini key is saved, and its last four characters — never the key.
+   * Same treatment as the Canvas token; see canvasTokenStatus below.
+   */
+  geminiKeyStatus: CredentialStatus | null;
 
   /**
    * Whether a Canvas token is saved, and its last four characters — never the token.

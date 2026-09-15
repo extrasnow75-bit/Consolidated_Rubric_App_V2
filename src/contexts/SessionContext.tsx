@@ -10,7 +10,6 @@ import {
   ProgressState,
   GoogleUser,
 } from '../types';
-import { setGeminiApiKey as geminiServiceSetApiKey } from '../services/geminiService';
 
 // Create context
 const SessionContext = createContext<{
@@ -36,7 +35,8 @@ const SessionContext = createContext<{
   clearSession: () => void;
   newBatch: () => void;
   // Gemini API Key
-  setUserGeminiApiKey: (key: string | null) => void;
+  /** Stores the key in the OS keychain. Rejects if no keychain is available. */
+  setUserGeminiApiKey: (key: string | null) => Promise<void>;
   // Canvas API Token
   /** Stores the token in the OS keychain. Rejects if no keychain is available. */
   setUserCanvasApiToken: (token: string | null) => Promise<void>;
@@ -85,7 +85,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       canCancel: false,
     },
     // Gemini API Key
-    geminiApiKey: null,
+    geminiKeyStatus: null,
     // Canvas API Token
     canvasTokenStatus: null,
     // V.2 fields
@@ -286,7 +286,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
         canCancel: false,
       },
       // Preserve credentials and V.2 setup across session clears
-      geminiApiKey: prev.geminiApiKey,
+      geminiKeyStatus: prev.geminiKeyStatus,
       canvasTokenStatus: prev.canvasTokenStatus,
       courseUrl: prev.courseUrl,
       hasDraftRubric: prev.hasDraftRubric,
@@ -310,16 +310,17 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     }));
   }, []);
 
-  // Gemini API Key management
-  const setUserGeminiApiKey = useCallback((key: string | null) => {
-    setState((prev) => ({ ...prev, geminiApiKey: key }));
-    if (key) {
-      localStorage.setItem('gemini_api_key', key);
-      geminiServiceSetApiKey(key);
-    } else {
-      localStorage.removeItem('gemini_api_key');
-      geminiServiceSetApiKey('');
-    }
+  /**
+   * Hand the Gemini key to the main process, which encrypts it into the OS keychain.
+   *
+   * Same one-way shape as the Canvas token: the key goes in, and what comes back is a status
+   * object. It used to live in localStorage and be passed to a Gemini client running here; both
+   * the key and the client are in the main process now. Pass null to forget it.
+   */
+  const setUserGeminiApiKey = useCallback(async (key: string | null) => {
+    await window.api.credentials.setGeminiApiKey(key);
+    const status = await window.api.credentials.geminiKeyStatus();
+    setState((prev) => ({ ...prev, geminiKeyStatus: status }));
   }, []);
 
   /**
@@ -440,21 +441,21 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
   // ── Initialization ─────────────────────────────────────────────────────────
 
   useEffect(() => {
-    // Restore saved Gemini API key
-    const savedApiKey = localStorage.getItem('gemini_api_key');
-    if (savedApiKey) {
-      setState((prev) => ({ ...prev, geminiApiKey: savedApiKey }));
-      geminiServiceSetApiKey(savedApiKey);
-    }
-
     // Canvas token status and course URL both live in the main process now — the token
     // encrypted in the OS keychain, the URL in settings.json. Neither is read from localStorage.
     void (async () => {
-      const [status, savedCourseUrl] = await Promise.all([
-        window.api.credentials.canvasTokenStatus().catch(() => ({ hasValue: false, hint: '' })),
+      const empty = { hasValue: false, hint: '' };
+      const [canvas, gemini, savedCourseUrl] = await Promise.all([
+        window.api.credentials.canvasTokenStatus().catch(() => empty),
+        window.api.credentials.geminiKeyStatus().catch(() => empty),
         window.api.canvas.getCourseUrl().catch(() => null),
       ]);
-      setState((prev) => ({ ...prev, canvasTokenStatus: status, courseUrl: savedCourseUrl }));
+      setState((prev) => ({
+        ...prev,
+        canvasTokenStatus: canvas,
+        geminiKeyStatus: gemini,
+        courseUrl: savedCourseUrl,
+      }));
     })();
 
     // Ask main who is signed in. The refresh token is in the keychain, so a sign-in survives

@@ -24,27 +24,13 @@ import type { Plugin } from 'vite'
  * scripts, so applying this policy there would just break `npm run dev`.
  */
 
-/**
- * What the renderer can still reach, and why.
- *
- * A checklist rather than a design: each entry is a caller that has not moved to the main process
- * yet, and disappears when it does. The last one out takes `connect-src` to 'none'. Nothing should
- * ever be *added* here.
- *
- * Canvas and Google Drive are already absent — those moved first.
- */
-const RENDERER_CONNECT_SRC = [
-  // The last one left. Goes with geminiService.ts in phase 4, and takes connect-src to 'none'.
-  'https://generativelanguage.googleapis.com',
-]
-
 const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://*.googleusercontent.com",
   "font-src 'self'",
-  `connect-src ${RENDERER_CONNECT_SRC.join(' ')}`,
+  "connect-src 'none'",
   "object-src 'none'",
   "frame-src 'none'",
   "base-uri 'none'",

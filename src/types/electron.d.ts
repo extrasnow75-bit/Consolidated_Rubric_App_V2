@@ -86,12 +86,50 @@ declare global {
         /** Takes a file id, not a URL: main builds the address. */
         openInBrowser(fileId: string): Promise<void>
       }
+      gemini: {
+        /** Stops a running generation. */
+        cancel(jobId: string): Promise<boolean>
+        validateKey(apiKey: string): Promise<boolean>
+        startNewChat(): Promise<void>
+        sendMessage(a: { text: string; attachments?: unknown[]; jobId?: string }): Promise<string>
+        extractRubricMetadata(a: { attachments: unknown[]; jobId?: string }): Promise<never>
+        validateAssignmentDescription(a: { text: string; jobId?: string }): Promise<never>
+        generateRubricFromDescription(a: {
+          assignmentDescription: string
+          settings: unknown
+          jobId?: string
+        }): Promise<never>
+        generateRubricFromScreenshot(a: {
+          imageData: { data: string; mimeType: string }
+          settings: unknown
+          jobId?: string
+        }): Promise<never>
+        extractRubricFromDocument(a: { documentText: string; jobId?: string }): Promise<never>
+        applyRubricChanges(a: {
+          rubric: unknown
+          changeRequest: string
+          jobId?: string
+        }): Promise<never>
+        analyzeCsvForCanvas(a: { csvContent: string; jobId?: string }): Promise<never>
+        generateCsvForRubric(a: {
+          rubricName: string
+          totalPoints: string
+          scoringMethod: 'ranges' | 'fixed'
+          attachment: unknown
+          jobId?: string
+        }): Promise<string>
+        discoverRubricTitles(a: { attachment: unknown; jobId?: string }): Promise<never>
+        generateAllCsvsFromDoc(a: { attachment: unknown; jobId?: string }): Promise<never>
+      }
       credentials: {
         keychainAvailable(): Promise<boolean>
         /** Pass null to forget the stored token. Rejects if the keychain is unavailable. */
         setCanvasToken(token: string | null): Promise<void>
         /** Status only — there is no call that returns the token itself. */
         canvasTokenStatus(): Promise<CredentialStatus>
+        /** Pass null to forget the stored key. */
+        setGeminiApiKey(key: string | null): Promise<void>
+        geminiKeyStatus(): Promise<CredentialStatus>
       }
       canvas: {
         setCourseUrl(url: string | null): Promise<{ ok: boolean; message?: string }>

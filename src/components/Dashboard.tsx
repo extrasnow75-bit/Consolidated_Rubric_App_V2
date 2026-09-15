@@ -112,7 +112,7 @@ export const Dashboard: React.FC = () => {
 
   // ─── Derived validity ────────────────────────────────────────────────────────
 
-  const geminiValid = !!state.geminiApiKey;
+  const geminiValid = !!state.geminiKeyStatus?.hasValue;
   const canvasTokenValid = !!state.canvasTokenStatus?.hasValue;
   const googleSignedIn = state.isGoogleAuthenticated;
   const draftRubricValid =
@@ -171,8 +171,6 @@ export const Dashboard: React.FC = () => {
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
 
-  const maskKey = (key: string) =>
-    key.length <= 8 ? key : key.substring(0, 8) + '\u2026' + key.substring(key.length - 4);
 
   const handleSaveApiKey = async () => {
     if (!apiKeyInput.trim()) return;
@@ -180,17 +178,23 @@ export const Dashboard: React.FC = () => {
     setKeyValidationResult('idle');
     const isValid = await validateGeminiApiKey(apiKeyInput.trim());
     if (isValid) {
-      setKeyValidationResult('valid');
-      setUserGeminiApiKey(apiKeyInput.trim());
-      setApiKeyInput('');
+      try {
+        await setUserGeminiApiKey(apiKeyInput.trim());
+        setKeyValidationResult('valid');
+        setApiKeyInput('');
+      } catch {
+        // The key works but the OS keychain would not store it. Treat that as a failure to
+        // save rather than a bad key, so the user is not sent hunting for a new one.
+        setKeyValidationResult('invalid');
+      }
     } else {
       setKeyValidationResult('invalid');
     }
     setIsValidatingKey(false);
   };
 
-  const handleRemoveApiKey = () => {
-    setUserGeminiApiKey(null);
+  const handleRemoveApiKey = async () => {
+    await setUserGeminiApiKey(null).catch(() => undefined);
     setKeyValidationResult('idle');
     setApiKeyInput('');
   };
@@ -452,7 +456,9 @@ export const Dashboard: React.FC = () => {
                       <div className="w-2 h-2 bg-green-500 rounded-full" />
                       <span className="text-sm font-bold text-green-700">API key active</span>
                     </div>
-                    <p className="text-xs text-gray-500 font-mono mb-3 break-all">{maskKey(state.geminiApiKey!)}</p>
+                    <p className="text-xs text-gray-600 font-mono mb-3">
+                      In your keychain, ending …{state.geminiKeyStatus?.hint}
+                    </p>
                     <button onClick={handleRemoveApiKey} className="w-full px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-sm flex items-center justify-center gap-2">
                       <LogOut className="w-4 h-4" /> Remove Key
                     </button>

@@ -6,12 +6,17 @@ import { readSettings, updateSettings } from './ipc/settings'
 import {
   setCanvasToken,
   canvasTokenStatus,
+  setGeminiApiKey,
+  geminiKeyStatus,
   isKeychainAvailable,
   type CredentialStatus,
 } from './ipc/credentials'
 import { pushRubric, verifyToken, getCourseName } from './ipc/canvas'
 import { parseCourseUrl } from './ipc/canvasUtils'
 import { signIn, getStatus, clearTokens } from './ipc/googleAuth'
+import { withJob, cancelJob } from './ipc/jobs'
+import * as gemini from './ipc/gemini'
+import type { Attachment, GenerationSettings, RubricData } from './ipc/geminiTypes'
 import {
   listFiles,
   getFileMetadata,
@@ -216,6 +221,14 @@ ipcMain.handle('credentials:setCanvasToken', (_e, token: string | null) => {
 
 ipcMain.handle('credentials:canvasTokenStatus', (): CredentialStatus => canvasTokenStatus())
 
+ipcMain.handle('credentials:setGeminiApiKey', (_e, key: string | null) => {
+  setGeminiApiKey(key)
+  // The cached client holds the old key; drop it so the next call picks up the new one.
+  gemini.resetClient()
+})
+
+ipcMain.handle('credentials:geminiKeyStatus', (): CredentialStatus => geminiKeyStatus())
+
 // ─── Canvas ───────────────────────────────────────────────────────────────────
 
 /**
@@ -316,6 +329,98 @@ ipcMain.handle('drive:openInBrowser', async (_e, fileId: string) => {
   if (!/^[a-zA-Z0-9-_]+$/.test(fileId)) return
   await openExternalSafely(`https://drive.google.com/open?id=${fileId}`)
 })
+
+// ─── Gemini ───────────────────────────────────────────────────────────────────
+//
+// Every handler is the same shape: unwrap the renderer's job id into a real AbortSignal, then
+// call the function unchanged. The cancellation logic inside gemini.ts — the throttle queue, the
+// retry back-off — still works in terms of a signal, because that part did not need to change.
+
+ipcMain.handle('gemini:cancel', (_e, jobId: string) => cancelJob(jobId))
+
+// Validates a candidate key before it is saved, so this one takes the key directly.
+ipcMain.handle('gemini:validateKey', (_e, apiKey: string) => gemini.validateGeminiApiKey(apiKey))
+
+ipcMain.handle('gemini:startNewChat', () => gemini.startNewChat())
+
+ipcMain.handle(
+  'gemini:sendMessage',
+  (_e, a: { text: string; attachments?: Attachment[]; jobId?: string }) =>
+    withJob(a.jobId, (s) => gemini.sendMessageToGemini(a.text, a.attachments ?? [], s)),
+)
+
+ipcMain.handle(
+  'gemini:extractRubricMetadata',
+  (_e, a: { attachments: Attachment[]; jobId?: string }) =>
+    withJob(a.jobId, (s) => gemini.extractRubricMetadata(a.attachments, s)),
+)
+
+ipcMain.handle(
+  'gemini:validateAssignmentDescription',
+  (_e, a: { text: string; jobId?: string }) =>
+    withJob(a.jobId, (s) => gemini.validateAssignmentDescription(a.text, s)),
+)
+
+ipcMain.handle(
+  'gemini:generateRubricFromDescription',
+  (_e, a: { assignmentDescription: string; settings: GenerationSettings; jobId?: string }) =>
+    withJob(a.jobId, (s) =>
+      gemini.generateRubricFromDescription(a.assignmentDescription, a.settings, s),
+    ),
+)
+
+ipcMain.handle(
+  'gemini:generateRubricFromScreenshot',
+  (_e, a: { imageData: { data: string; mimeType: string }; settings: GenerationSettings; jobId?: string }) =>
+    withJob(a.jobId, (s) => gemini.generateRubricFromScreenshot(a.imageData, a.settings, s)),
+)
+
+ipcMain.handle(
+  'gemini:extractRubricFromDocument',
+  (_e, a: { documentText: string; jobId?: string }) =>
+    withJob(a.jobId, (s) => gemini.extractRubricFromDocument(a.documentText, s)),
+)
+
+ipcMain.handle(
+  'gemini:applyRubricChanges',
+  (_e, a: { rubric: RubricData; changeRequest: string; jobId?: string }) =>
+    withJob(a.jobId, (s) => gemini.applyRubricChanges(a.rubric, a.changeRequest, s)),
+)
+
+ipcMain.handle(
+  'gemini:analyzeCsvForCanvas',
+  (_e, a: { csvContent: string; jobId?: string }) =>
+    withJob(a.jobId, (s) => gemini.analyzeCsvForCanvas(a.csvContent, s)),
+)
+
+ipcMain.handle(
+  'gemini:generateCsvForRubric',
+  (
+    _e,
+    a: {
+      rubricName: string
+      totalPoints: string
+      scoringMethod: 'ranges' | 'fixed'
+      attachment: Attachment
+      jobId?: string
+    },
+  ) =>
+    withJob(a.jobId, (s) =>
+      gemini.generateCsvForRubric(a.rubricName, a.totalPoints, a.scoringMethod, a.attachment, s),
+    ),
+)
+
+ipcMain.handle(
+  'gemini:discoverRubricTitles',
+  (_e, a: { attachment: Attachment; jobId?: string }) =>
+    withJob(a.jobId, (s) => gemini.discoverRubricTitles(a.attachment, s)),
+)
+
+ipcMain.handle(
+  'gemini:generateAllCsvsFromDoc',
+  (_e, a: { attachment: Attachment; jobId?: string }) =>
+    withJob(a.jobId, (s) => gemini.generateAllCsvsFromDoc(a.attachment, s)),
+)
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 

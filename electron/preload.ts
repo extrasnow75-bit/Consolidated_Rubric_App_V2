@@ -123,6 +123,35 @@ contextBridge.exposeInMainWorld('api', {
     openInBrowser: (fileId: string): Promise<void> =>
       ipcRenderer.invoke('drive:openInBrowser', fileId),
   },
+  gemini: {
+    /** Stops a running generation. The job id is chosen by the caller in geminiService.ts. */
+    cancel: (jobId: string): Promise<boolean> => ipcRenderer.invoke('gemini:cancel', jobId),
+    /** Checks a key the user has typed but not yet saved. */
+    validateKey: (apiKey: string): Promise<boolean> =>
+      ipcRenderer.invoke('gemini:validateKey', apiKey),
+    startNewChat: (): Promise<void> => ipcRenderer.invoke('gemini:startNewChat'),
+    sendMessage: (a: unknown): Promise<string> => ipcRenderer.invoke('gemini:sendMessage', a),
+    extractRubricMetadata: (a: unknown): Promise<unknown> =>
+      ipcRenderer.invoke('gemini:extractRubricMetadata', a),
+    validateAssignmentDescription: (a: unknown): Promise<unknown> =>
+      ipcRenderer.invoke('gemini:validateAssignmentDescription', a),
+    generateRubricFromDescription: (a: unknown): Promise<unknown> =>
+      ipcRenderer.invoke('gemini:generateRubricFromDescription', a),
+    generateRubricFromScreenshot: (a: unknown): Promise<unknown> =>
+      ipcRenderer.invoke('gemini:generateRubricFromScreenshot', a),
+    extractRubricFromDocument: (a: unknown): Promise<unknown> =>
+      ipcRenderer.invoke('gemini:extractRubricFromDocument', a),
+    applyRubricChanges: (a: unknown): Promise<unknown> =>
+      ipcRenderer.invoke('gemini:applyRubricChanges', a),
+    analyzeCsvForCanvas: (a: unknown): Promise<unknown> =>
+      ipcRenderer.invoke('gemini:analyzeCsvForCanvas', a),
+    generateCsvForRubric: (a: unknown): Promise<string> =>
+      ipcRenderer.invoke('gemini:generateCsvForRubric', a),
+    discoverRubricTitles: (a: unknown): Promise<unknown> =>
+      ipcRenderer.invoke('gemini:discoverRubricTitles', a),
+    generateAllCsvsFromDoc: (a: unknown): Promise<unknown> =>
+      ipcRenderer.invoke('gemini:generateAllCsvsFromDoc', a),
+  },
   credentials: {
     /** False on a machine with no working keychain, where nothing can be stored safely. */
     keychainAvailable: (): Promise<boolean> => ipcRenderer.invoke('credentials:keychainAvailable'),
@@ -138,6 +167,11 @@ contextBridge.exposeInMainWorld('api', {
      */
     canvasTokenStatus: (): Promise<{ hasValue: boolean; hint: string }> =>
       ipcRenderer.invoke('credentials:canvasTokenStatus'),
+    /** Pass null to forget the stored key. Same one-way shape as the Canvas token. */
+    setGeminiApiKey: (key: string | null): Promise<void> =>
+      ipcRenderer.invoke('credentials:setGeminiApiKey', key),
+    geminiKeyStatus: (): Promise<{ hasValue: boolean; hint: string }> =>
+      ipcRenderer.invoke('credentials:geminiKeyStatus'),
   },
   canvas: {
     /** Validates, stores, and pins this host for both API calls and external links. */
