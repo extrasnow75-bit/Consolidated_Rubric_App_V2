@@ -7,9 +7,8 @@ import { Loader2, Download, FileText, CheckCircle, ArrowRight, RotateCw, Home, X
 import { googleDriveService } from '../services/googleDriveService';
 import ErrorDisplay from './ErrorDisplay';
 import mammoth from 'mammoth';
-import * as pdfjsLib from 'pdfjs-dist';
+import { pdfjsLib } from '../utils/pdfWorker';
 import { getRecentDocs, saveRecentDoc, RecentDoc } from '../utils/recentDocs';
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
 
 interface Part1RubricProps {
   onAnalyzeDeploy?: () => void;

@@ -2,76 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!--
-      Content Security Policy — production variant (no ws/wss needed outside dev).
-      Most valuable directive here is connect-src, which prevents a stolen key
-      from being exfiltrated to an attacker-controlled server even if XSS occurs.
-    -->
-    <meta http-equiv="Content-Security-Policy" content="
-      default-src 'self';
-      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-      img-src 'self' https://lh3.googleusercontent.com data: blob:;
-      font-src 'self' https://fonts.gstatic.com;
-      connect-src 'self'
-        https://generativelanguage.googleapis.com
-        https://accounts.google.com
-        https://oauth2.googleapis.com
-        https://www.googleapis.com
-        https://content.googleapis.com
-        https://drive.google.com
-        https://*.instructure.com
-        https://*.firebaseapp.com
-        https://identitytoolkit.googleapis.com
-        https://securetoken.googleapis.com;
-      frame-src https://updated-rubric-creator.firebaseapp.com
-                https://docs.google.com
-                https://drive.google.com
-                https://accounts.google.com;
-      script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://apis.google.com https://ssl.gstatic.com;
-      object-src 'none';
-      base-uri 'self';
-    " />
     <title>Canvas Rubric Creator</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <script src="https://apis.google.com/js/api.js" async defer></script>
-    <style>
-      * {
-        font-family: 'Inter', sans-serif;
-      }
-      ::-webkit-scrollbar {
-        width: 8px;
-      }
-      ::-webkit-scrollbar-track {
-        background: transparent;
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #ccc;
-        border-radius: 4px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #999;
-      }
-      @keyframes shimmer {
-        0% {
-          background-position: -1000px 0;
-        }
-        100% {
-          background-position: 1000px 0;
-        }
-      }
-      .shimmer {
-        animation: shimmer 2s infinite;
-        background: linear-gradient(to right, #f0f0f0 8%, #f8f8f8 18%, #f0f0f0 33%);
-        background-size: 800px 104px;
-      }
-    </style>
   </head>
-  <body class="bg-gray-50">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/index.tsx"></script>
   </body>

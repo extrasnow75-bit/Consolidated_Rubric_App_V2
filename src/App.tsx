@@ -10,7 +10,6 @@ import HelpCenter from './components/HelpCenter';
 import ProgressDisplay from './components/ProgressDisplay';
 import TaskCompletionDialog from './components/TaskCompletionDialog';
 import { AppMode } from './types';
-import { SpeedInsights } from '@vercel/speed-insights/react';
 
 const AppContent: React.FC = () => {
   const {
@@ -90,7 +89,6 @@ const App: React.FC = () => {
   return (
     <SessionProvider>
       <AppContent />
-      <SpeedInsights />
     </SessionProvider>
   );
 };
