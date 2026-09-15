@@ -13,7 +13,7 @@
  * The client ID is a PUBLIC identifier and is safe to commit.
  */
 export const GOOGLE_CLIENT_ID =
-  process.env.GOOGLE_CLIENT_ID ?? 'REPLACE_WITH_YOUR_DESKTOP_CLIENT_ID.apps.googleusercontent.com'
+  process.env.GOOGLE_CLIENT_ID ?? '831368374697-njsla93amtodc6osc4n1djt6cjvf25ec.apps.googleusercontent.com'
 
 /**
  * Google requires a client_secret on the token exchange even for "Desktop app" clients using
