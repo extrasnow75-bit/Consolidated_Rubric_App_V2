@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useSession } from '../contexts/SessionContext';
+import { useDrivePicker } from '../contexts/DrivePickerContext';
 import { AppMode, Attachment, RubricMeta, BatchItemStatus } from '../types';
 import {
   generateCsvForRubric,
@@ -29,7 +30,6 @@ import {
   FolderOpen,
 } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
-import { googleDriveService } from '../services/googleDriveService';
 
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -83,7 +83,9 @@ export const Part2WordToCsv: React.FC = () => {
     startGoogleAuth,
     addBatchItem,
     removeBatchItem,
+    downloadDriveFile,
   } = useSession();
+  const { pickFile, pickFolder } = useDrivePicker();
 
   // ── File / attachment state ──────────────────────────────────────────
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -528,24 +530,23 @@ export const Part2WordToCsv: React.FC = () => {
   const [driveAllSaveSuccess, setDriveAllSaveSuccess] = useState<string | null>(null);
 
   const handleSaveAllToDrive = async () => {
-    if (!state.googleAccessToken) return;
+    if (!state.isGoogleAuthenticated) return;
     const completed = rubricResults.filter(r => r.status === 'done' && r.csvContent);
     if (completed.length === 0) return;
     setSavingAllToDrive(true);
     setDriveAllSaveSuccess(null);
     try {
-      const folder = await googleDriveService.openFolderPicker(state.googleAccessToken);
+      const folder = await pickFolder();
       if (!folder) { setSavingAllToDrive(false); return; }
 
       for (const result of completed) {
-        await googleDriveService.uploadFileToDrive(
-          state.googleAccessToken,
-          result.csvContent!,
-          result.rubric.name,
-          'text/csv',
-          'application/vnd.google-apps.spreadsheet',
-          folder.folderId,
-        );
+        await window.api.drive.upload({
+        content: result.csvContent!,
+        name: result.rubric.name,
+        sourceMimeType: 'text/csv',
+        targetMimeType: 'application/vnd.google-apps.spreadsheet',
+        folderId: folder.folderId,
+      });
       }
       setDriveAllSaveSuccess(`${completed.length} file${completed.length !== 1 ? 's' : ''} saved to "${folder.folderName}"`);
     } catch (err: any) {
@@ -556,22 +557,21 @@ export const Part2WordToCsv: React.FC = () => {
   };
 
   const handleSaveToDrive = async () => {
-    if (!singleCsvContent || !state.googleAccessToken) return;
+    if (!singleCsvContent || !state.isGoogleAuthenticated) return;
     setSavingToDrive(true);
     setDriveSaveSuccess(null);
     try {
-      const folder = await googleDriveService.openFolderPicker(state.googleAccessToken);
+      const folder = await pickFolder();
       if (!folder) { setSavingToDrive(false); return; }
 
       const filename = editableRubricName || state.csvFileName?.replace(/\.csv$/i, '') || 'rubric';
-      await googleDriveService.uploadFileToDrive(
-        state.googleAccessToken,
-        singleCsvContent,
-        filename,
-        'text/csv',
-        'application/vnd.google-apps.spreadsheet',
-        folder.folderId,
-      );
+      await window.api.drive.upload({
+        content: singleCsvContent,
+        name: filename,
+        sourceMimeType: 'text/csv',
+        targetMimeType: 'application/vnd.google-apps.spreadsheet',
+        folderId: folder.folderId,
+      });
       setDriveSaveSuccess(`Saved to "${folder.folderName}"`);
     } catch (err: any) {
       setError(`Google Drive save failed: ${err.message}`);
@@ -582,7 +582,7 @@ export const Part2WordToCsv: React.FC = () => {
 
   /** Open the Google Drive file picker to select a rubric document (Google Doc, .docx, PDF). */
   const handleGoogleDrivePick = async () => {
-    if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+    if (!state.isGoogleAuthenticated) {
       setError('Please sign in with Google first.');
       return;
     }
@@ -590,7 +590,7 @@ export const Part2WordToCsv: React.FC = () => {
     setPickingFromGoogleDrive(true);
     setError(null);
     try {
-      const result = await googleDriveService.openPicker(state.googleAccessToken);
+      const result = await pickFile();
       if (!result) return;
 
       setIsLoading(true);
@@ -599,7 +599,7 @@ export const Part2WordToCsv: React.FC = () => {
       let mimeType: string;
 
       if (result.mimeType === 'application/vnd.google-apps.document') {
-        const text = await googleDriveService.getGoogleDocContent(result.fileId, state.googleAccessToken);
+        const text = await window.api.drive.getDocText(result.fileId);
         // Safely base64-encode potentially unicode text
         const bytes = new TextEncoder().encode(text);
         let binary = '';
@@ -609,7 +609,7 @@ export const Part2WordToCsv: React.FC = () => {
         data = btoa(binary);
         mimeType = 'text/plain';
       } else {
-        const arrayBuffer = await googleDriveService.downloadFileAsArrayBuffer(result.fileId, state.googleAccessToken);
+        const arrayBuffer = await downloadDriveFile(result.fileId);
         data = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
         mimeType = result.mimeType;
       }
@@ -632,7 +632,7 @@ export const Part2WordToCsv: React.FC = () => {
 
   /** Fetch a rubric document from a pasted Google Drive / Docs URL. */
   const handleFetchFromUrl = async () => {
-    if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+    if (!state.isGoogleAuthenticated) {
       setError('Please sign in with Google first.');
       return;
     }
@@ -643,14 +643,16 @@ export const Part2WordToCsv: React.FC = () => {
     setError(null);
 
     try {
-      const fileId = googleDriveService.extractFileIdFromUrl(driveUrl.trim());
-      const meta = await googleDriveService.verifyFileAccess(fileId, state.googleAccessToken);
+      const resolved = await window.api.drive.resolveUrl(driveUrl.trim());
+      if (!resolved.ok) throw new Error(resolved.message);
+      const fileId = resolved.fileId;
+      const meta = { name: resolved.name, mimeType: resolved.mimeType };
 
       let data: string;
       let mimeType: string;
 
       if (meta.mimeType === 'application/vnd.google-apps.document') {
-        const text = await googleDriveService.getGoogleDocContent(fileId, state.googleAccessToken);
+        const text = await window.api.drive.getDocText(fileId);
         const bytes = new TextEncoder().encode(text);
         let binary = '';
         for (let i = 0; i < bytes.length; i += 8192) {
@@ -659,7 +661,7 @@ export const Part2WordToCsv: React.FC = () => {
         data = btoa(binary);
         mimeType = 'text/plain';
       } else {
-        const arrayBuffer = await googleDriveService.downloadFileAsArrayBuffer(fileId, state.googleAccessToken);
+        const arrayBuffer = await downloadDriveFile(fileId);
         data = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
         mimeType = meta.mimeType;
       }

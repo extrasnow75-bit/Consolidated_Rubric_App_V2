@@ -10,14 +10,7 @@ import {
   ProgressState,
   GoogleUser,
 } from '../types';
-import { googleDriveService, PickerResult } from '../services/googleDriveService';
 import { setGeminiApiKey as geminiServiceSetApiKey } from '../services/geminiService';
-import {
-  initiateGoogleSignIn,
-  signOutFromGoogle,
-  getStoredAccessToken,
-  onAuthStateChanged,
-} from '../services/firebaseService';
 
 // Create context
 const SessionContext = createContext<{
@@ -52,12 +45,12 @@ const SessionContext = createContext<{
   setCourseUrl: (url: string | null) => Promise<{ ok: boolean; message?: string }>;
   setHasDraftRubric: (value: 'yes' | 'no' | null) => void;
   // Google Auth methods
-  startGoogleAuth: () => Promise<void>;
+  /** Opens the system browser. Pass true to force Google's account chooser. */
+  startGoogleAuth: (useAnotherAccount?: boolean) => Promise<void>;
   signOutGoogle: () => Promise<void>;
   extractGoogleDocText: (docUrl: string) => Promise<string>;
   extractGoogleSheetCsv: (sheetUrl: string) => Promise<string>;
   downloadDriveFile: (fileId: string) => Promise<ArrayBuffer>;
-  openGooglePicker: () => Promise<PickerResult | null>;
 } | undefined>(undefined);
 
 // Provider component
@@ -101,9 +94,6 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     // Google Authentication
     isGoogleAuthenticated: false,
     googleUser: null,
-    googleAccessToken: null,
-    googleRefreshToken: null,
-    googleTokenExpiresAt: null,
     googleAuthError: null,
     isAuthenticating: false,
   });
@@ -302,9 +292,6 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       hasDraftRubric: prev.hasDraftRubric,
       isGoogleAuthenticated: prev.isGoogleAuthenticated,
       googleUser: prev.googleUser,
-      googleAccessToken: prev.googleAccessToken,
-      googleRefreshToken: null,
-      googleTokenExpiresAt: prev.googleTokenExpiresAt,
       googleAuthError: null,
       isAuthenticating: false,
     }));
@@ -371,94 +358,84 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     setState((prev) => ({ ...prev, canvasTokenStatus: status }));
   }, []);
 
-  // ── Google Auth (Firebase popup flow) ──────────────────────────────────────
+  // ── Google sign-in ─────────────────────────────────────────────────────────
+  //
+  // The whole flow lives in the main process: it opens the system browser, listens on a loopback
+  // port for the redirect, exchanges the code with PKCE, and encrypts the refresh token into the
+  // OS keychain. What comes back here is identity — name, email, avatar — and nothing else.
+  //
+  // This replaces a Firebase popup whose access token was kept in localStorage and passed to
+  // every Drive call. Those calls now happen in main, which fetches its own token, so there is no
+  // longer a Google credential anywhere in the renderer.
 
-  const startGoogleAuth = useCallback(async () => {
+  const startGoogleAuth = useCallback(async (useAnotherAccount = false) => {
     setState((prev) => ({ ...prev, isAuthenticating: true, googleAuthError: null }));
     try {
-      const result = await initiateGoogleSignIn();
+      const status = await window.api.google.signIn({ useAnotherAccount });
       setState((prev) => ({
         ...prev,
-        isGoogleAuthenticated: true,
-        googleUser: result.user,
-        googleAccessToken: result.accessToken,
-        googleRefreshToken: null,
-        googleTokenExpiresAt: result.expiresAt,
+        isGoogleAuthenticated: status.signedIn,
+        googleUser: status.signedIn
+          ? {
+              id: status.email ?? '',
+              email: status.email ?? '',
+              name: status.name ?? status.email ?? 'Google User',
+              picture: status.picture,
+            }
+          : null,
         googleAuthError: null,
         isAuthenticating: false,
       }));
-    } catch (err: any) {
-      // User closed the popup — not a real error
-      const isCancelled =
-        err.code === 'auth/popup-closed-by-user' ||
-        err.code === 'auth/cancelled-popup-request';
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Sign-in failed';
+      // Closing the browser tab or declining consent is a decision, not a fault. Reporting it as
+      // an error would put a red message on screen for someone who simply changed their mind.
+      const cancelled = /cancelled|timed out/i.test(message);
       setState((prev) => ({
         ...prev,
         isAuthenticating: false,
-        googleAuthError: isCancelled ? null : (err.message || 'Sign-in failed'),
+        googleAuthError: cancelled ? null : message,
       }));
     }
   }, []);
 
   const signOutGoogle = useCallback(async () => {
     try {
-      await signOutFromGoogle();
-    } catch (err: any) {
-      console.error('Sign out error:', err);
+      await window.api.google.signOut();
     } finally {
       setState((prev) => ({
         ...prev,
         isGoogleAuthenticated: false,
         googleUser: null,
-        googleAccessToken: null,
-        googleRefreshToken: null,
-        googleTokenExpiresAt: null,
         googleAuthError: null,
       }));
     }
   }, []);
 
-  const extractGoogleDocText = useCallback(
-    async (docUrl: string): Promise<string> => {
-      if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
-        throw new Error('Please sign in with Google first');
-      }
-      const fileId = googleDriveService.extractFileIdFromUrl(docUrl);
-      return googleDriveService.getGoogleDocContent(fileId, state.googleAccessToken);
-    },
-    [state.isGoogleAuthenticated, state.googleAccessToken]
-  );
+  // ── Drive reads ────────────────────────────────────────────────────────────
+  //
+  // These no longer check for a token before calling, because there is no token here to check.
+  // Main resolves one when it needs it and returns a clear "sign in again" message if it cannot,
+  // which is also the right answer when a sign-in has quietly expired mid-session.
 
-  const extractGoogleSheetCsv = useCallback(
-    async (sheetUrl: string): Promise<string> => {
-      if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
-        throw new Error('Please sign in with Google first');
-      }
-      const fileId = googleDriveService.extractFileIdFromUrl(sheetUrl);
-      return googleDriveService.getGoogleSheetContent(fileId, state.googleAccessToken);
-    },
-    [state.isGoogleAuthenticated, state.googleAccessToken]
-  );
+  const extractGoogleDocText = useCallback(async (docUrl: string): Promise<string> => {
+    const resolved = await window.api.drive.resolveUrl(docUrl);
+    if (!resolved.ok) throw new Error(resolved.message);
+    return window.api.drive.getDocText(resolved.fileId);
+  }, []);
 
-  const downloadDriveFile = useCallback(
-    async (fileId: string): Promise<ArrayBuffer> => {
-      if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
-        throw new Error('Please sign in with Google first');
-      }
-      return googleDriveService.downloadFileAsArrayBuffer(fileId, state.googleAccessToken);
-    },
-    [state.isGoogleAuthenticated, state.googleAccessToken]
-  );
+  const extractGoogleSheetCsv = useCallback(async (sheetUrl: string): Promise<string> => {
+    const resolved = await window.api.drive.resolveUrl(sheetUrl);
+    if (!resolved.ok) throw new Error(resolved.message);
+    return window.api.drive.getSheetCsv(resolved.fileId);
+  }, []);
 
-  const openGooglePicker = useCallback(
-    async (): Promise<PickerResult | null> => {
-      if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
-        throw new Error('Please sign in with Google first');
-      }
-      return googleDriveService.openPicker(state.googleAccessToken);
-    },
-    [state.isGoogleAuthenticated, state.googleAccessToken]
-  );
+  const downloadDriveFile = useCallback(async (fileId: string): Promise<ArrayBuffer> => {
+    const bytes = await window.api.drive.downloadBytes(fileId);
+    // Uint8Array is what survives the IPC structured clone; mammoth and pdf.js want an
+    // ArrayBuffer. Slice to the view's own bounds so a pooled buffer cannot leak extra bytes.
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  }, []);
 
   // ── Initialization ─────────────────────────────────────────────────────────
 
@@ -480,48 +457,38 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       setState((prev) => ({ ...prev, canvasTokenStatus: status, courseUrl: savedCourseUrl }));
     })();
 
-    // Listen for Firebase auth state changes.
-    // When the page reloads, Firebase restores the user from IndexedDB.
-    // If a valid Google access token is also in sessionStorage we restore
-    // the full authenticated state silently; otherwise the user needs to
-    // sign in again.
-    const unsubscribe = onAuthStateChanged((firebaseUser) => {
-      if (firebaseUser) {
-        const stored = getStoredAccessToken();
-        if (stored) {
-          const googleUser: GoogleUser = {
-            id: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            name: firebaseUser.displayName || firebaseUser.email || 'Google User',
-            picture: firebaseUser.photoURL || undefined,
-          };
-          setState((prev) => ({
-            ...prev,
-            isGoogleAuthenticated: true,
-            googleUser,
-            googleAccessToken: stored.accessToken,
-            googleTokenExpiresAt: stored.expiresAt,
-          }));
-        } else {
-          // Firebase user exists but Drive access token has expired.
-          // Clear auth so the UI prompts the user to sign in again.
-          setState((prev) => ({
-            ...prev,
-            isGoogleAuthenticated: false,
-            googleUser: null,
-            googleAccessToken: null,
-            googleTokenExpiresAt: null,
-          }));
-        }
-      } else {
+    // Ask main who is signed in. The refresh token is in the keychain, so a sign-in survives
+    // quitting the app entirely — there is no token expiry to nurse in the renderer.
+    void window.api.google
+      .status()
+      .then((status) => {
         setState((prev) => ({
           ...prev,
-          isGoogleAuthenticated: false,
-          googleUser: null,
-          googleAccessToken: null,
-          googleTokenExpiresAt: null,
+          isGoogleAuthenticated: status.signedIn,
+          googleUser: status.signedIn
+            ? {
+                id: status.email ?? '',
+                email: status.email ?? '',
+                name: status.name ?? status.email ?? 'Google User',
+                picture: status.picture,
+              }
+            : null,
         }));
-      }
+      })
+      .catch(() => {
+        // A failed status check must not strand the app: treat it as signed out.
+      });
+
+    // Main tells us when a stored sign-in turns out to be dead — most often the seven-day
+    // refresh-token expiry that Google applies while the consent screen is in Testing. Without
+    // this the panel would keep showing a signed-in user whose every Drive call fails.
+    const unsubscribe = window.api.google.onSignedOut(() => {
+      setState((prev) => ({
+        ...prev,
+        isGoogleAuthenticated: false,
+        googleUser: null,
+        googleAuthError: 'Your Google sign-in expired. Sign in again to use Drive.',
+      }));
     });
 
     return () => unsubscribe();
@@ -558,7 +525,6 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     extractGoogleDocText,
     extractGoogleSheetCsv,
     downloadDriveFile,
-    openGooglePicker,
   };
 
   return (

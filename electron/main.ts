@@ -11,6 +11,18 @@ import {
 } from './ipc/credentials'
 import { pushRubric, verifyToken, getCourseName } from './ipc/canvas'
 import { parseCourseUrl } from './ipc/canvasUtils'
+import { signIn, getStatus, clearTokens } from './ipc/googleAuth'
+import {
+  listFiles,
+  getFileMetadata,
+  getGoogleDocText,
+  getGoogleSheetCsv,
+  downloadFileBytes,
+  fetchFileForProcessing,
+  uploadToDrive,
+  extractFileIdFromUrl,
+  type ListFilesArgs,
+} from './ipc/googleDrive'
 import { rememberSavePath, consumeSavePath } from './ipc/savePaths'
 import { checkForUpdate, checkNow, RELEASES_PAGE } from './ipc/updateCheck'
 import {
@@ -240,6 +252,70 @@ ipcMain.handle('canvas:getCourseName', (_e, args: { courseUrl: string }) => getC
 ipcMain.handle('canvas:pushRubric', (_e, args: { csvContent: string; courseUrl: string }) =>
   pushRubric(args),
 )
+
+// ─── Google sign-in ───────────────────────────────────────────────────────────
+//
+// Same asymmetry as the Canvas token: sign-in happens here, and the renderer is told who is
+// signed in — never the access token. Drive calls below fetch their own.
+
+ipcMain.handle('google:signIn', (_e, options?: { useAnotherAccount?: boolean }) => signIn(options))
+ipcMain.handle('google:status', () => getStatus())
+ipcMain.handle('google:signOut', () => clearTokens())
+
+// ─── Google Drive ─────────────────────────────────────────────────────────────
+
+ipcMain.handle('drive:listFiles', (_e, args: ListFilesArgs) => listFiles(args))
+
+/**
+ * Resolve whatever the user pasted into a file, and say what it is.
+ *
+ * Parsing happens in main so that one implementation serves both the link box and the Drive
+ * browser, and so the renderer never has to care which of the four URL shapes it was given.
+ */
+ipcMain.handle('drive:resolveUrl', async (_e, url: string) => {
+  try {
+    const fileId = extractFileIdFromUrl(url)
+    const meta = await getFileMetadata(fileId)
+    return { ok: true as const, fileId, name: meta.name, mimeType: meta.mimeType }
+  } catch (e) {
+    return { ok: false as const, message: e instanceof Error ? e.message : String(e) }
+  }
+})
+
+ipcMain.handle('drive:getFileMetadata', (_e, fileId: string) => getFileMetadata(fileId))
+ipcMain.handle('drive:getDocText', (_e, fileId: string) => getGoogleDocText(fileId))
+ipcMain.handle('drive:getSheetCsv', (_e, fileId: string) => getGoogleSheetCsv(fileId))
+ipcMain.handle('drive:downloadBytes', (_e, fileId: string) => downloadFileBytes(fileId))
+
+// One call for "give me this file as bytes I can hand to mammoth or Gemini", converting a
+// Google Doc to .docx on the way. Replaces three copies of that branch in the renderer.
+ipcMain.handle('drive:fetchForProcessing', (_e, fileId: string) => fetchFileForProcessing(fileId))
+
+ipcMain.handle(
+  'drive:upload',
+  (
+    _e,
+    args: {
+      content: string | Uint8Array
+      name: string
+      sourceMimeType: string
+      targetMimeType?: string
+      folderId?: string
+    },
+  ) => uploadToDrive(args),
+)
+
+/**
+ * Open a Drive file in the user's browser.
+ *
+ * Takes a file id rather than a URL, and builds the address from a constant here. Accepting a URL
+ * would turn this into a general "open anything" call from the renderer, which is exactly what
+ * the allowlist in externalLinks.ts exists to prevent.
+ */
+ipcMain.handle('drive:openInBrowser', async (_e, fileId: string) => {
+  if (!/^[a-zA-Z0-9-_]+$/.test(fileId)) return
+  await openExternalSafely(`https://drive.google.com/open?id=${fileId}`)
+})
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 

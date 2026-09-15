@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
+import { useDrivePicker } from '../contexts/DrivePickerContext';
+import { fetchDriveFileAsBase64 } from '../utils/driveFile';
 import {
   Key, Check, X, Loader2, ExternalLink, Eye, EyeOff,
   LogOut, Link, FileText, Upload, ChevronDown, FolderOpen, Settings2,
   Lightbulb, Camera, ArrowRight, Clipboard, HardDrive, Clock, ChevronUp,
 } from 'lucide-react';
-import { googleDriveService } from '../services/googleDriveService';
 import { getRecentDocs, saveRecentDoc, RecentDoc } from '../utils/recentDocs';
 import { AppMode } from '../types';
 import { validateGeminiApiKey } from '../services/geminiService';
@@ -64,10 +65,10 @@ export const Dashboard: React.FC = () => {
     setCourseUrl,
     setCurrentStep,
     setHelpOpen,
-    openGooglePicker,
     downloadDriveFile,
     setRubric,
   } = useSession();
+  const { pickFile } = useDrivePicker();
 
   // ── Gemini API Key ──
   const [apiKeyInput, setApiKeyInput] = useState('');
@@ -316,76 +317,48 @@ export const Dashboard: React.FC = () => {
 
   const handleGooglePicker = async () => {
     try {
-      const result = await openGooglePicker();
+      const result = await pickFile();
       if (!result) return;
 
-      const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      let buffer: ArrayBuffer;
-      let fileName = result.name;
-
-      if (result.mimeType === 'application/vnd.google-apps.document') {
-        if (!fileName.toLowerCase().endsWith('.docx')) fileName = `${fileName}.docx`;
-        const exportUrl =
-          `https://www.googleapis.com/drive/v3/files/${result.fileId}/export` +
-          `?mimeType=${encodeURIComponent(DOCX_MIME)}`;
-        const resp = await fetch(exportUrl, {
-          headers: { Authorization: `Bearer ${state.googleAccessToken}` },
-        });
-        if (!resp.ok) throw new Error(`Google Drive export failed (${resp.status})`);
-        buffer = await resp.arrayBuffer();
-      } else {
-        buffer = await downloadDriveFile(result.fileId);
-      }
-
-      const bytes = new Uint8Array(buffer);
-      let binary = '';
-      bytes.forEach((b) => (binary += String.fromCharCode(b)));
-      const base64 = btoa(binary);
+      // One call gets the bytes, already converted to .docx if this was a Google Doc.
+      const file = await fetchDriveFileAsBase64(result.fileId);
       setUploadedFiles((prev) => {
-        if (prev.some((p) => p.name === fileName)) return prev;
-        return [...prev, { name: fileName, data: base64, mimeType: DOCX_MIME }];
+        if (prev.some((p) => p.name === file.name)) return prev;
+        return [...prev, { name: file.name, data: file.base64, mimeType: file.mimeType }];
       });
-      saveRecentDoc({ name: fileName, fileId: result.fileId, mimeType: result.mimeType, source: 'picker' });
+      saveRecentDoc({
+        name: file.name,
+        fileId: result.fileId,
+        mimeType: result.mimeType,
+        source: 'picker',
+      });
       setRecentDocs(getRecentDocs());
-    } catch (err: any) {
-      console.error('Google Picker error:', err);
+    } catch (err) {
+      setDriveUrlError(
+        `Could not open that file: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 
   const handleFetchFromDriveUrl = async () => {
-    if (!driveUrl.trim() || !state.googleAccessToken) return;
+    if (!driveUrl.trim() || !state.isGoogleAuthenticated) return;
     setIsFetchingDriveUrl(true);
     setDriveUrlError(null);
     try {
-      const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      const fileId = googleDriveService.extractFileIdFromUrl(driveUrl.trim());
-      const meta = await googleDriveService.verifyFileAccess(fileId, state.googleAccessToken);
-      let buffer: ArrayBuffer;
-      let fileName = meta.name;
-      if (meta.mimeType === 'application/vnd.google-apps.document') {
-        if (!fileName.toLowerCase().endsWith('.docx')) fileName = `${fileName}.docx`;
-        const exportUrl =
-          `https://www.googleapis.com/drive/v3/files/${fileId}/export` +
-          `?mimeType=${encodeURIComponent(DOCX_MIME)}`;
-        const resp = await fetch(exportUrl, { headers: { Authorization: `Bearer ${state.googleAccessToken}` } });
-        if (!resp.ok) throw new Error(`Export failed (${resp.status})`);
-        buffer = await resp.arrayBuffer();
-      } else {
-        buffer = await googleDriveService.downloadFileAsArrayBuffer(fileId, state.googleAccessToken);
-      }
-      const bytes = new Uint8Array(buffer);
-      let binary = '';
-      bytes.forEach((b) => (binary += String.fromCharCode(b)));
-      const base64 = btoa(binary);
+      const resolved = await window.api.drive.resolveUrl(driveUrl.trim());
+      if (!resolved.ok) throw new Error(resolved.message);
+      const file = await fetchDriveFileAsBase64(resolved.fileId);
       setUploadedFiles((prev) => {
-        if (prev.some((p) => p.name === fileName)) return prev;
-        return [...prev, { name: fileName, data: base64, mimeType: DOCX_MIME }];
+        if (prev.some((p) => p.name === file.name)) return prev;
+        return [...prev, { name: file.name, data: file.base64, mimeType: file.mimeType }];
       });
-      saveRecentDoc({ name: fileName, url: driveUrl.trim(), source: 'url' });
+      saveRecentDoc({ name: file.name, url: driveUrl.trim(), source: 'url' });
       setRecentDocs(getRecentDocs());
       setDriveUrl('');
-    } catch (err: any) {
-      setDriveUrlError(`Could not fetch file: ${err.message}`);
+    } catch (err) {
+      setDriveUrlError(
+        `Could not fetch file: ${err instanceof Error ? err.message : String(err)}`,
+      );
     } finally {
       setIsFetchingDriveUrl(false);
     }
@@ -397,32 +370,17 @@ export const Dashboard: React.FC = () => {
       setDriveUrl(doc.url);
       return;
     }
-    if (doc.source === 'picker' && doc.fileId && state.googleAccessToken) {
+    if (doc.source === 'picker' && doc.fileId && state.isGoogleAuthenticated) {
       try {
-        const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-        let buffer: ArrayBuffer;
-        let fileName = doc.name;
-        if (doc.mimeType === 'application/vnd.google-apps.document') {
-          if (!fileName.toLowerCase().endsWith('.docx')) fileName = `${fileName}.docx`;
-          const exportUrl =
-            `https://www.googleapis.com/drive/v3/files/${doc.fileId}/export` +
-            `?mimeType=${encodeURIComponent(DOCX_MIME)}`;
-          const resp = await fetch(exportUrl, { headers: { Authorization: `Bearer ${state.googleAccessToken}` } });
-          if (!resp.ok) throw new Error(`Export failed (${resp.status})`);
-          buffer = await resp.arrayBuffer();
-        } else {
-          buffer = await googleDriveService.downloadFileAsArrayBuffer(doc.fileId, state.googleAccessToken);
-        }
-        const bytes = new Uint8Array(buffer);
-        let binary = '';
-        bytes.forEach((b) => (binary += String.fromCharCode(b)));
-        const base64 = btoa(binary);
+        const file = await fetchDriveFileAsBase64(doc.fileId);
         setUploadedFiles((prev) => {
-          if (prev.some((p) => p.name === fileName)) return prev;
-          return [...prev, { name: fileName, data: base64, mimeType: DOCX_MIME }];
+          if (prev.some((p) => p.name === file.name)) return prev;
+          return [...prev, { name: file.name, data: file.base64, mimeType: file.mimeType }];
         });
-      } catch (err: any) {
-        setDriveUrlError(`Could not reload document: ${err.message}`);
+      } catch (err) {
+        setDriveUrlError(
+          `Could not reload document: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
   };

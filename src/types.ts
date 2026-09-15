@@ -257,12 +257,16 @@ export interface SessionState {
   courseUrl: string | null;
   hasDraftRubric: 'yes' | 'no' | null;
 
-  // Google Authentication
+  /**
+   * Google sign-in.
+   *
+   * Identity only. The access and refresh tokens live in the main process — the refresh token
+   * encrypted in the OS keychain — and every Drive call fetches its own. There is deliberately no
+   * googleAccessToken field: the renderer makes no Google requests, so holding one would be an
+   * exposure with no purpose.
+   */
   isGoogleAuthenticated: boolean;
   googleUser: GoogleUser | null;
-  googleAccessToken: string | null;
-  googleRefreshToken: string | null;
-  googleTokenExpiresAt: number | null;
   googleAuthError: string | null;
   isAuthenticating: boolean;
 }

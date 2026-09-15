@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
+import { useDrivePicker } from '../contexts/DrivePickerContext';
 import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
 import { generateRubricFromScreenshot, applyRubricChanges, extractRubricFromDocument } from '../services/geminiService';
 import mammoth from 'mammoth';
@@ -7,7 +8,6 @@ import { pdfjsLib } from '../utils/pdfWorker';
 import { exportToWord } from '../services/wordExportService';
 import { Upload, Download, Loader2, Trash2, Image as ImageIcon, HardDrive, FolderOpen, Clipboard, Clock, ChevronDown, ChevronUp, X, RotateCw, CheckCircle2, CheckCircle, FileText } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
-import { googleDriveService } from '../services/googleDriveService';
 import { getRecentImages, saveRecentImage, RecentImage } from '../utils/recentImages';
 
 export const ScreenshotConverter: React.FC = () => {
@@ -20,11 +20,11 @@ export const ScreenshotConverter: React.FC = () => {
     stopProgress,
     setProgress,
     getAbortSignal,
-    openGooglePicker,
     downloadDriveFile,
     startGoogleAuth,
     signOutGoogle,
   } = useSession();
+  const { pickFile, pickFolder } = useDrivePicker();
 
   const googleSignedIn = state.isGoogleAuthenticated;
 
@@ -172,7 +172,7 @@ export const ScreenshotConverter: React.FC = () => {
     setIsPickerLoading(true);
     setError(null);
     try {
-      const result = await openGooglePicker();
+      const result = await pickFile();
       if (!result) return;
       if (!result.mimeType.startsWith('image/')) {
         setError('Please select an image file (PNG, JPG, or WebP).');
@@ -192,14 +192,16 @@ export const ScreenshotConverter: React.FC = () => {
   // ── Google Drive URL fetch ─────────────────────────────────────────────────
 
   const handleFetchDriveUrl = async () => {
-    if (!state.googleAccessToken) { setError('Please sign in with Google first.'); return; }
+    if (!state.isGoogleAuthenticated) { setError('Please sign in with Google first.'); return; }
     if (!driveImageUrl.trim()) { setError('Please enter a Google Drive URL.'); return; }
     setIsFetchingUrl(true);
     setError(null);
     try {
       const urlToSave = driveImageUrl.trim();
-      const fileId = googleDriveService.extractFileIdFromUrl(urlToSave);
-      const meta = await googleDriveService.verifyFileAccess(fileId, state.googleAccessToken);
+      const resolved = await window.api.drive.resolveUrl(urlToSave);
+      if (!resolved.ok) throw new Error(resolved.message);
+      const fileId = resolved.fileId;
+      const meta = { name: resolved.name, mimeType: resolved.mimeType };
       if (!meta.mimeType.startsWith('image/')) {
         setError(`"${meta.name}" is not an image file. Please provide a link to a PNG, JPG, or WebP image.`);
         return;
@@ -220,12 +222,17 @@ export const ScreenshotConverter: React.FC = () => {
 
   const handleRecentImageClick = async (img: RecentImage) => {
     setShowRecentImages(false);
-    if (!state.googleAccessToken) { setError('Please sign in with Google first.'); return; }
+    if (!state.isGoogleAuthenticated) { setError('Please sign in with Google first.'); return; }
     setIsPickerLoading(true);
     setError(null);
     try {
-      const fileId = img.fileId || (img.url ? googleDriveService.extractFileIdFromUrl(img.url) : null);
-      if (!fileId) { setError('Could not resolve file ID for this image.'); return; }
+      let fileId = img.fileId ?? null;
+      if (!fileId && img.url) {
+        const resolved = await window.api.drive.resolveUrl(img.url);
+        if (!resolved.ok) { setError(resolved.message); return; }
+        fileId = resolved.fileId;
+      }
+      if (!fileId) { setError('Could not work out which Drive file this was.'); return; }
       const buffer = await downloadDriveFile(fileId);
       const mimeType = img.mimeType || 'image/png';
       loadImageFromBuffer(buffer, mimeType);
@@ -335,11 +342,11 @@ export const ScreenshotConverter: React.FC = () => {
   // ── Save to Google Drive ───────────────────────────────────────────────────
 
   const handleSaveToDrive = async () => {
-    if (!state.rubric || !state.googleAccessToken) return;
+    if (!state.rubric || !state.isGoogleAuthenticated) return;
     setSavingToDrive(true);
     setDriveSaveSuccess(null);
     try {
-      const folder = await googleDriveService.openFolderPicker(state.googleAccessToken);
+      const folder = await pickFolder();
       if (!folder) { setSavingToDrive(false); return; }
       const rubric = state.rubric;
       const lines: string[] = [
@@ -356,14 +363,13 @@ export const ScreenshotConverter: React.FC = () => {
         ]),
         `Total Points: ${rubric.totalPoints}`,
       ];
-      await googleDriveService.uploadFileToDrive(
-        state.googleAccessToken,
-        lines.join('\n'),
-        rubric.title,
-        'text/plain',
-        'application/vnd.google-apps.document',
-        folder.folderId,
-      );
+      await window.api.drive.upload({
+        content: lines.join('\n'),
+        name: rubric.title,
+        sourceMimeType: 'text/plain',
+        targetMimeType: 'application/vnd.google-apps.document',
+        folderId: folder.folderId,
+      });
       setDriveSaveSuccess(`Saved to "${folder.folderName}"`);
     } catch (err: any) {
       setError(`Google Drive save failed: ${err.message}`);

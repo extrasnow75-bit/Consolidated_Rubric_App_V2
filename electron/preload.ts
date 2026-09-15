@@ -1,5 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+/** Mirrors DriveFile in ipc/googleDrive.ts. Declared here so the preload stays standalone. */
+interface DriveFile {
+  id: string
+  name: string
+  mimeType: string
+  modifiedTime?: string
+  iconLink?: string
+  isFolder: boolean
+}
+
 /**
  * The renderer's entire view of the outside world.
  *
@@ -55,6 +65,63 @@ contextBridge.exposeInMainWorld('api', {
     /** Writes to a path `saveFile` issued. Any other path is refused in main. */
     writeFile: (args: { path: string; data: string | Uint8Array }): Promise<{ ok: true }> =>
       ipcRenderer.invoke('dialog:writeFile', args),
+  },
+  google: {
+    signIn: (options?: {
+      useAnotherAccount?: boolean
+    }): Promise<{ signedIn: boolean; email?: string; name?: string; picture?: string }> =>
+      ipcRenderer.invoke('google:signIn', options),
+    signOut: (): Promise<void> => ipcRenderer.invoke('google:signOut'),
+    /** Identity only. There is no call that returns the Google access token. */
+    status: (): Promise<{ signedIn: boolean; email?: string; name?: string; picture?: string }> =>
+      ipcRenderer.invoke('google:status'),
+    /** Fires when a stored sign-in turns out to be dead. Returns an unsubscribe function. */
+    onSignedOut: (callback: () => void): (() => void) => {
+      const listener = () => callback()
+      ipcRenderer.on('google:signedOut', listener)
+      return () => ipcRenderer.removeListener('google:signedOut', listener)
+    },
+  },
+  drive: {
+    listFiles: (args: {
+      scope: 'recent' | 'myDrive' | 'sharedWithMe' | 'folder' | 'search'
+      folderId?: string
+      query?: string
+      mimeTypes?: string[]
+      foldersOnly?: boolean
+      pageToken?: string
+      pageSize?: number
+    }): Promise<{ files: DriveFile[]; nextPageToken?: string }> =>
+      ipcRenderer.invoke('drive:listFiles', args),
+    /** Accepts any of the Drive URL shapes, or a bare file id. */
+    resolveUrl: (
+      url: string,
+    ): Promise<
+      { ok: true; fileId: string; name: string; mimeType: string } | { ok: false; message: string }
+    > => ipcRenderer.invoke('drive:resolveUrl', url),
+    getFileMetadata: (fileId: string): Promise<{ name: string; mimeType: string }> =>
+      ipcRenderer.invoke('drive:getFileMetadata', fileId),
+    getDocText: (fileId: string): Promise<string> => ipcRenderer.invoke('drive:getDocText', fileId),
+    getSheetCsv: (fileId: string): Promise<string> =>
+      ipcRenderer.invoke('drive:getSheetCsv', fileId),
+    downloadBytes: (fileId: string): Promise<Uint8Array> =>
+      ipcRenderer.invoke('drive:downloadBytes', fileId),
+    /** Bytes ready for processing; a Google Doc arrives converted to .docx. */
+    fetchForProcessing: (
+      fileId: string,
+    ): Promise<{ name: string; mimeType: string; bytes: Uint8Array }> =>
+      ipcRenderer.invoke('drive:fetchForProcessing', fileId),
+    upload: (args: {
+      content: string | Uint8Array
+      name: string
+      sourceMimeType: string
+      targetMimeType?: string
+      folderId?: string
+    }): Promise<{ fileId: string; webViewLink: string }> =>
+      ipcRenderer.invoke('drive:upload', args),
+    /** Takes a file id, not a URL: main builds the address, so this cannot open anything else. */
+    openInBrowser: (fileId: string): Promise<void> =>
+      ipcRenderer.invoke('drive:openInBrowser', fileId),
   },
   credentials: {
     /** False on a machine with no working keychain, where nothing can be stored safely. */

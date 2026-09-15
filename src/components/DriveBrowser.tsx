@@ -1,0 +1,412 @@
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  X,
+  Search,
+  Folder,
+  FileText,
+  Table2,
+  FileType,
+  Image as ImageIcon,
+  Loader2,
+  ChevronRight,
+  Clock,
+  HardDrive,
+  Users,
+  AlertCircle,
+} from 'lucide-react';
+
+/**
+ * Browse and pick a file or folder from the user's Google Drive.
+ *
+ * This replaces the Google Picker, which cannot run here: the Picker is a browser widget that
+ * needs a real http origin for `setOrigin`, and a packaged desktop app is served from file://.
+ *
+ * Rebuilding it turned out to be an improvement rather than a consolation. The Picker needed its
+ * own API key (a missing one produced an unescapable 403 overlay), and the old code had to race
+ * it against a ten-second timeout because it could fail without ever calling back. None of that
+ * applies to a list drawn from `drive.files.list` in the main process.
+ *
+ * Every call goes through `window.api.drive`, which holds the Google token in the main process.
+ * No credential reaches this component.
+ */
+
+export type DriveBrowserMode = 'file' | 'folder';
+
+interface DriveFileRow {
+  id: string;
+  name: string;
+  mimeType: string;
+  modifiedTime?: string;
+  isFolder: boolean;
+}
+
+interface DriveBrowserProps {
+  isOpen: boolean;
+  mode: DriveBrowserMode;
+  /** Restrict the listing. Ignored in folder mode. */
+  mimeTypes?: string[];
+  title?: string;
+  onCancel: () => void;
+  onPickFile?: (file: { fileId: string; name: string; mimeType: string }) => void;
+  onPickFolder?: (folder: { folderId: string; folderName: string }) => void;
+}
+
+type Scope = 'recent' | 'myDrive' | 'sharedWithMe';
+
+const GOOGLE_DOC = 'application/vnd.google-apps.document';
+const GOOGLE_SHEET = 'application/vnd.google-apps.spreadsheet';
+
+const SCOPE_TABS: Array<{ id: Scope; label: string; icon: React.ReactNode }> = [
+  { id: 'recent', label: 'Recent', icon: <Clock className="w-4 h-4" /> },
+  { id: 'myDrive', label: 'My Drive', icon: <HardDrive className="w-4 h-4" /> },
+  { id: 'sharedWithMe', label: 'Shared with me', icon: <Users className="w-4 h-4" /> },
+];
+
+/** A recognisable icon per file type, so the list can be scanned without reading every name. */
+const FileIcon: React.FC<{ file: DriveFileRow }> = ({ file }) => {
+  if (file.isFolder) return <Folder className="w-5 h-5 text-amber-500 flex-shrink-0" />;
+  if (file.mimeType === GOOGLE_DOC) return <FileText className="w-5 h-5 text-blue-600 flex-shrink-0" />;
+  if (file.mimeType === GOOGLE_SHEET) return <Table2 className="w-5 h-5 text-green-700 flex-shrink-0" />;
+  if (file.mimeType.startsWith('image/')) return <ImageIcon className="w-5 h-5 text-purple-600 flex-shrink-0" />;
+  return <FileType className="w-5 h-5 text-gray-600 flex-shrink-0" />;
+};
+
+const formatDate = (iso?: string): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+export const DriveBrowser: React.FC<DriveBrowserProps> = ({
+  isOpen,
+  mode,
+  mimeTypes,
+  title,
+  onCancel,
+  onPickFile,
+  onPickFolder,
+}) => {
+  const [scope, setScope] = useState<Scope>('recent');
+  const [files, setFiles] = useState<DriveFileRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState('');
+  const [activeSearch, setActiveSearch] = useState('');
+  /** Folders drilled into, oldest first. Empty means we are at the top of `scope`. */
+  const [trail, setTrail] = useState<Array<{ id: string; name: string }>>([]);
+  const [selected, setSelected] = useState<DriveFileRow | null>(null);
+
+  const searchRef = useRef<HTMLInputElement>(null);
+  /** Guards against an earlier, slower request overwriting the results of a later one. */
+  const requestSeq = useRef(0);
+
+  const currentFolder = trail.length > 0 ? trail[trail.length - 1] : null;
+
+  const load = useCallback(async () => {
+    const seq = ++requestSeq.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await window.api.drive.listFiles({
+        scope: activeSearch ? 'search' : currentFolder ? 'folder' : scope,
+        folderId: currentFolder?.id,
+        query: activeSearch || undefined,
+        mimeTypes: mode === 'folder' ? undefined : mimeTypes,
+        foldersOnly: mode === 'folder',
+        pageSize: 100,
+      });
+      if (seq !== requestSeq.current) return; // a newer request has already landed
+      setFiles(result.files);
+    } catch (e) {
+      if (seq !== requestSeq.current) return;
+      setError(e instanceof Error ? e.message : 'Could not load your Drive files.');
+      setFiles([]);
+    } finally {
+      if (seq === requestSeq.current) setLoading(false);
+    }
+  }, [scope, activeSearch, currentFolder, mode, mimeTypes]);
+
+  useEffect(() => {
+    if (isOpen) void load();
+  }, [isOpen, load]);
+
+  // Reset to a clean state each time the dialog opens, so it never reopens showing the folder
+  // someone drilled into last week.
+  useEffect(() => {
+    if (!isOpen) return;
+    setScope('recent');
+    setTrail([]);
+    setSearchInput('');
+    setActiveSearch('');
+    setSelected(null);
+    // Focus follows the dialog, both so a keyboard user lands inside it and because typing a
+    // filename is the fastest way to find something.
+    const t = setTimeout(() => searchRef.current?.focus(), 50);
+    return () => clearTimeout(t);
+  }, [isOpen]);
+
+  // Escape closes, matching every other dialog the user has ever used.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onCancel]);
+
+  if (!isOpen) return null;
+
+  const openRow = (file: DriveFileRow) => {
+    if (file.isFolder) {
+      // Drilling in leaves search: a search is global, so a folder found by one is a new root.
+      setSearchInput('');
+      setActiveSearch('');
+      setTrail((prev) => [...prev, { id: file.id, name: file.name }]);
+      setSelected(null);
+      return;
+    }
+    if (mode === 'file') {
+      onPickFile?.({ fileId: file.id, name: file.name, mimeType: file.mimeType });
+    }
+  };
+
+  const goToCrumb = (index: number) => {
+    setTrail((prev) => prev.slice(0, index + 1));
+    setSelected(null);
+  };
+
+  const switchScope = (next: Scope) => {
+    setScope(next);
+    setTrail([]);
+    setSearchInput('');
+    setActiveSearch('');
+    setSelected(null);
+  };
+
+  const heading = title ?? (mode === 'folder' ? 'Choose a Drive folder' : 'Choose a file from Drive');
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4"
+      onClick={onCancel}
+      role="presentation"
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={heading}
+      >
+        {/* Header */}
+        <div className="bg-[#0033a0] text-white px-6 py-4 flex items-center justify-between flex-shrink-0">
+          <h2 className="text-lg font-bold">{heading}</h2>
+          <button
+            onClick={onCancel}
+            className="p-1 rounded-lg hover:bg-white/20 transition-colors"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Tabs + search */}
+        <div className="border-b border-gray-200 px-6 pt-3 flex-shrink-0">
+          <div className="flex gap-1">
+            {SCOPE_TABS.map((tab) => {
+              const active = scope === tab.id && !activeSearch;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => switchScope(tab.id)}
+                  className={`flex items-center gap-2 px-4 py-2 text-sm font-bold border-b-2 transition-colors ${
+                    active
+                      ? 'border-[#0033a0] text-[#0033a0]'
+                      : 'border-transparent text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  {tab.icon}
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <form
+            className="relative my-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setActiveSearch(searchInput.trim());
+              setTrail([]);
+              setSelected(null);
+            }}
+          >
+            <Search className="w-4 h-4 text-gray-600 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              ref={searchRef}
+              type="text"
+              value={searchInput}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
+                // Emptying the box returns to the current tab rather than leaving stale results.
+                if (e.target.value === '') setActiveSearch('');
+              }}
+              placeholder="Search your Drive by file name…"
+              className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+          </form>
+
+          {/* Breadcrumbs, only once there is somewhere to go back to */}
+          {trail.length > 0 && (
+            <div className="flex items-center gap-1 flex-wrap pb-3 text-sm">
+              <button
+                onClick={() => { setTrail([]); setSelected(null); }}
+                className="text-[#0033a0] font-bold hover:underline"
+              >
+                {SCOPE_TABS.find((t) => t.id === scope)?.label}
+              </button>
+              {trail.map((crumb, i) => (
+                <React.Fragment key={crumb.id}>
+                  <ChevronRight className="w-4 h-4 text-gray-600 flex-shrink-0" />
+                  <button
+                    onClick={() => goToCrumb(i)}
+                    className={
+                      i === trail.length - 1
+                        ? 'text-gray-900 font-bold'
+                        : 'text-[#0033a0] font-bold hover:underline'
+                    }
+                  >
+                    {crumb.name}
+                  </button>
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Listing */}
+        <div className="flex-1 overflow-y-auto min-h-[280px]">
+          {loading ? (
+            <div className="flex items-center justify-center h-full py-16 text-gray-600">
+              <Loader2 className="w-5 h-5 animate-spin mr-2" />
+              Loading your Drive…
+            </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center h-full py-16 px-8 text-center">
+              <AlertCircle className="w-8 h-8 text-red-500 mb-3" />
+              <p className="text-sm text-gray-700 max-w-md">{error}</p>
+              <button
+                onClick={() => void load()}
+                className="mt-4 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-bold text-sm"
+              >
+                Try again
+              </button>
+            </div>
+          ) : files.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full py-16 px-8 text-center">
+              <Folder className="w-8 h-8 text-gray-400 mb-3" />
+              <p className="text-sm text-gray-700">
+                {activeSearch
+                  ? `Nothing in your Drive matches “${activeSearch}”.`
+                  : mode === 'folder'
+                  ? 'No folders here.'
+                  : 'No files here.'}
+              </p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {files.map((file) => {
+                const isSelected = selected?.id === file.id;
+                return (
+                  <li key={file.id}>
+                    <button
+                      onClick={() => (mode === 'folder' && !file.isFolder ? undefined : setSelected(file))}
+                      onDoubleClick={() => openRow(file)}
+                      className={`w-full text-left px-6 py-3 flex items-center gap-3 transition-colors ${
+                        isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'
+                      }`}
+                    >
+                      <FileIcon file={file} />
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm font-bold text-gray-900 truncate">
+                          {file.name}
+                        </span>
+                        {file.modifiedTime && (
+                          <span className="block text-xs text-gray-600">
+                            Modified {formatDate(file.modifiedTime)}
+                          </span>
+                        )}
+                      </span>
+                      {file.isFolder && (
+                        <span
+                          onClick={(e) => { e.stopPropagation(); openRow(file); }}
+                          className="text-xs font-bold text-[#0033a0] hover:underline px-2 py-1 flex-shrink-0"
+                          role="button"
+                        >
+                          Open
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-gray-200 px-6 py-4 flex items-center justify-between flex-shrink-0 bg-gray-50">
+          <p className="text-xs text-gray-600">
+            {mode === 'folder'
+              ? 'Open a folder to go inside it, or select one and choose it.'
+              : 'Double-click a file to choose it.'}
+          </p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onCancel}
+              className="px-4 py-2 rounded-xl font-bold text-sm text-gray-900 bg-gray-100 hover:bg-gray-200 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={
+                mode === 'folder'
+                  ? !selected && trail.length === 0
+                  : !selected || selected.isFolder
+              }
+              onClick={() => {
+                if (mode === 'folder') {
+                  // Selecting nothing while inside a folder means "this one" — the folder the
+                  // user has navigated into and is looking at.
+                  const target = selected ?? (currentFolder
+                    ? { id: currentFolder.id, name: currentFolder.name }
+                    : null);
+                  if (target) onPickFolder?.({ folderId: target.id, folderName: target.name });
+                } else if (selected && !selected.isFolder) {
+                  onPickFile?.({
+                    fileId: selected.id,
+                    name: selected.name,
+                    mimeType: selected.mimeType,
+                  });
+                }
+              }}
+              className="px-5 py-2 rounded-xl font-bold text-sm bg-blue-600 text-white hover:bg-blue-700 transition-all disabled:bg-gray-300 disabled:text-gray-400"
+            >
+              {mode === 'folder'
+                ? selected
+                  ? `Choose “${selected.name}”`
+                  : currentFolder
+                  ? `Choose “${currentFolder.name}”`
+                  : 'Choose folder'
+                : 'Choose file'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default DriveBrowser;

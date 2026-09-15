@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useSession } from '../contexts/SessionContext';
+import { useDrivePicker } from '../contexts/DrivePickerContext';
 import { AppMode, BatchItemStatus, CanvasConfig } from '../types';
 import { Eye, EyeOff, Loader2, Upload, CheckCircle, AlertCircle, X, Zap, FolderOpen, ChevronLeft } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import JSZip from 'jszip';
-import { googleDriveService } from '../services/googleDriveService';
 
 interface BatchFile {
   id: string;
@@ -29,7 +29,9 @@ export const Part3Upload: React.FC = () => {
     getAbortSignal,
     startGoogleAuth,
     setCurrentStep,
+    downloadDriveFile,
   } = useSession();
+  const { pickFile } = useDrivePicker();
 
   const [courseUrl, setCourseUrl] = useState('');
   /** The token itself is in the OS keychain; this is all the renderer knows about it. */
@@ -438,10 +440,10 @@ export const Part3Upload: React.FC = () => {
     let csvData: string;
     let fileName: string;
     if (mimeType === 'application/vnd.google-apps.spreadsheet') {
-      csvData = await googleDriveService.getGoogleSheetContent(fileId, state.googleAccessToken!);
+      csvData = await window.api.drive.getSheetCsv(fileId);
       fileName = `${name}.csv`;
     } else if (mimeType === 'text/csv' || mimeType === 'text/plain') {
-      const arrayBuffer = await googleDriveService.downloadFileAsArrayBuffer(fileId, state.googleAccessToken!);
+      const arrayBuffer = await downloadDriveFile(fileId);
       csvData = new TextDecoder().decode(arrayBuffer);
       fileName = name.endsWith('.csv') ? name : `${name}.csv`;
     } else {
@@ -454,17 +456,14 @@ export const Part3Upload: React.FC = () => {
 
   /** Open the Google Drive file picker filtered to Sheets and CSV files. */
   const handleGoogleDrivePick = async () => {
-    if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+    if (!state.isGoogleAuthenticated) {
       setError('Please sign in with Google on the Dashboard first.');
       return;
     }
     setPickingFromDrive(true);
     setError(null);
     try {
-      const result = await googleDriveService.openPicker(
-        state.googleAccessToken,
-        ['application/vnd.google-apps.spreadsheet', 'text/csv'],
-      );
+      const result = await pickFile({ mimeTypes: ['application/vnd.google-apps.spreadsheet', 'text/csv'] });
       if (result) {
         await resolveDriveCsv(result.fileId, result.mimeType, result.name);
       }
@@ -477,7 +476,7 @@ export const Part3Upload: React.FC = () => {
 
   /** Fetch a CSV or Google Sheet from a pasted Drive URL. */
   const handleFetchFromDriveUrl = async () => {
-    if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+    if (!state.isGoogleAuthenticated) {
       setError('Please sign in with Google on the Dashboard first.');
       return;
     }
@@ -485,8 +484,10 @@ export const Part3Upload: React.FC = () => {
     setFetchingDriveUrl(true);
     setError(null);
     try {
-      const fileId = googleDriveService.extractFileIdFromUrl(driveUrl.trim());
-      const meta = await googleDriveService.verifyFileAccess(fileId, state.googleAccessToken);
+      const resolved = await window.api.drive.resolveUrl(driveUrl.trim());
+      if (!resolved.ok) throw new Error(resolved.message);
+      const fileId = resolved.fileId;
+      const meta = { name: resolved.name, mimeType: resolved.mimeType };
       await resolveDriveCsv(fileId, meta.mimeType, meta.name);
       setDriveUrl('');
     } catch (err: any) {

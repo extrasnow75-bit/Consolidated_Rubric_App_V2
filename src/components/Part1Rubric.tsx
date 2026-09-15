@@ -1,10 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { useSession } from '../contexts/SessionContext';
+import { useDrivePicker } from '../contexts/DrivePickerContext';
 import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
 import { generateRubricFromDescription, extractRubricFromDocument, applyRubricChanges } from '../services/geminiService';
 import { exportToWord } from '../services/wordExportService';
 import { Loader2, Download, FileText, CheckCircle, ArrowRight, RotateCw, Home, X, Clock, ChevronDown, ChevronUp, Link, Check } from 'lucide-react';
-import { googleDriveService } from '../services/googleDriveService';
 import ErrorDisplay from './ErrorDisplay';
 import mammoth from 'mammoth';
 import { pdfjsLib } from '../utils/pdfWorker';
@@ -31,9 +31,9 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
     downloadDriveFile,
     startGoogleAuth,
     signOutGoogle,
-    openGooglePicker,
     setCourseUrl,
   } = useSession();
+  const { pickFile, pickFolder } = useDrivePicker();
 
   const [assignmentDescription, setAssignmentDescription] = useState<string>('');
   const [settings, setSettings] = useState<GenerationSettings>({
@@ -170,7 +170,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
   };
 
   const handleFetchGoogleDoc = async () => {
-    if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+    if (!state.isGoogleAuthenticated) {
       setError('Please sign in with Google first');
       return;
     }
@@ -185,8 +185,10 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
 
     try {
       const urlToSave = googleDocUrl.trim();
-      const fileId = googleDriveService.extractFileIdFromUrl(urlToSave);
-      const meta = await googleDriveService.verifyFileAccess(fileId, state.googleAccessToken);
+      const resolved = await window.api.drive.resolveUrl(urlToSave);
+      if (!resolved.ok) throw new Error(resolved.message);
+      const fileId = resolved.fileId;
+      const meta = { name: resolved.name, mimeType: resolved.mimeType };
       let text = '';
 
       if (meta.mimeType === 'application/vnd.google-apps.document') {
@@ -238,7 +240,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
     setError(null);
 
     try {
-      const result = await openGooglePicker();
+      const result = await pickFile();
       if (!result) return; // User cancelled
 
       setFetchingGoogleDoc(true);
@@ -372,11 +374,11 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
   const [driveSaveSuccess, setDriveSaveSuccess] = useState<string | null>(null);
 
   const handleSaveToDrive = async () => {
-    if (!state.rubric || !state.googleAccessToken) return;
+    if (!state.rubric || !state.isGoogleAuthenticated) return;
     setSavingToDrive(true);
     setDriveSaveSuccess(null);
     try {
-      const folder = await googleDriveService.openFolderPicker(state.googleAccessToken);
+      const folder = await pickFolder();
       if (!folder) { setSavingToDrive(false); return; }
 
       // Format the rubric as readable plain text for a Google Doc
@@ -397,14 +399,13 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
       ];
       const text = lines.join('\n');
 
-      await googleDriveService.uploadFileToDrive(
-        state.googleAccessToken,
-        text,
-        rubric.title,
-        'text/plain',
-        'application/vnd.google-apps.document',
-        folder.folderId,
-      );
+      await window.api.drive.upload({
+        content: text,
+        name: rubric.title,
+        sourceMimeType: 'text/plain',
+        targetMimeType: 'application/vnd.google-apps.document',
+        folderId: folder.folderId,
+      });
       setDriveSaveSuccess(`Saved to "${folder.folderName}"`);
     } catch (err: any) {
       setError(`Google Drive save failed: ${err.message}`);

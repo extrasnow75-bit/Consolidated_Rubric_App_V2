@@ -43,6 +43,49 @@ declare global {
         /** Only accepts a path that `saveFile` issued; any other is refused in main. */
         writeFile(args: { path: string; data: string | Uint8Array }): Promise<{ ok: true }>
       }
+      google: {
+        signIn(options?: { useAnotherAccount?: boolean }): Promise<GoogleSignInStatus>
+        signOut(): Promise<void>
+        /** Identity only — there is no call that returns the Google access token. */
+        status(): Promise<GoogleSignInStatus>
+        /** Fires when a stored sign-in turns out to be dead. Returns an unsubscribe function. */
+        onSignedOut(callback: () => void): () => void
+      }
+      drive: {
+        listFiles(args: {
+          scope: 'recent' | 'myDrive' | 'sharedWithMe' | 'folder' | 'search'
+          folderId?: string
+          query?: string
+          mimeTypes?: string[]
+          foldersOnly?: boolean
+          pageToken?: string
+          pageSize?: number
+        }): Promise<{ files: DriveFile[]; nextPageToken?: string }>
+        /** Accepts any Drive URL shape, or a bare file id. */
+        resolveUrl(
+          url: string,
+        ): Promise<
+          | { ok: true; fileId: string; name: string; mimeType: string }
+          | { ok: false; message: string }
+        >
+        getFileMetadata(fileId: string): Promise<{ name: string; mimeType: string }>
+        getDocText(fileId: string): Promise<string>
+        getSheetCsv(fileId: string): Promise<string>
+        downloadBytes(fileId: string): Promise<Uint8Array>
+        /** Bytes ready for processing; a Google Doc arrives converted to .docx. */
+        fetchForProcessing(
+          fileId: string,
+        ): Promise<{ name: string; mimeType: string; bytes: Uint8Array }>
+        upload(args: {
+          content: string | Uint8Array
+          name: string
+          sourceMimeType: string
+          targetMimeType?: string
+          folderId?: string
+        }): Promise<{ fileId: string; webViewLink: string }>
+        /** Takes a file id, not a URL: main builds the address. */
+        openInBrowser(fileId: string): Promise<void>
+      }
       credentials: {
         keychainAvailable(): Promise<boolean>
         /** Pass null to forget the stored token. Rejects if the keychain is unavailable. */
@@ -74,5 +117,22 @@ declare global {
     ok: boolean
     name?: string
     message?: string
+  }
+
+  /** Who is signed in. Carries no token — Drive calls fetch their own in the main process. */
+  interface GoogleSignInStatus {
+    signedIn: boolean
+    email?: string
+    name?: string
+    picture?: string
+  }
+
+  interface DriveFile {
+    id: string
+    name: string
+    mimeType: string
+    modifiedTime?: string
+    iconLink?: string
+    isFolder: boolean
   }
 }
