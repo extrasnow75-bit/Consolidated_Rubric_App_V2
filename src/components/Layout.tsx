@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode } from '../types';
 import { HelpCircle, ChevronLeft, Camera, Lightbulb, RotateCcw } from 'lucide-react';
+import UpdateBanner from './UpdateBanner';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -66,6 +67,23 @@ const CanvasLogo = () => (
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { state, setCurrentStep, setHelpOpen, clearSession, setHasDraftRubric } = useSession();
+
+  /**
+   * Whether a newer version exists on GitHub, checked once at launch.
+   *
+   * Resolves to null when up to date, offline, or the check itself failed — all three mean "show
+   * no bar" here. The Help Center's button is what tells those apart for someone who wants to
+   * know, because it reports a failed check as a failure rather than as good news. Nothing here
+   * surfaces an error: a failed update check must never interrupt startup.
+   */
+  const [update, setUpdate] = useState<{ version: string } | null>(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [appVersion, setAppVersion] = useState('');
+
+  useEffect(() => {
+    window.api.app.checkUpdate().then(setUpdate).catch(() => undefined);
+    window.api.app.version().then(setAppVersion).catch(() => undefined);
+  }, []);
 
   const getRibbonContent = () => {
     const baseClasses = 'flex items-center gap-3';
@@ -168,6 +186,29 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         >
           Part of the IDS TOOLKIT
         </p>
+      </div>
+
+      {/*
+        The update bar sits below the title bar, not above it.
+
+        Above it, the bar would occupy the strip where Windows draws the minimise, maximise and
+        close buttons (titleBarOverlay, 36px tall in the top-right) and where macOS draws its
+        traffic lights — so the Download and dismiss buttons would end up underneath the window
+        controls. Here it is clear of both.
+      */}
+      {update && !updateDismissed && (
+        <UpdateBanner
+          version={update.version}
+          currentVersion={appVersion}
+          onDismiss={() => setUpdateDismissed(true)}
+        />
+      )}
+
+      {/* A live region that enters the DOM already holding its text is announced unreliably
+          across screen readers, so this one is mounted for the life of the app and only its
+          contents change. */}
+      <div role="status" aria-live="polite" className="sr-only">
+        {update && !updateDismissed ? `Version ${update.version} is available.` : ''}
       </div>
 
       {/* White Ribbon Bar */}

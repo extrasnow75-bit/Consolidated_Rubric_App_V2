@@ -18,12 +18,28 @@
  * app's own releases page. Anything else is dropped without opening anything.
  */
 
-/** Hosts that are always allowed, independent of how the app is configured. */
+/**
+ * Hosts that are always allowed, independent of how the app is configured.
+ *
+ * Every entry is somewhere the app actually links to. When adding a link to the interface, add
+ * its host here at the same time — an allowlist miss is silent (the click does nothing at all),
+ * so a missing entry does not announce itself. The test file enumerates every `href` in the
+ * renderer and fails if one is not covered, which is what turns that silence into a red build.
+ */
 const STATIC_ALLOWED_HOSTS = new Set([
+  // Google sign-in, and the documents the app creates or links to.
   'accounts.google.com',
   'docs.google.com',
   'drive.google.com',
+  // Where the user gets a Gemini API key. Linked from Initial Setup and the Help Center.
+  'aistudio.google.com',
+  // Instructure's public documentation — the Canvas token instructions cite it. This is not the
+  // user's own Canvas instance; that is `canvasHost` below.
+  'community.instructure.com',
+  // This app's own releases page, for the update banner.
   'github.com',
+  // The eCampus Help Center (Confluence), linked from the Help Center panel.
+  'boisestateecampus.atlassian.net',
 ])
 
 /**
