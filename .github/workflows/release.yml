@@ -1,0 +1,233 @@
+# Builds the Windows installer and the two macOS disk images, and attaches all three to one
+# GitHub Release.
+#
+# Triggered by pushing a version tag:
+#
+#     git tag v1.0.0 && git push origin v1.0.0
+#
+# Before tagging, rewrite RELEASE_NOTES.md as the "What's new in vX.Y.Z" list for that version;
+# the release job refuses to publish if the file does not name the tag.
+#
+# A manual run from the Actions tab builds and uploads the installers as workflow artifacts
+# without publishing a release — useful for testing the pipeline itself.
+#
+# The Google client secret is not in the repo. It is injected here from the repository secret
+# MAIN_VITE_GOOGLE_CLIENT_SECRET; electron-vite reads MAIN_VITE_* at build time and compiles it
+# into the main-process bundle, never the renderer.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      # fail-fast off so a Mac build failing does not cancel a Windows build that is fine; the
+      # release job still needs both, so nothing half-built gets published.
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # vite and electron-vite require ^20.19 || >=22.12. Plain "20" resolves to the latest
+          # 20.x, which clears that floor only just — 22 leaves room.
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      # Before the build, so a broken parser fails the release rather than shipping. These cover
+      # the pure string functions — the CSV parser, the Canvas URL validator, the rubric HTML
+      # builder — which is where every defect found in this app so far has been.
+      - name: Test
+        run: npm test
+
+      - name: Build installer
+        # `--publish never` is essential: electron-builder detects CI and otherwise tries to
+        # publish the artifacts itself, failing with "GitHub Personal Access Token is not set"
+        # *after* the installer has already been built. Publishing is the release job's work.
+        #
+        # CSC_IDENTITY_AUTO_DISCOVERY=false stops electron-builder hunting the Mac runner's
+        # keychain for a signing certificate it will not find; harmless on Windows.
+        run: npm run build -- --publish never
+        env:
+          MAIN_VITE_GOOGLE_CLIENT_SECRET: ${{ secrets.MAIN_VITE_GOOGLE_CLIENT_SECRET }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.os }}
+          # Only the installers themselves — release/ also holds the unpacked app directory,
+          # which is hundreds of megabytes and of no use to anyone downloading a build. The .exe
+          # glob matches nothing on the Mac runner and the .dmg glob nothing on Windows;
+          # if-no-files-found only fires when neither matches.
+          path: |
+            release/*.exe
+            release/*.dmg
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    # Only publish for a tag push; a manual run stops after building, so the pipeline can be
+    # exercised without creating a release.
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      # Only for RELEASE_NOTES.md; the installers come from the build job's artifacts.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: RELEASE_NOTES.md
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Check the change list names this version
+        # RELEASE_NOTES.md is the "What's new" section of the release page: a bulleted list of
+        # what changed, written for the people installing the app. It is rewritten for every
+        # release, so a tag pushed without updating it would publish the previous version's list
+        # under a new heading. Stop here instead; the installers are already built and the tag
+        # can be re-pushed once the file is right.
+        run: |
+          if ! grep -q "What's new in $GITHUB_REF_NAME" RELEASE_NOTES.md; then
+            echo "::error file=RELEASE_NOTES.md::RELEASE_NOTES.md must start with \"## What's new in $GITHUB_REF_NAME\" and list the changes since the previous release."
+            exit 1
+          fi
+
+      - name: Rename installers
+        # electron-builder names the files after the version and arch, which asks the reader to
+        # know what that means. The people installing this are course staff, not developers, so
+        # the filename itself should say which machine it is for. Each glob is expanded once,
+        # before any renaming, so this cannot reprocess its own output.
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          cd artifacts
+          for f in *.exe; do
+            mv -- "$f" "Canvas-Rubric-Creator-WINDOWS-$ver.exe"
+          done
+          for f in *.dmg; do
+            case "$f" in
+              *arm64*) arch="APPLE-SILICON" ;;
+              *)       arch="INTEL" ;;
+            esac
+            mv -- "$f" "Canvas-Rubric-Creator-MAC-$arch-$ver.dmg"
+          done
+          ls -1
+          test "$(ls -1 | wc -l)" -eq 3
+
+      - name: Write release notes
+        # Quoted heredoc so the markdown's backticks are not run as command substitution; the
+        # version is substituted afterwards.
+        #
+        # The install steps deliberately describe the warning the reader will see on screen
+        # ("Windows protected your PC") rather than its cause. The audience is course staff, so
+        # "unsigned build" and "SmartScreen" name nothing they can match to their display.
+        run: |
+          cat > notes.md <<'NOTES'
+          ## Download
+
+          **Windows:** [Canvas-Rubric-Creator-WINDOWS-__VER__.exe](https://github.com/__REPO__/releases/download/v__VER__/Canvas-Rubric-Creator-WINDOWS-__VER__.exe)
+
+          **Mac with Apple Silicon (M1 or later):** [Canvas-Rubric-Creator-MAC-APPLE-SILICON-__VER__.dmg](https://github.com/__REPO__/releases/download/v__VER__/Canvas-Rubric-Creator-MAC-APPLE-SILICON-__VER__.dmg)
+
+          **Mac with an Intel processor:** [Canvas-Rubric-Creator-MAC-INTEL-__VER__.dmg](https://github.com/__REPO__/releases/download/v__VER__/Canvas-Rubric-Creator-MAC-INTEL-__VER__.dmg)
+
+          Not sure which Mac you have? Click the Apple menu, then **About This Mac** — the Chip
+          line says Apple M1/M2/M3/M4 for Apple Silicon, or Intel.
+
+          The Assets section further down holds the same files. Ignore the two "Source code"
+          links beside them — GitHub adds those to every release automatically. They are not
+          the app.
+
+          NOTES
+          cat RELEASE_NOTES.md >> notes.md
+          cat >> notes.md <<'NOTES'
+
+          ## Installing on Windows
+
+          Download the `.exe` file and double-click it to install.
+
+          Windows will show a blue screen saying **"Windows protected your PC."** Click
+          **More info**, then click **Run anyway**. It appears because this app was built
+          in-house rather than distributed through the Microsoft Store — not because anything is
+          wrong with it. You will see it again each time you install a new version.
+
+          ## Installing on a Mac
+
+          Open the `.dmg` file and drag **Canvas Rubric Creator** into the Applications folder
+          shown beside it.
+
+          The first time you open the app, macOS will refuse it — usually saying the app
+          **"is damaged and can't be opened"** or is from an unidentified developer. The app is
+          fine; macOS says this about anything built in-house rather than through the App Store.
+          To get past it, open **Terminal** (in Applications → Utilities), paste this line, and
+          press Return:
+
+          ```
+          xattr -dr com.apple.quarantine "/Applications/Canvas Rubric Creator.app"
+          ```
+
+          Then open the app normally. You will need to do this once per version you install.
+
+          ## Already have an earlier version?
+
+          **You do not need to uninstall it first.** On Windows, run the installer over the top
+          of it — it finds the existing copy and replaces it. On a Mac, drag the new app into
+          Applications and choose **Replace** when asked. Your Canvas token, Gemini key and
+          Google sign-in are kept either way, so there is nothing to set up again.
+
+          Two things to get right on Windows:
+
+          - **Close Canvas Rubric Creator before you run the installer**, or Windows reports that
+            files are in use and the install fails.
+          - **Accept the install folder the installer offers.** It lets you change it, and
+            choosing a different one leaves two copies installed side by side with no way to
+            tell which you are opening.
+
+          ---
+
+          Your Canvas token and Gemini key are stored in your operating system's keychain and
+          never leave your computer.
+          NOTES
+          # `|` as the delimiter for the repo, which contains slashes. The download URL is
+          # assembled rather than looked up: GitHub serves release assets at a predictable path,
+          # and the rename step above fixes the filename, so the two agree by construction.
+          sed -i "s/__VER__/${GITHUB_REF_NAME#v}/g; s|__REPO__|${GITHUB_REPOSITORY}|g" notes.md
+          cat notes.md
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # A hyphen in the tag means a pre-release under semver (v0.9.0-rc.1), so mark it as
+          # one. Otherwise GitHub would present a release candidate as the current release and
+          # point everybody at it.
+          prerelease=""
+          case "$GITHUB_REF_NAME" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Canvas Rubric Creator $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            $prerelease \
+            artifacts/*

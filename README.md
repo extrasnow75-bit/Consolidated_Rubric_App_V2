@@ -1,150 +1,112 @@
-# Canvas Rubric Creator - Consolidated App
+# Canvas Rubric Creator
 
-A unified React + TypeScript + Vite application that provides a complete workflow for creating, converting, and uploading rubrics to Canvas LMS.
+A desktop app for Windows and macOS that turns an assignment description into a Canvas rubric,
+converts existing rubric documents into Canvas CSV, and pushes them straight into a Canvas course.
 
-## Features
+Built by the Boise State eCampus Center. It is the sibling of
+[Canvas Extractor Tools](https://github.com/extrasnow75-bit/canvas-extractor-tools) and follows
+the same architecture.
 
-### 🎯 All-in-One Workflow
-- **Part 1: Create Rubric** - Transform assignment descriptions into professional rubrics using AI
-- **Part 2: Convert to CSV** - Convert Word/PDF/Google Docs files to Canvas-compatible CSV format
-- **Part 3: Upload to Canvas** - Push rubrics directly to Canvas LMS
-- **Screenshot Converter** - Convert Canvas rubric screenshots to editable Word/Google documents to Canvas rubrics
+## Installing
 
-### 🔄 Session Memory
-- Data persists as you move between workflow steps
-- "New Batch" option to start another without losing history
-- "New Session" to clear everything and reset
+Download the installer for your machine from the
+[latest release](https://github.com/extrasnow75-bit/Consolidated_Rubric_App_V2/releases/latest).
+The release page has the install steps, including how to get past the warning Windows and macOS
+show for in-house apps.
 
-### 💾 Persistent UI
-- Handles single rubrics or large batches
-- Google Drive Picker functionality
-- Make edits to rubric content within the app
-- Save draft rubrics and/or CSV files or just push rubrics to Canvas and disgard draft documents
+## What it does
 
-## Prerequisites
+**Part 1 — Create a rubric.** Paste an assignment description, or upload one as a Word, PDF or
+Google doc. Gemini drafts a four-level rubric which you can edit in place or revise by asking for
+changes in plain English.
 
-- Node.js 16+ and npm
-- Gemini API key (from https://ai.google.dev)
-- Canvas API token (for upload functionality)
+**Part 2 — Convert to CSV.** Turn a rubric document into the CSV format Canvas imports. Handles a
+document containing several rubrics, converting each one.
 
-## Installation
+**Part 3 — Upload to Canvas.** Push the CSV straight into a course's Rubrics list.
 
-1. Clone/download the repository
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+**Screenshot converter.** Turn a screenshot of an existing Canvas rubric back into an editable
+rubric.
 
-3. Set up your environment variables in `.env.local`:
-   ```
-   VITE_GEMINI_API_KEY=your_api_key_here
-   ```
+Every rubric can open in Google Docs or be saved to your computer. Parts 1 to 3 work without a
+Google account — you only need one to browse Drive or create a Doc.
 
-## Running Locally
+## Setting it up
+
+Three things, all under **Initial Setup** in the app:
+
+| | Needed for | Where to get it |
+|---|---|---|
+| **Gemini API key** | Everything AI-generated | [aistudio.google.com](https://aistudio.google.com) — free |
+| **Canvas API token** | Uploading to Canvas | Canvas → Account → Settings → **+ New Access Token** |
+| **Google sign-in** | Drive browsing and Google Docs | Optional — the app works without it |
+
+Generate a **dedicated** Canvas token for this app rather than reusing an existing one, and give
+it an expiry date. Revoke it in Canvas when you stop using the app. The app has a "Remove Token"
+button that clears its local copy.
+
+## Where your credentials live
+
+Your Canvas token and Gemini key are encrypted into your operating system's keychain — Windows
+Credential Manager or the macOS Keychain — and never leave your computer. Your Google sign-in is
+stored the same way.
+
+This is the main reason the app is no longer a website. A Canvas access token acts as you: it can
+read enrollments, submissions, grades, student names and SIS IDs across every course you teach.
+In a browser that token sat in `localStorage`, readable by any extension with host permissions.
+Here it is held by the operating system, and the visible part of the app is never given it — the
+window cannot make network requests at all, so there is nowhere for a credential to go even if
+something went wrong inside it.
+
+That closes the browser attack surface, which is the realistic risk. It does not defend against
+malware already running as you on your own machine; nothing that stores a credential for later
+use can.
+
+## Developing
 
 ```bash
-npm run dev
+npm install
+npm run dev        # launch the app with hot reload
+npm run typecheck  # both processes
+npm test           # unit tests
+npm run build      # build + package installers into release/
 ```
 
-The app will start at `http://localhost:5173` (or another port if 5173 is busy).
+Google sign-in needs a **Desktop app** OAuth client — a web client will not work with the
+loopback redirect desktop apps use. See `electron/ipc/googleConfig.ts` for the setup steps, and
+copy `.env.example` to `.env.local` for the client secret.
 
-## Building for Production
+### How it is put together
+
+```
+electron/
+  main.ts          window, lifecycle, IPC handlers
+  preload.ts       the contextBridge — the app's real security boundary
+  ipc/             everything that touches the network or a credential
+src/               the React interface — no network access at all
+resources/         app icons (icon.svg is the source; make-icon.py rasterises it)
+```
+
+The split is the design. Every network call — Canvas, Google Drive, Gemini — happens in the main
+process, and every credential is read there. The renderer is served from `file://` under a
+Content-Security-Policy of `connect-src 'none'`, so it has no fetch, no XHR, no WebSocket and no
+beacon. It asks the main process for things and draws the results.
+
+Two consequences worth knowing before changing anything:
+
+- **Nothing in `window.api` returns a credential.** Secrets travel renderer → main only; reads
+  come back as `{ hasValue, hint }`. A method that returns one would be a bug.
+- **`openExternal` is restricted to an allowlist** of hosts, not just `https:`. CSP does not
+  govern top-level navigation, so an unrestricted `openExternal` is a working way to send data
+  off the machine. See `electron/ipc/externalLinks.ts`.
+
+### Releasing
+
+Rewrite `RELEASE_NOTES.md` for the new version, then push a tag:
 
 ```bash
-npm run build
+git tag v1.0.1 && git push origin v1.0.1
 ```
 
-Output will be in the `dist/` directory.
-
-## Usage Guide
-
-### Part 1: Creating a Rubric
-1. Paste or upload an assignment description
-2. Set total points and point style preference
-3. Click "Generate Rubric"
-4. Review and export to Word, or continue to Part 2
-
-### Part 2: Converting Word to CSV
-1. Upload a Word or PDF file containing a rubric
-2. Select which rubric to convert (if multiple found)
-3. Click "Generate CSV"
-4. Copy or download the CSV, or continue to Part 3
-
-### Part 3: Uploading to Canvas
-1. Enter your Canvas course URL and API token
-2. Upload will use the CSV from Part 2, or paste one manually
-3. Click "Upload to Canvas"
-4. Check Canvas for your new rubric in the Rubrics section
-
-### Screenshot to Word
-1. Take a screenshot of a Canvas rubric
-2. Upload the image
-3. Click "Convert to Rubric"
-4. Export the recognized rubric to Word
-
-## Architecture
-
-```
-rubric-app-consolidated/
-├── src/
-│   ├── App.tsx              # Main router component
-│   ├── index.tsx            # React entry point
-│   ├── types.ts             # Unified TypeScript types
-│   ├── contexts/
-│   │   └── SessionContext.tsx  # Global state management
-│   ├── components/
-│   │   ├── Layout.tsx          # Persistent banner + ribbon
-│   │   ├── Dashboard.tsx       # Main menu
-│   │   ├── Part1Rubric.tsx     # Create from text
-│   │   ├── Part2WordToCsv.tsx  # Word to CSV converter
-│   │   ├── Part3Upload.tsx     # Canvas uploader
-│   │   ├── ScreenshotConverter.tsx  # Screenshot to Word
-│   │   └── [Reusable components]
-│   └── services/
-│       ├── geminiService.ts     # AI-powered rubric generation
-│       ├── canvasService.ts     # Canvas API integration
-│       └── wordExportService.ts # Word document export
-├── vite.config.ts
-├── tsconfig.json
-├── package.json
-└── index.html
-```
-
-## API Keys
-
-### Gemini API
-1. Go to https://ai.google.dev
-2. Click "Get API Key"
-3. Create a new project and generate an API key
-4. Add it to `.env.local` as `VITE_GEMINI_API_KEY`
-
-### Canvas API Token
-1. Log in to Canvas
-2. Go to Account → Settings
-3. Scroll to "Approved Integrations"
-4. Click "+ New Access Token"
-5. Name it and optionally set an expiration
-6. Copy the token and paste in Part 3
-
-## Troubleshooting
-
-### CORS Error on Canvas Upload
-- Enable a CORS extension in your browser (Allow CORS)
-- Add your Canvas URL to the extension's whitelist
-- Refresh the app after enabling the extension
-
-### No Rubric Found in File
-- Ensure the Word/PDF has a proper table structure with criteria and ratings
-- The table should have columns for performance levels and points
-
-### Gemini API Quota Exceeded
-- The app automatically retries with exponential backoff
-- If it persists, check your Gemini API usage limits
-
-## Support
-
-For issues or feature requests, please check the original app documentation or open an issue in the project repository.
-
-## License
-
-This is a consolidated version of four separate rubric tools, merged for seamless workflow management.
+The workflow builds Windows and both macOS installers, checks the notes name the tag, and
+publishes the release. It needs one repository secret, `MAIN_VITE_GOOGLE_CLIENT_SECRET`.
