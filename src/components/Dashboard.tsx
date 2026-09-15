@@ -112,7 +112,7 @@ export const Dashboard: React.FC = () => {
   // ─── Derived validity ────────────────────────────────────────────────────────
 
   const geminiValid = !!state.geminiApiKey;
-  const canvasTokenValid = !!state.canvasApiToken;
+  const canvasTokenValid = !!state.canvasTokenStatus?.hasValue;
   const googleSignedIn = state.isGoogleAuthenticated;
   const draftRubricValid =
     hasDraftRubric === 'yes' ? uploadedFiles.length > 0 : hasDraftRubric === 'no';
@@ -143,6 +143,10 @@ export const Dashboard: React.FC = () => {
   }, [allSetupComplete]);
 
   // ── Fetch course name when URL and token are both valid ──
+  //
+  // The lookup happens in the main process, which loads the token from the keychain itself. This
+  // used to be a fetch from here with the token in an Authorization header, routed through the
+  // Canvas proxy to get around CORS; neither the proxy nor the token is in the renderer now.
   useEffect(() => {
     if (!courseUrlValid || !canvasTokenValid) {
       setCourseName(null);
@@ -150,32 +154,19 @@ export const Dashboard: React.FC = () => {
     }
     let cancelled = false;
     setCourseNameLoading(true);
-    const fetchCourseName = async () => {
-      try {
-        const url = new URL(courseUrlInput.trim());
-        const match = url.pathname.match(/\/courses\/(\d+)/);
-        if (!match) return;
-        const courseId = match[1];
-        const instanceUrl = `${url.protocol}//${url.host}`;
-        const resp = await fetch(`/canvas-proxy/api/v1/courses/${courseId}`, {
-          headers: {
-            'Authorization': `Bearer ${state.canvasApiToken}`,
-            'X-Canvas-Instance': instanceUrl,
-          },
-        });
-        if (!cancelled && resp.ok) {
-          const data = await resp.json();
-          setCourseName(data.name || null);
-        }
-      } catch {
-        // silently ignore network errors
-      } finally {
+    window.api.canvas
+      .getCourseName({ courseUrl: courseUrlInput.trim() })
+      .then((result) => {
+        if (!cancelled) setCourseName(result.ok ? result.name ?? null : null);
+      })
+      .catch(() => {
+        // A failed lookup is cosmetic — it only means the course name is not shown.
+      })
+      .finally(() => {
         if (!cancelled) setCourseNameLoading(false);
-      }
-    };
-    fetchCourseName();
+      });
     return () => { cancelled = true; };
-  }, [courseUrlValid, canvasTokenValid, courseUrlInput, state.canvasApiToken]);
+  }, [courseUrlValid, canvasTokenValid, courseUrlInput]);
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
 
@@ -203,7 +194,7 @@ export const Dashboard: React.FC = () => {
     setApiKeyInput('');
   };
 
-  const handleSaveCanvasToken = () => {
+  const handleSaveCanvasToken = async () => {
     const trimmed = canvasTokenInput.trim();
     if (!trimmed) return;
     if (trimmed.length < 20) {
@@ -215,11 +206,23 @@ export const Dashboard: React.FC = () => {
       return;
     }
     setCanvasTokenError(null);
-    setUserCanvasApiToken(trimmed);
-    setCanvasTokenInput('');
+    try {
+      await setUserCanvasApiToken(trimmed);
+      setCanvasTokenInput('');
+    } catch (e) {
+      // The OS keychain is unavailable, so nothing was stored. Say so plainly: silently keeping
+      // the token in memory would let the user believe setup is finished when it is not.
+      setCanvasTokenError(e instanceof Error ? e.message : 'Could not save the token securely.');
+    }
   };
 
-  const handleRemoveCanvasToken = () => setUserCanvasApiToken(null);
+  const handleRemoveCanvasToken = async () => {
+    try {
+      await setUserCanvasApiToken(null);
+    } catch {
+      // Nothing stored means nothing to remove.
+    }
+  };
 
   const handleCourseUrlChange = (val: string) => {
     setCourseUrlInput(val);
@@ -540,7 +543,9 @@ export const Dashboard: React.FC = () => {
                       <div className="w-2 h-2 bg-green-500 rounded-full" />
                       <span className="text-sm font-bold text-green-700">Token saved</span>
                     </div>
-                    <p className="text-xs text-gray-500 font-mono mb-3 break-all">{maskKey(state.canvasApiToken!)}</p>
+                    <p className="text-xs text-gray-600 font-mono mb-3">
+                      In your keychain, ending …{state.canvasTokenStatus?.hint}
+                    </p>
                     <button onClick={handleRemoveCanvasToken} className="w-full px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-sm flex items-center justify-center gap-2">
                       <LogOut className="w-4 h-4" /> Remove Token
                     </button>
@@ -1014,7 +1019,6 @@ export const Dashboard: React.FC = () => {
             phase1Rubric={analyzeRubricSource === 'no' ? (state.rubric ?? undefined) : undefined}
             uploadedFiles={analyzeRubricSource === 'yes' ? uploadedFiles : undefined}
             courseUrl={analyzeRubricSource === 'no' ? (state.courseUrl || courseUrlInput) : courseUrlInput}
-            canvasToken={state.canvasApiToken ?? ''}
             onStartOver={() => {
               setShowAnalyze(false);
               setAnalyzeRubricSource(null);

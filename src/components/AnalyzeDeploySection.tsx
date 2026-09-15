@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { CheckCircle, XCircle, Loader2, Download, Copy, Trash2, ExternalLink } from 'lucide-react';
 import { RubricData, CanvasConfig } from '../types';
 import { generateCsvFromRubricObject, generateAllCsvsFromDoc } from '../services/geminiService';
-import { pushRubricToCanvas } from '../services/canvasService';
 import JSZip from 'jszip';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -35,7 +34,6 @@ interface Props {
   /** "Yes" path — user-uploaded document files */
   uploadedFiles?: UploadedDocFile[];
   courseUrl: string;
-  canvasToken: string;
   onStartOver?: () => void;
 }
 
@@ -56,7 +54,6 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
   scoringMethod = 'ranges',
   uploadedFiles = [],
   courseUrl,
-  canvasToken,
   onStartOver,
 }) => {
   const [runStatus, setRunStatus] = useState<RunStatus>('running');
@@ -157,7 +154,6 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
         addLog(`Ready to deploy ${pending.length} rubric(s) to Canvas…`, 'info');
 
         // ── Step 2: Deploy to Canvas ─────────────────────────────────────────
-        const config: CanvasConfig = { courseHomeUrl: courseUrl, accessToken: canvasToken };
         const finalResults: RubricResult[] = [];
 
         for (let i = 0; i < pending.length; i++) {
@@ -166,7 +162,10 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
           addLog(`Deploying "${item.name}" to Canvas…`, 'info');
 
           try {
-            const res = await pushRubricToCanvas(config, item.csvContent);
+            const res = await window.api.canvas.pushRubric({
+              csvContent: item.csvContent,
+              courseUrl,
+            });
             if (res.success) {
               addLog(`✓ "${item.name}" deployed successfully`, 'success');
               finalResults.push({ name: item.name, status: 'success', csvContent: item.csvContent });

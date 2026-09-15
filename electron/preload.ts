@@ -56,4 +56,41 @@ contextBridge.exposeInMainWorld('api', {
     writeFile: (args: { path: string; data: string | Uint8Array }): Promise<{ ok: true }> =>
       ipcRenderer.invoke('dialog:writeFile', args),
   },
+  credentials: {
+    /** False on a machine with no working keychain, where nothing can be stored safely. */
+    keychainAvailable: (): Promise<boolean> => ipcRenderer.invoke('credentials:keychainAvailable'),
+    /** Pass null to forget the stored token. Rejects if the keychain is unavailable. */
+    setCanvasToken: (token: string | null): Promise<void> =>
+      ipcRenderer.invoke('credentials:setCanvasToken', token),
+    /**
+     * Whether a Canvas token is stored, and its last four characters.
+     *
+     * There is no call that returns the token itself, and there should never be one: a Canvas
+     * token reads every student record its owner can see, and the renderer has no use for it that
+     * the main process cannot serve.
+     */
+    canvasTokenStatus: (): Promise<{ hasValue: boolean; hint: string }> =>
+      ipcRenderer.invoke('credentials:canvasTokenStatus'),
+  },
+  canvas: {
+    /** Validates, stores, and pins this host for both API calls and external links. */
+    setCourseUrl: (url: string | null): Promise<{ ok: boolean; message?: string }> =>
+      ipcRenderer.invoke('canvas:setCourseUrl', url),
+    getCourseUrl: (): Promise<string | null> => ipcRenderer.invoke('canvas:getCourseUrl'),
+    /** Confirms the stored token still works, and returns whose it is. */
+    verifyToken: (args: {
+      courseUrl: string
+    }): Promise<{ ok: boolean; name?: string; message?: string }> =>
+      ipcRenderer.invoke('canvas:verifyToken', args),
+    getCourseName: (args: {
+      courseUrl: string
+    }): Promise<{ ok: boolean; name?: string; message?: string }> =>
+      ipcRenderer.invoke('canvas:getCourseName', args),
+    /** Takes no token: main loads it from the keychain when it builds the request. */
+    pushRubric: (args: {
+      csvContent: string
+      courseUrl: string
+    }): Promise<{ success: boolean; message: string }> =>
+      ipcRenderer.invoke('canvas:pushRubric', args),
+  },
 })

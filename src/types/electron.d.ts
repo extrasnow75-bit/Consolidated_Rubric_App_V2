@@ -43,6 +43,36 @@ declare global {
         /** Only accepts a path that `saveFile` issued; any other is refused in main. */
         writeFile(args: { path: string; data: string | Uint8Array }): Promise<{ ok: true }>
       }
+      credentials: {
+        keychainAvailable(): Promise<boolean>
+        /** Pass null to forget the stored token. Rejects if the keychain is unavailable. */
+        setCanvasToken(token: string | null): Promise<void>
+        /** Status only — there is no call that returns the token itself. */
+        canvasTokenStatus(): Promise<CredentialStatus>
+      }
+      canvas: {
+        setCourseUrl(url: string | null): Promise<{ ok: boolean; message?: string }>
+        getCourseUrl(): Promise<string | null>
+        verifyToken(args: { courseUrl: string }): Promise<CanvasLookup>
+        getCourseName(args: { courseUrl: string }): Promise<CanvasLookup>
+        /** Takes no token: main loads it from the keychain when it builds the request. */
+        pushRubric(args: {
+          csvContent: string
+          courseUrl: string
+        }): Promise<{ success: boolean; message: string }>
+      }
     }
+  }
+
+  /** What the renderer may know about a stored secret: that it exists, and its last 4 chars. */
+  interface CredentialStatus {
+    hasValue: boolean
+    hint: string
+  }
+
+  interface CanvasLookup {
+    ok: boolean
+    name?: string
+    message?: string
   }
 }

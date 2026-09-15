@@ -3,6 +3,14 @@ import { join } from 'path'
 import { writeFile } from 'fs/promises'
 import { isAllowedExternalUrl, setAllowedCanvasHost } from './ipc/externalLinks'
 import { readSettings, updateSettings } from './ipc/settings'
+import {
+  setCanvasToken,
+  canvasTokenStatus,
+  isKeychainAvailable,
+  type CredentialStatus,
+} from './ipc/credentials'
+import { pushRubric, verifyToken, getCourseName } from './ipc/canvas'
+import { parseCourseUrl } from './ipc/canvasUtils'
 import { rememberSavePath, consumeSavePath } from './ipc/savePaths'
 import { checkForUpdate, checkNow, RELEASES_PAGE } from './ipc/updateCheck'
 import {
@@ -182,6 +190,56 @@ ipcMain.handle('dialog:writeFile', async (_e, args: { path: string; data: string
   await writeFile(target, bytes)
   return { ok: true as const }
 })
+
+// ─── Credentials ──────────────────────────────────────────────────────────────
+//
+// Note the asymmetry, which is the point: `set` takes a secret, and the matching read returns a
+// status object. There is deliberately no `getCanvasToken` handler. See credentials.ts.
+
+ipcMain.handle('credentials:keychainAvailable', () => isKeychainAvailable())
+
+ipcMain.handle('credentials:setCanvasToken', (_e, token: string | null) => {
+  setCanvasToken(token)
+})
+
+ipcMain.handle('credentials:canvasTokenStatus', (): CredentialStatus => canvasTokenStatus())
+
+// ─── Canvas ───────────────────────────────────────────────────────────────────
+
+/**
+ * Save the course URL, and teach the external-link allowlist about its host.
+ *
+ * Validated here rather than trusted, because this one value decides two things that matter: the
+ * only host the Canvas token will ever be sent to, and the only Canvas host `openExternal` will
+ * open. Rejected URLs are not stored, so a bad value cannot widen either.
+ */
+ipcMain.handle('canvas:setCourseUrl', (_e, url: string | null) => {
+  if (!url) {
+    updateSettings({ canvasCourseUrl: undefined })
+    setAllowedCanvasHost(null)
+    return { ok: true as const }
+  }
+  const ref = parseCourseUrl(url)
+  if (!ref) {
+    return {
+      ok: false as const,
+      message:
+        'That is not a recognised Canvas course URL. It should look like ' +
+        'https://yourschool.instructure.com/courses/12345 — paste a link from inside your course.',
+    }
+  }
+  updateSettings({ canvasCourseUrl: url.trim() })
+  setAllowedCanvasHost(url.trim())
+  return { ok: true as const }
+})
+
+ipcMain.handle('canvas:getCourseUrl', () => readSettings().canvasCourseUrl ?? null)
+
+ipcMain.handle('canvas:verifyToken', (_e, args: { courseUrl: string }) => verifyToken(args))
+ipcMain.handle('canvas:getCourseName', (_e, args: { courseUrl: string }) => getCourseName(args))
+ipcMain.handle('canvas:pushRubric', (_e, args: { csvContent: string; courseUrl: string }) =>
+  pushRubric(args),
+)
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 

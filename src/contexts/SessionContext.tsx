@@ -45,9 +45,11 @@ const SessionContext = createContext<{
   // Gemini API Key
   setUserGeminiApiKey: (key: string | null) => void;
   // Canvas API Token
-  setUserCanvasApiToken: (token: string | null) => void;
+  /** Stores the token in the OS keychain. Rejects if no keychain is available. */
+  setUserCanvasApiToken: (token: string | null) => Promise<void>;
   // V.2 fields
-  setCourseUrl: (url: string | null) => void;
+  /** Validated and pinned in the main process; resolves with why it was refused. */
+  setCourseUrl: (url: string | null) => Promise<{ ok: boolean; message?: string }>;
   setHasDraftRubric: (value: 'yes' | 'no' | null) => void;
   // Google Auth methods
   startGoogleAuth: () => Promise<void>;
@@ -92,7 +94,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     // Gemini API Key
     geminiApiKey: null,
     // Canvas API Token
-    canvasApiToken: null,
+    canvasTokenStatus: null,
     // V.2 fields
     courseUrl: null,
     hasDraftRubric: null,
@@ -295,7 +297,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       },
       // Preserve credentials and V.2 setup across session clears
       geminiApiKey: prev.geminiApiKey,
-      canvasApiToken: prev.canvasApiToken,
+      canvasTokenStatus: prev.canvasTokenStatus,
       courseUrl: prev.courseUrl,
       hasDraftRubric: prev.hasDraftRubric,
       isGoogleAuthenticated: prev.isGoogleAuthenticated,
@@ -333,25 +335,40 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   }, []);
 
-  // V.2 setters
-  const setCourseUrl = useCallback((url: string | null) => {
-    setState((prev) => ({ ...prev, courseUrl: url }));
-    if (url) localStorage.setItem('canvas_course_url', url);
-    else localStorage.removeItem('canvas_course_url');
+  /**
+   * Save the Canvas course URL.
+   *
+   * Persisted by the main process rather than here, because this value decides two things that
+   * are not the renderer's to decide: the only host the Canvas token will be sent to, and the
+   * only Canvas host the app will open in a browser. Main validates it and refuses anything that
+   * is not an HTTPS course URL on a public host.
+   */
+  const setCourseUrl = useCallback(async (url: string | null) => {
+    const result = await window.api.canvas.setCourseUrl(url);
+    if (result.ok) {
+      setState((prev) => ({ ...prev, courseUrl: url }));
+    }
+    return result;
   }, []);
 
   const setHasDraftRubric = useCallback((value: 'yes' | 'no' | null) => {
     setState((prev) => ({ ...prev, hasDraftRubric: value }));
   }, []);
 
-  // Canvas API Token management
-  const setUserCanvasApiToken = useCallback((token: string | null) => {
-    setState((prev) => ({ ...prev, canvasApiToken: token }));
-    if (token) {
-      localStorage.setItem('canvas_api_token', token);
-    } else {
-      localStorage.removeItem('canvas_api_token');
-    }
+  /**
+   * Hand the Canvas token to the main process, which encrypts it into the OS keychain.
+   *
+   * Note what does not happen here: the token is never put into React state, and it is never
+   * written to localStorage. It goes straight across the IPC boundary, and what comes back is a
+   * status object — a boolean and the last four characters. Pass null to forget it.
+   *
+   * Throws if the OS has no working keychain, so the caller can tell the user that nothing was
+   * saved rather than letting them believe it was.
+   */
+  const setUserCanvasApiToken = useCallback(async (token: string | null) => {
+    await window.api.credentials.setCanvasToken(token);
+    const status = await window.api.credentials.canvasTokenStatus();
+    setState((prev) => ({ ...prev, canvasTokenStatus: status }));
   }, []);
 
   // ── Google Auth (Firebase popup flow) ──────────────────────────────────────
@@ -453,17 +470,15 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       geminiServiceSetApiKey(savedApiKey);
     }
 
-    // Restore saved Canvas API token
-    const savedCanvasToken = localStorage.getItem('canvas_api_token');
-    if (savedCanvasToken) {
-      setState((prev) => ({ ...prev, canvasApiToken: savedCanvasToken }));
-    }
-
-    // Restore saved V.2 course URL
-    const savedCourseUrl = localStorage.getItem('canvas_course_url');
-    if (savedCourseUrl) {
-      setState((prev) => ({ ...prev, courseUrl: savedCourseUrl }));
-    }
+    // Canvas token status and course URL both live in the main process now — the token
+    // encrypted in the OS keychain, the URL in settings.json. Neither is read from localStorage.
+    void (async () => {
+      const [status, savedCourseUrl] = await Promise.all([
+        window.api.credentials.canvasTokenStatus().catch(() => ({ hasValue: false, hint: '' })),
+        window.api.canvas.getCourseUrl().catch(() => null),
+      ]);
+      setState((prev) => ({ ...prev, canvasTokenStatus: status, courseUrl: savedCourseUrl }));
+    })();
 
     // Listen for Firebase auth state changes.
     // When the page reloads, Firebase restores the user from IndexedDB.

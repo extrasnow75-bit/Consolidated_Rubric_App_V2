@@ -95,9 +95,14 @@ export interface RubricMeta {
 // INTERFACES - CANVAS
 // =========================
 
+/**
+ * Where a rubric is being uploaded.
+ *
+ * No token field: the Canvas token lives in the OS keychain and is loaded by the main process
+ * when it builds the request. Nothing in the renderer needs to carry it around, so nothing does.
+ */
 export interface CanvasConfig {
   courseHomeUrl: string;
-  accessToken: string;
 }
 
 export interface CanvasUser {
@@ -238,8 +243,15 @@ export interface SessionState {
   // Gemini API Key (user-provided)
   geminiApiKey: string | null;
 
-  // Canvas API Token (user-provided, optional — used by Phase 3)
-  canvasApiToken: string | null;
+  /**
+   * Whether a Canvas token is saved, and its last four characters — never the token.
+   *
+   * A Canvas access token reads every student record its owner can see, so it lives in the OS
+   * keychain and is loaded by the main process at the moment a request is built. The renderer
+   * needs to know only whether setup is complete and which token is saved; it is never given the
+   * value, and so has nothing to leak.
+   */
+  canvasTokenStatus: CredentialStatus | null;
 
   // V.2 fields
   courseUrl: string | null;

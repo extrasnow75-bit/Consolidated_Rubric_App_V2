@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode, BatchItemStatus, CanvasConfig } from '../types';
-import { pushRubricToCanvas } from '../services/canvasService';
 import { Eye, EyeOff, Loader2, Upload, CheckCircle, AlertCircle, X, Zap, FolderOpen, ChevronLeft } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import JSZip from 'jszip';
@@ -33,8 +32,8 @@ export const Part3Upload: React.FC = () => {
   } = useSession();
 
   const [courseUrl, setCourseUrl] = useState('');
-  const [accessToken, setAccessToken] = useState(state.canvasApiToken || '');
-  const [showToken, setShowToken] = useState(false);
+  /** The token itself is in the OS keychain; this is all the renderer knows about it. */
+  const hasToken = !!state.canvasTokenStatus?.hasValue;
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -141,7 +140,7 @@ export const Part3Upload: React.FC = () => {
   );
 
   const handleUpload = async () => {
-    if (!courseUrl.trim() || !accessToken.trim()) {
+    if (!courseUrl.trim() || !hasToken) {
       setError('Please enter Canvas URL and access token');
       return;
     }
@@ -168,10 +167,7 @@ export const Part3Upload: React.FC = () => {
     const courseHomeUrl = courseUrl.startsWith('http')
       ? courseUrl.replace(/\/$/, '')
       : `https://${courseUrl.replace(/\/$/, '')}`;
-    const config: CanvasConfig = {
-      courseHomeUrl,
-      accessToken,
-    };
+    const config: CanvasConfig = { courseHomeUrl };
 
     try {
       if (uploadMode === 'from-phase2' && phase2Items.length >= 1) {
@@ -221,7 +217,10 @@ export const Part3Upload: React.FC = () => {
           });
 
           try {
-            const result = await pushRubricToCanvas(config, item.csvContent!);
+            const result = await window.api.canvas.pushRubric({
+              csvContent: item.csvContent!,
+              courseUrl: courseHomeUrl,
+            });
             if (result.success) {
               setPhase2UploadStatuses(prev => ({ ...prev, [item.id]: { status: 'success', message: 'Successfully uploaded' } }));
               successCount++;
@@ -265,7 +264,10 @@ export const Part3Upload: React.FC = () => {
         setProgress({ currentStep: 'Uploading rubric to Canvas...' });
 
         try {
-          const result = await pushRubricToCanvas(config, csvToUse);
+          const result = await window.api.canvas.pushRubric({
+            csvContent: csvToUse,
+            courseUrl: courseHomeUrl,
+          });
 
           if (result.success) {
             addLog('✓ Upload successful!');
@@ -347,7 +349,10 @@ export const Part3Upload: React.FC = () => {
           });
 
           try {
-            const result = await pushRubricToCanvas(config, file.content);
+            const result = await window.api.canvas.pushRubric({
+              csvContent: file.content,
+              courseUrl: courseHomeUrl,
+            });
 
             if (result.success) {
               updatedFiles[i] = {
@@ -491,76 +496,29 @@ export const Part3Upload: React.FC = () => {
     }
   };
 
-  // Validate Canvas credentials by making a test GET request to the course endpoint
+  /**
+   * Confirm the saved token still works against this course.
+   *
+   * The whole request happens in the main process: it loads the token from the keychain, calls
+   * Canvas directly and returns a verdict. The previous version built the request here with the
+   * token in an Authorization header and sent it through the Canvas proxy — which is also why it
+   * had to distinguish a genuine Canvas 404 from a proxy routing error. With no proxy in the
+   * path, a 404 means what it says.
+   */
   const handleValidate = async () => {
     const courseId = extractCourseId(courseUrl);
-    if (!courseUrl.trim() || !courseId || !accessToken.trim()) return;
+    if (!courseUrl.trim() || !courseId || !hasToken) return;
     setValidating(true);
     setValidationResult(null);
     try {
-      const base = courseUrl.startsWith('http')
-        ? courseUrl.replace(/\/courses\/\d+.*$/, '').replace(/\/$/, '')
-        : `https://${courseUrl.replace(/\/courses\/\d+.*$/, '').replace(/\/$/, '')}`;
-      addLog(`Checking: ${base}/api/v1/courses/${courseId}`);
-      const res = await fetch('/canvas-proxy/api/v1/courses/' + courseId, {
-        headers: {
-          'Authorization': 'Bearer ' + accessToken,
-          'x-canvas-base': base,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      // Read the body for all responses so we can show the actual Canvas / proxy error
-      const rawText = await res.text().catch(() => '');
-      let errorDetail = '';
-      if (!res.ok) {
-        try {
-          const json = JSON.parse(rawText);
-          // Canvas wraps errors as { errors: [{ type, message }] } or { message }
-          errorDetail =
-            json.errors?.[0]?.message ||
-            json.errors?.[0]?.type ||
-            json.message ||
-            json.error ||
-            '';
-        } catch {
-          // Not JSON — could be an HTML Vercel error page or plain text
-          errorDetail = rawText.replace(/<[^>]+>/g, '').trim().slice(0, 200);
-        }
-      }
-
-      if (res.ok) {
-        let data: any = {};
-        try { data = JSON.parse(rawText); } catch { /* ignore */ }
-        const msg = `✓ Connected — ${data.name || 'Course found'}`;
-        setValidationResult({ ok: true, message: msg });
-        addLog(msg);
-      } else if (res.status === 401) {
-        const detail = errorDetail ? ` (${errorDetail})` : '';
-        const msg = `✗ Unauthorized (401)${detail} — token may be invalid or expired`;
-        setValidationResult({ ok: false, message: msg });
-        addLog(msg);
-      } else if (res.status === 404) {
-        const detail = errorDetail ? ` — ${errorDetail}` : '';
-        addLog(`✗ Not found (404)${detail}`);
-        if (!errorDetail || errorDetail.toLowerCase().includes('not') || errorDetail.toLowerCase().includes('course')) {
-          // Looks like a genuine Canvas 404
-          const msg = '✗ Course not found (404) — verify the Course URL and that your token has access to this course';
-          setValidationResult({ ok: false, message: msg });
-        } else {
-          // Unexpected body — likely a Vercel routing error, not Canvas
-          const msg = `✗ Proxy error (404): ${errorDetail || 'unexpected response — check Vercel function logs'}`;
-          setValidationResult({ ok: false, message: msg });
-          addLog('  Hint: This may be a proxy routing issue, not a Canvas error.');
-        }
-      } else {
-        const detail = errorDetail ? `: ${errorDetail}` : `: ${res.statusText}`;
-        const msg = `✗ Error ${res.status}${detail}`;
-        setValidationResult({ ok: false, message: msg });
-        addLog(msg);
-      }
-    } catch (err: any) {
-      const msg = `✗ Network error: ${err.message}`;
+      const result = await window.api.canvas.getCourseName({ courseUrl: courseUrl.trim() });
+      const msg = result.ok
+        ? `\u2713 Connected \u2014 ${result.name || 'Course found'}`
+        : `\u2717 ${result.message || 'Could not reach that course.'}`;
+      setValidationResult({ ok: result.ok, message: msg });
+      addLog(msg);
+    } catch (e) {
+      const msg = `\u2717 ${e instanceof Error ? e.message : 'Validation failed.'}`;
       setValidationResult({ ok: false, message: msg });
       addLog(msg);
     } finally {
@@ -965,35 +923,40 @@ export const Part3Upload: React.FC = () => {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                {/*
+                  The token is not editable here.
+
+                  It used to be a second password box duplicating the one in Initial Setup, which
+                  meant two places to paste the same secret and no clear answer to which one was
+                  in effect. Now there is one: it is saved once, encrypted in the OS keychain, and
+                  this panel only reports whether it is there.
+                */}
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                  <label className="block text-sm font-bold text-gray-900 mb-1">
                     Canvas API Token
                   </label>
-                  <div className="relative">
-                    <input
-                      type={showToken ? 'text' : 'password'}
-                      value={accessToken}
-                      onChange={(e) => setAccessToken(e.target.value)}
-                      placeholder="Type your token here"
-                      className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowToken(!showToken)}
-                      className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
-                    >
-                      {showToken ? (
-                        <EyeOff className="w-5 h-5" />
-                      ) : (
-                        <Eye className="w-5 h-5" />
-                      )}
-                    </button>
-                  </div>
+                  {hasToken ? (
+                    <p className="text-sm text-gray-700 flex items-center gap-2">
+                      <span className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0" />
+                      Saved in your keychain, ending &hellip;{state.canvasTokenStatus?.hint}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-gray-700">
+                      No token saved yet. Add one under{' '}
+                      <button
+                        onClick={() => setCurrentStep(AppMode.DASHBOARD)}
+                        className="font-bold text-[#0033a0] underline hover:text-blue-800"
+                      >
+                        Initial Setup
+                      </button>{' '}
+                      to upload to Canvas.
+                    </p>
+                  )}
                 </div>
 
                 <button
                   onClick={handleValidate}
-                  disabled={validating || !courseUrl.trim() || !accessToken.trim()}
+                  disabled={validating || !courseUrl.trim() || !hasToken}
                   className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-all text-sm disabled:opacity-50 disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
                 >
                   {validating ? (
@@ -1002,7 +965,7 @@ export const Part3Upload: React.FC = () => {
                     'Validate Connection'
                   )}
                 </button>
-                {!validationResult && (!courseUrl.trim() || !accessToken.trim()) && (
+                {!validationResult && (!courseUrl.trim() || !hasToken) && (
                   <p className="text-xs text-gray-400 text-center">
                     {!courseUrl.trim() ? 'Enter Canvas URL (with course ID)' : 'Enter API Token'} to enable validation
                   </p>
@@ -1048,7 +1011,7 @@ export const Part3Upload: React.FC = () => {
                 disabled={
                   isUploading ||
                   !courseUrl.trim() ||
-                  !accessToken.trim() ||
+                  !hasToken ||
                   (uploadMode === 'from-phase2' && phase2Items.length === 0 && !csvToUse.trim()) ||
                   (uploadMode === 'google-drive' && !csvToUse.trim()) ||
                   (uploadMode === 'batch' && batchFiles.length === 0)
@@ -1096,7 +1059,6 @@ export const Part3Upload: React.FC = () => {
                 <button
                   onClick={() => {
                     setCourseUrl('');
-                    setAccessToken('');
                     setManualCsv('');
                     setUploadStatus(null);
                     clearBatchFiles();

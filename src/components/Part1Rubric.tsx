@@ -89,40 +89,28 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
 
   const deployUrlValid = isCourseUrlValid(deployUrlInput);
 
-  // Fetch course name when deploy URL becomes valid
+  // Fetch course name when deploy URL becomes valid.
+  // Looked up in the main process, which loads the Canvas token from the keychain itself.
   React.useEffect(() => {
-    if (!deployUrlValid || !state.canvasApiToken) {
+    if (!deployUrlValid || !state.canvasTokenStatus?.hasValue) {
       setDeployCourseName(null);
       return;
     }
     let cancelled = false;
     setDeployCourseNameLoading(true);
-    const fetchName = async () => {
-      try {
-        const url = new URL(deployUrlInput.trim());
-        const match = url.pathname.match(/\/courses\/(\d+)/);
-        if (!match) return;
-        const courseId = match[1];
-        const instanceUrl = `${url.protocol}//${url.host}`;
-        const resp = await fetch(`/canvas-proxy/api/v1/courses/${courseId}`, {
-          headers: {
-            'Authorization': `Bearer ${state.canvasApiToken}`,
-            'X-Canvas-Instance': instanceUrl,
-          },
-        });
-        if (!cancelled && resp.ok) {
-          const data = await resp.json();
-          setDeployCourseName(data.name || null);
-        }
-      } catch {
-        // silently ignore
-      } finally {
+    window.api.canvas
+      .getCourseName({ courseUrl: deployUrlInput.trim() })
+      .then((result) => {
+        if (!cancelled) setDeployCourseName(result.ok ? result.name ?? null : null);
+      })
+      .catch(() => {
+        // Cosmetic only: a failed lookup just means no course name is shown.
+      })
+      .finally(() => {
         if (!cancelled) setDeployCourseNameLoading(false);
-      }
-    };
-    fetchName();
+      });
     return () => { cancelled = true; };
-  }, [deployUrlValid, deployUrlInput, state.canvasApiToken]);
+  }, [deployUrlValid, deployUrlInput, state.canvasTokenStatus?.hasValue]);
 
   const handleFileUpload = async (file: File) => {
     setIsLoading(true);
