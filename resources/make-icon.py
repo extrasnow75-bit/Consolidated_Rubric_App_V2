@@ -1,4 +1,4 @@
-"""Rasterise the app icon into a multi-resolution Windows .ico and a 256px .png.
+"""Rasterise the app icon into a multi-resolution Windows .ico and a 1024px .png for macOS.
 
 Run from the project root:
 
@@ -13,7 +13,7 @@ rectangles, so the only place anti-aliasing matters is the tile's rounded corner
 sampled at 4x4 per pixel.
 
 Windows shows the 16px and 32px entries in Explorer and the taskbar, and the 256px entry in the
-installer and large-icon views. macOS takes the .png.
+installer and large-icon views. macOS takes the .png, which must be at least 512x512.
 """
 
 import struct
@@ -42,6 +42,11 @@ WHITE_RECTS = [
 
 SAMPLES = 4  # 4x4 supersampling per pixel
 SIZES = [16, 32, 48, 256]
+
+# macOS rejects an app icon smaller than 512x512, so the .png cannot just be the .ico's largest
+# entry — electron-builder fails the Mac build outright with "Icon must be at least 512x512".
+# 1024 is Apple's own top size and what it wants for Retina displays.
+MAC_PNG_SIZE = 1024
 
 
 def inside_tile(x: float, y: float) -> bool:
@@ -147,8 +152,8 @@ def main() -> None:
         rgba = render(size)
         png = write_png(here / f"_icon-{size}.png", size, rgba)
         entries.append((size, png))
-        if size == 256:
-            write_png(here / "icon.png", size, rgba)
+
+    write_png(here / "icon.png", MAC_PNG_SIZE, render(MAC_PNG_SIZE))
 
     write_ico(here / "icon.ico", entries)
 
@@ -156,7 +161,7 @@ def main() -> None:
     for size in SIZES:
         (here / f"_icon-{size}.png").unlink()
 
-    print(f"Wrote icon.png (256px) and icon.ico ({', '.join(str(s) for s in SIZES)}px)")
+    print(f"Wrote icon.png ({MAC_PNG_SIZE}px) and icon.ico ({', '.join(str(s) for s in SIZES)}px)")
 
 
 if __name__ == "__main__":
