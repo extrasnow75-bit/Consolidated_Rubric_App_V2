@@ -159,6 +159,19 @@ export const Dashboard: React.FC = () => {
 
   // ── Collapsible Initial Setup ──
   const [isSetupOpen, setIsSetupOpen] = useState(!allSetupComplete);
+  const setupRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Open Initial Setup and take the user to it.
+   *
+   * Offered by the deploy failure panel for the causes a credential or the course URL would fix.
+   * Opening the card without moving to it would be its own version of the problem — the panel is
+   * near the bottom of a long page, so the card expands somewhere the user cannot see.
+   */
+  const handleOpenSetup = useCallback(() => {
+    setIsSetupOpen(true);
+    window.setTimeout(() => revealSection(setupRef.current), REVEAL_DELAY_MS);
+  }, []);
 
   // Auto-collapse only when all three setup items are complete (including Google)
   useEffect(() => {
@@ -456,7 +469,13 @@ export const Dashboard: React.FC = () => {
       <div className="space-y-4">
 
         {/* ── Initial Setup Collapsible ── */}
-        <div className="rounded-2xl overflow-hidden shadow-md">
+        <div
+          ref={setupRef}
+          tabIndex={-1}
+          role="region"
+          aria-label="Initial setup"
+          className="rounded-2xl overflow-hidden shadow-md focus:outline-none"
+        >
 
           {/* Header */}
           <button
@@ -1084,6 +1103,7 @@ export const Dashboard: React.FC = () => {
           className="focus:outline-none"
         >
           <AnalyzeDeploySection
+            onOpenSetup={handleOpenSetup}
             phase1Rubric={analyzeRubricSource === 'no' ? (state.rubric ?? undefined) : undefined}
             uploadedFiles={analyzeRubricSource === 'yes' ? uploadedFiles : undefined}
             courseUrl={analyzeRubricSource === 'no' ? (state.courseUrl || courseUrlInput) : courseUrlInput}
