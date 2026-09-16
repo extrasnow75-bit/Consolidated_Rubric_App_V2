@@ -225,9 +225,32 @@ jobs:
             *-*) prerelease="--prerelease" ;;
           esac
 
-          gh release create "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Canvas Rubric Creator $GITHUB_REF_NAME" \
-            --notes-file notes.md \
-            $prerelease \
-            artifacts/*
+          # Create the release, or fill in one that already exists.
+          #
+          # A tag does not only arrive by `git push origin v0.9.0`. Creating it through GitHub's
+          # Releases page — the only route available to someone without a local clone — makes the
+          # release first and the tag with it, and `gh release create` then fails on a release
+          # that is already there, after both installers have been built. So: create it if it is
+          # missing, and otherwise set the notes and attach the installers to what is there.
+          #
+          # --clobber so re-running the workflow on the same tag replaces the assets rather than
+          # failing on a name that is already taken.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists — updating it."
+            gh release edit "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Canvas Rubric Creator $GITHUB_REF_NAME" \
+              --notes-file notes.md \
+              ${prerelease:+--prerelease}
+            gh release upload "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber \
+              artifacts/*
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Canvas Rubric Creator $GITHUB_REF_NAME" \
+              --notes-file notes.md \
+              $prerelease \
+              artifacts/*
+          fi
