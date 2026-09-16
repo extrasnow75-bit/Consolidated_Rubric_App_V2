@@ -233,8 +233,8 @@ jobs:
           # that is already there, after both installers have been built. So: create it if it is
           # missing, and otherwise set the notes and attach the installers to what is there.
           #
-          # --clobber so re-running the workflow on the same tag replaces the assets rather than
-          # failing on a name that is already taken.
+          # The release is created empty and the installers attached afterwards, so that both
+          # routes upload through the same ordered loop below.
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $GITHUB_REF_NAME already exists — updating it."
             gh release edit "$GITHUB_REF_NAME" \
@@ -242,15 +242,31 @@ jobs:
               --title "Canvas Rubric Creator $GITHUB_REF_NAME" \
               --notes-file notes.md \
               ${prerelease:+--prerelease}
-            gh release upload "$GITHUB_REF_NAME" \
-              --repo "$GITHUB_REPOSITORY" \
-              --clobber \
-              artifacts/*
           else
             gh release create "$GITHUB_REF_NAME" \
               --repo "$GITHUB_REPOSITORY" \
               --title "Canvas Rubric Creator $GITHUB_REF_NAME" \
               --notes-file notes.md \
-              $prerelease \
-              artifacts/*
+              $prerelease
           fi
+
+          # Windows first, then the two Macs.
+          #
+          # Nearly everyone using this is on Windows, and the Assets list is where people who
+          # scroll past the download links end up. GitHub lists assets in the order they were
+          # attached, so uploading one at a time in this order is what puts the .exe on top —
+          # `artifacts/*` expands alphabetically, which put both Macs above it.
+          #
+          # --clobber so re-running the workflow on the same tag replaces the assets rather than
+          # failing on a name that is already taken.
+          for f in \
+            artifacts/*WINDOWS*.exe \
+            artifacts/*APPLE-SILICON*.dmg \
+            artifacts/*INTEL*.dmg
+          do
+            echo "Attaching $f"
+            gh release upload "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber \
+              "$f"
+          done
