@@ -104,6 +104,10 @@ export const Dashboard: React.FC = () => {
   // ── Course Name ──
   const [courseName, setCourseName] = useState<string | null>(null);
   const [courseNameLoading, setCourseNameLoading] = useState(false);
+  const [courseNameError, setCourseNameError] = useState<string | null>(null);
+
+  /** Green means the course was found, not that the string matched a regex. */
+  const courseVerified = courseUrlValid && !!courseName;
 
   // ── Draft Rubric Document ──
   const [hasDraftRubric, setHasDraftRubricLocal] = useState<'' | 'yes' | 'no'>('');
@@ -169,6 +173,7 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     if (!courseUrlValid || !canvasTokenValid) {
       setCourseName(null);
+      setCourseNameError(null);
       return;
     }
     let cancelled = false;
@@ -176,14 +181,25 @@ export const Dashboard: React.FC = () => {
     // Debounced: the effect depends on the live input, so every additional character typed
     // after the URL first became valid fired another authenticated request to the institution's
     // Canvas. The `cancelled` flag protected the state, not the network.
+    setCourseNameError(null);
     const timer = window.setTimeout(() => {
       window.api.canvas
         .getCourseName({ courseUrl: courseUrlInput.trim() })
         .then((result) => {
-          if (!cancelled) setCourseName(result.ok ? result.name ?? null : null);
+          if (cancelled) return;
+          if (result.ok && result.name) {
+            setCourseName(result.name);
+          } else {
+            // Main returns a specific reason — wrong host, no token, 404, unreachable.
+            // Showing it is the difference between "the app is broken" and "fix the URL".
+            setCourseName(null);
+            setCourseNameError(result.message ?? 'Could not load this course.');
+          }
         })
-        .catch(() => {
-          // A failed lookup is cosmetic — it only means the course name is not shown.
+        .catch((e) => {
+          if (!cancelled) {
+            setCourseNameError(e instanceof Error ? e.message : 'Could not load this course.');
+          }
         })
         .finally(() => {
           if (!cancelled) setCourseNameLoading(false);
@@ -868,11 +884,11 @@ export const Dashboard: React.FC = () => {
 
         {/* ── Target Canvas Course — appears only when "Yes" is selected ── */}
         {coreSetupComplete && hasDraftRubric === 'yes' && (
-          <SetupCard isValid={courseUrlValid}>
+          <SetupCard isValid={courseVerified}>
             <div className="flex items-center gap-2 mb-1">
               <Link className="w-4 h-4 text-blue-600 flex-shrink-0" />
               <h3 className="font-black text-lg text-gray-900">Target Canvas Course</h3>
-              {courseUrlValid && <Check className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
+              {courseVerified && <Check className="w-4 h-4 text-green-600 ml-auto flex-shrink-0" />}
             </div>
             <p className="text-sm text-gray-600 mb-3">Enter the homepage URL of the Canvas course you want to deploy rubrics to.</p>
             <input
@@ -880,10 +896,12 @@ export const Dashboard: React.FC = () => {
               value={courseUrlInput}
               onChange={(e) => handleCourseUrlChange(e.target.value)}
               placeholder="https://canvas.institution.edu/courses/12345"
+              aria-invalid={!!((courseUrlInput && !courseUrlValid) || courseNameError)}
+              aria-describedby={courseNameError ? 'course-status' : undefined}
               className={`w-full px-4 py-3 border-2 rounded-xl text-sm focus:outline-none transition-all ${
-                courseUrlInput && !courseUrlValid
+                (courseUrlInput && !courseUrlValid) || courseNameError
                   ? 'border-red-300 focus:border-red-400'
-                  : courseUrlValid
+                  : courseVerified
                   ? 'border-green-400 focus:border-green-500'
                   : 'border-gray-200 focus:border-blue-400'
               }`}
@@ -893,18 +911,37 @@ export const Dashboard: React.FC = () => {
                 <X className="w-3 h-3" /> URL must include a /courses/&lt;ID&gt; path
               </p>
             )}
-            {courseUrlValid && (
-              <div className="mt-3 flex items-center gap-2 min-h-[1.5rem]">
-                {courseNameLoading ? (
-                  <Loader2 className="w-4 h-4 text-green-500 animate-spin" />
-                ) : courseName ? (
-                  <>
-                    <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
-                    <span className="text-sm font-bold text-green-700">{courseName}</span>
-                  </>
-                ) : null}
-              </div>
-            )}
+            {/*
+              Mounted unconditionally: a live region that appears with its text already inside
+              it is announced unreliably. Collapses to sr-only when there is nothing to say.
+            */}
+            <div
+              id="course-status"
+              role="status"
+              aria-live="polite"
+              className={
+                courseNameLoading || courseName || courseNameError
+                  ? 'mt-3 flex items-center gap-2 min-h-[1.5rem]'
+                  : 'sr-only'
+              }
+            >
+              {courseNameLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 text-gray-400 animate-spin" aria-hidden="true" />
+                  <span className="text-sm text-gray-600">Checking this course…</span>
+                </>
+              ) : courseName ? (
+                <>
+                  <Check className="w-4 h-4 text-green-600 flex-shrink-0" aria-hidden="true" />
+                  <span className="text-sm font-bold text-green-700">
+                    <span className="sr-only">Course found: </span>
+                    {courseName}
+                  </span>
+                </>
+              ) : courseNameError ? (
+                <span className="text-xs text-red-700">{courseNameError}</span>
+              ) : null}
+            </div>
           </SetupCard>
         )}
 
