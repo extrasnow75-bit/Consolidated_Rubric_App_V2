@@ -852,6 +852,95 @@ ${csvContent.slice(0, 3000)}`,
   }, signal);
 }
 
+// ─── CSV repair after a Canvas rejection ────────────────────────────
+
+/** What the model came back with. Both fields are claims until the gates in csvRepair.ts pass. */
+export interface CsvRepairProposal {
+  repairedCsv: string;
+  /** The model's own account of what it changed. Never used to build the diff the user approves. */
+  notes: string;
+}
+
+/**
+ * Ask Gemini to repair a rubric CSV that Canvas has just rejected.
+ *
+ * The valuable input here is `canvasMessage` — Canvas says precisely what it objected to
+ * ("criterion ratings: points cannot be blank"), and without it the model is guessing at which of
+ * several plausible problems to fix. `analyzeCsvForCanvas` never receives it, which is why this is
+ * a separate call rather than a flag on that one.
+ *
+ * Nothing here is trusted. The caller runs the result through `checkRepair`, which proves the file
+ * parses, refuses one that loses a criterion, and derives the change list by comparing the two
+ * files rather than by reading `notes`.
+ */
+export async function repairRubricCsv(
+  csvContent: string,
+  canvasMessage: string,
+  signal?: AbortSignal,
+): Promise<CsvRepairProposal> {
+  await throttle(signal);
+
+  return retryWithBackoff(async () => {
+    if (signal?.aborted) throw new Error('Request cancelled');
+    const ai = getClient();
+
+    const prompt = `A Canvas rubric CSV was rejected by Canvas. Repair the CSV so Canvas will accept it.
+
+CANVAS REPORTED:
+${canvasMessage || '(Canvas gave no message.)'}
+
+REQUIRED HEADER ROW (line 1, verbatim):
+Rubric Name,Criteria Name,Criteria Description,Criteria Enable Range,Rating Name,Rating Description,Rating Points,Rating Name,Rating Description,Rating Points,Rating Name,Rating Description,Rating Points,Rating Name,Rating Description,Rating Points
+
+RULES:
+1. One row per criterion. Keep EVERY criterion that is in the original, with its name unchanged.
+2. "Rubric Name": populate only on the first data row; leave blank on the rest.
+3. "Criteria Enable Range" is TRUE or FALSE.
+4. "Rating Points" holds a single maximum number per rating — "10", "8", "0". Never a range
+   string such as "10-8"; Canvas derives range boundaries from the adjacent rating values.
+5. Ratings run HIGHEST points to LOWEST, left to right.
+6. Wrap any field containing a comma or a quotation mark in double quotes, doubling internal quotes.
+7. Change as little as possible. Do not reword criteria or ratings that are not part of the problem,
+   do not add criteria, and do not remove criteria.
+8. If a point value is missing and must be supplied, infer it from the surrounding rating values and
+   say so explicitly in "notes" — that is a number a human has to check.
+
+Return JSON with:
+- repairedCsv: the complete corrected CSV as a single string, header row first, no markdown fences.
+- notes: one or two sentences on what you changed and why.
+
+ORIGINAL CSV:
+${csvContent}`;
+
+    const response = await ai.models.generateContent({
+      model: PRIMARY_MODEL,
+      contents: prompt,
+      config: {
+        temperature: 0,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            repairedCsv: { type: Type.STRING },
+            notes:       { type: Type.STRING },
+          },
+          required: ['repairedCsv', 'notes'],
+        },
+      },
+    });
+
+    if (!response.text) throw new Error('No repair response from Gemini');
+    const parsed = JSON.parse(response.text.trim()) as CsvRepairProposal;
+    // Models still fence occasionally despite the JSON schema, and a stray fence would fail the
+    // parse gate for a reason that has nothing to do with the rubric.
+    const fenced = parsed.repairedCsv?.match(/```(?:csv)?\n?([\s\S]*?)\n?```/);
+    return {
+      repairedCsv: (fenced ? fenced[1] : parsed.repairedCsv ?? '').trim(),
+      notes: parsed.notes ?? '',
+    };
+  }, signal);
+}
+
 /**
  * Generate a Canvas-compatible CSV for a single named rubric extracted
  * from the given attachment.

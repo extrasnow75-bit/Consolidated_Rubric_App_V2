@@ -167,6 +167,9 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('gemini:applyRubricChanges', a),
     analyzeCsvForCanvas: (a: unknown): Promise<unknown> =>
       ipcRenderer.invoke('gemini:analyzeCsvForCanvas', a),
+    /** Returns a checked proposal, or a reason it was discarded. Never an unchecked repair. */
+    repairRubricCsv: (a: unknown): Promise<unknown> =>
+      ipcRenderer.invoke('gemini:repairRubricCsv', a),
     generateCsvForRubric: (a: unknown): Promise<string> =>
       ipcRenderer.invoke('gemini:generateCsvForRubric', a),
     discoverRubricTitles: (a: unknown): Promise<unknown> =>

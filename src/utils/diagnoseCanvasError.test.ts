@@ -90,6 +90,8 @@ describe('diagnoseCanvasError', () => {
       expect(d.fix).toMatch(/csv/i);
       expect(d.action.kind).toBe('none');
       expect(d.transient).toBe(false);
+      // This is the one branch an AI repair can help with, and the only one that may offer it.
+      expect(d.repairable).toBe(true);
     });
   });
 
@@ -107,6 +109,35 @@ describe('diagnoseCanvasError', () => {
     it('reads an invalid token as a token problem rather than bad rubric contents', () => {
       const d = diagnoseCanvasError('Invalid access token.');
       expect(d.action.kind).toBe('open-setup');
+    });
+  });
+
+  describe('offering an AI repair', () => {
+    /**
+     * A repair offer is a claim that the file is the problem. On a dead token or a wrong course it
+     * is a false claim, and it sends someone to read a CSV that was never at fault.
+     */
+    it.each([
+      'Invalid access token.',
+      'The specified resource does not exist.',
+      'user not authorized to perform that action',
+      'Could not reach Canvas: fetch failed',
+      'Internal Server Error',
+      'No Canvas course is saved yet. Add your course URL in Initial Setup first.',
+      'Your operating system keychain is not available, so credentials cannot be stored securely.',
+      'Something nobody has seen before',
+    ])('does not offer to repair the CSV for %p', (message) => {
+      expect(diagnoseCanvasError(message).repairable).toBe(false);
+    });
+
+    it('offers a repair for the ways Canvas words a bad rubric', () => {
+      for (const message of [
+        'criterion ratings: points cannot be blank',
+        'ratings is invalid',
+        'malformed rubric criteria',
+      ]) {
+        expect(diagnoseCanvasError(message).repairable).toBe(true);
+      }
     });
   });
 

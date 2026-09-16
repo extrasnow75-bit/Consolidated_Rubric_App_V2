@@ -13,6 +13,7 @@ import {
 } from './ipc/credentials'
 import { pushRubric, verifyToken, getCourseName } from './ipc/canvas'
 import { parseCourseUrl } from './ipc/canvasUtils'
+import { checkRepair } from './ipc/csvRepair'
 import { signIn, getStatus, clearTokens } from './ipc/googleAuth'
 import { withJob, cancelJob } from './ipc/jobs'
 import * as gemini from './ipc/gemini'
@@ -399,6 +400,30 @@ ipcMain.handle(
   'gemini:analyzeCsvForCanvas',
   (_e, a: { csvContent: string; jobId?: string }) =>
     withJob(a.jobId, (s) => gemini.analyzeCsvForCanvas(a.csvContent, s)),
+)
+
+/**
+ * Propose a repair for a CSV Canvas has just rejected, and check it before it goes anywhere.
+ *
+ * The gates run here rather than in the renderer so that a proposal which fails one never crosses
+ * IPC at all. The renderer therefore cannot display — or deploy — a repair that was not proved to
+ * parse and proved not to drop a criterion, whatever it does with the result.
+ */
+ipcMain.handle(
+  'gemini:repairRubricCsv',
+  async (_e, a: { csvContent: string; canvasMessage: string; jobId?: string }) => {
+    const proposal = await withJob(a.jobId, (s) =>
+      gemini.repairRubricCsv(a.csvContent, a.canvasMessage, s),
+    )
+    const checked = checkRepair(a.csvContent, proposal.repairedCsv)
+    if (!checked.ok) return { ok: false as const, reason: checked.reason }
+    return {
+      ok: true as const,
+      repairedCsv: proposal.repairedCsv,
+      notes: proposal.notes,
+      diff: checked.diff,
+    }
+  },
 )
 
 ipcMain.handle(

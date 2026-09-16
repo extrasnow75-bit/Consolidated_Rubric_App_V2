@@ -38,6 +38,17 @@ export interface CanvasDiagnosis {
    */
   transient: boolean;
   action: CanvasFixAction;
+  /**
+   * Whether editing the CSV could plausibly fix this.
+   *
+   * True only where Canvas objected to the rubric's own contents. Everything else — a dead token,
+   * a wrong course, a 500 — is unaffected by anything in the file, and offering to repair it would
+   * send the user off to inspect a CSV that was never the problem.
+   *
+   * This is a field rather than a match on `cause` because it is what gates the AI repair offer,
+   * and a wording change to a message should not silently switch that offer on or off.
+   */
+  repairable: boolean;
 }
 
 /** Case-insensitive substring test, so Canvas's capitalisation does not matter. */
@@ -52,6 +63,7 @@ export function diagnoseCanvasError(rawMessage: string | undefined | null): Canv
       cause: 'Canvas rejected the rubric without saying why.',
       fix: 'Try again. If it keeps happening, deploy one rubric on its own to see the error.',
       transient: true,
+      repairable: false,
       action: { kind: 'retry', label: 'Try again' },
     };
   }
@@ -64,6 +76,7 @@ export function diagnoseCanvasError(rawMessage: string | undefined | null): Canv
       cause: 'The app had not recorded which Canvas course to deploy to.',
       fix: 'Enter the course URL in Initial Setup, then deploy again.',
       transient: false,
+      repairable: false,
       action: { kind: 'open-setup', label: 'Open Initial Setup' },
     };
   }
@@ -73,6 +86,7 @@ export function diagnoseCanvasError(rawMessage: string | undefined | null): Canv
       cause: 'No Canvas access token is saved, so the app cannot sign in to Canvas.',
       fix: 'Add your Canvas token in Initial Setup.',
       transient: false,
+      repairable: false,
       action: { kind: 'open-setup', label: 'Open Initial Setup' },
     };
   }
@@ -82,6 +96,7 @@ export function diagnoseCanvasError(rawMessage: string | undefined | null): Canv
       cause: 'That course is on a different Canvas site than the one saved in Initial Setup.',
       fix: 'Change the saved course URL if you meant to switch institutions.',
       transient: false,
+      repairable: false,
       action: { kind: 'open-setup', label: 'Open Initial Setup' },
     };
   }
@@ -91,6 +106,7 @@ export function diagnoseCanvasError(rawMessage: string | undefined | null): Canv
       cause: 'The course URL is not in a form Canvas recognises.',
       fix: 'Paste a link copied from inside your course — it should contain /courses/ and a number.',
       transient: false,
+      repairable: false,
       action: { kind: 'open-setup', label: 'Open Initial Setup' },
     };
   }
@@ -100,6 +116,7 @@ export function diagnoseCanvasError(rawMessage: string | undefined | null): Canv
       cause: 'Your computer’s keychain is unavailable, so credentials could not be read.',
       fix: 'Sign out and back in to your computer, then try again. Nothing was saved insecurely.',
       transient: false,
+      repairable: false,
       action: { kind: 'none' },
     };
   }
@@ -118,6 +135,7 @@ export function diagnoseCanvasError(rawMessage: string | undefined | null): Canv
       cause: 'Canvas rejected your access token. Tokens expire, and can be revoked.',
       fix: 'Generate a fresh token in Canvas under Account → Settings, and save it in Initial Setup.',
       transient: false,
+      repairable: false,
       action: { kind: 'open-setup', label: 'Update my Canvas token' },
     };
   }
@@ -127,6 +145,7 @@ export function diagnoseCanvasError(rawMessage: string | undefined | null): Canv
       cause: 'Canvas is rate-limiting the app for sending too many requests at once.',
       fix: 'Wait a minute and deploy again. Deploying fewer rubrics at a time also helps.',
       transient: true,
+      repairable: false,
       action: { kind: 'retry', label: 'Try again' },
     };
   }
@@ -137,6 +156,7 @@ export function diagnoseCanvasError(rawMessage: string | undefined | null): Canv
       cause: 'Your Canvas account is not allowed to add rubrics to that course.',
       fix: 'Check you are a teacher or designer in the course, and that the course is the right one.',
       transient: false,
+      repairable: false,
       action: { kind: 'none' },
     };
   }
@@ -150,6 +170,7 @@ export function diagnoseCanvasError(rawMessage: string | undefined | null): Canv
       cause: 'Canvas has no course with that ID, or your account cannot see it.',
       fix: 'Check the number at the end of the course URL matches the course you want.',
       transient: false,
+      repairable: false,
       action: { kind: 'open-setup', label: 'Check the course URL' },
     };
   }
@@ -167,6 +188,7 @@ export function diagnoseCanvasError(rawMessage: string | undefined | null): Canv
       cause: 'The app could not reach Canvas.',
       fix: 'Check your internet connection and whether Canvas is up, then try again.',
       transient: true,
+      repairable: false,
       action: { kind: 'retry', label: 'Try again' },
     };
   }
@@ -183,6 +205,7 @@ export function diagnoseCanvasError(rawMessage: string | undefined | null): Canv
       cause: 'Canvas had a server error. This is a problem at their end, not with your rubric.',
       fix: 'Wait a moment and try again.',
       transient: true,
+      repairable: false,
       action: { kind: 'retry', label: 'Try again' },
     };
   }
@@ -203,6 +226,7 @@ export function diagnoseCanvasError(rawMessage: string | undefined | null): Canv
         'Download the CSV, check the criteria and point values, then upload the corrected file ' +
         'in Part 3.',
       transient: false,
+      repairable: true,
       action: { kind: 'none' },
     };
   }
@@ -212,6 +236,7 @@ export function diagnoseCanvasError(rawMessage: string | undefined | null): Canv
     cause: 'Canvas refused the rubric.',
     fix: 'Try again. If it keeps happening, the message above is what Canvas reported.',
     transient: false,
+    repairable: false,
     action: { kind: 'retry', label: 'Try again' },
   };
 }
