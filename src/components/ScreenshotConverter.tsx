@@ -1,14 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
+import { bytesToBase64 } from '../utils/driveFile';
+import { useDrivePicker } from '../contexts/DrivePickerContext';
 import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
 import { generateRubricFromScreenshot, applyRubricChanges, extractRubricFromDocument } from '../services/geminiService';
 import mammoth from 'mammoth';
-import * as pdfjsLib from 'pdfjs-dist';
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
-import { exportToWord } from '../services/wordExportService';
+import { pdfjsLib } from '../utils/pdfWorker';
 import { Upload, Download, Loader2, Trash2, Image as ImageIcon, HardDrive, FolderOpen, Clipboard, Clock, ChevronDown, ChevronUp, X, RotateCw, CheckCircle2, CheckCircle, FileText } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
-import { googleDriveService } from '../services/googleDriveService';
 import { getRecentImages, saveRecentImage, RecentImage } from '../utils/recentImages';
 
 export const ScreenshotConverter: React.FC = () => {
@@ -21,11 +20,11 @@ export const ScreenshotConverter: React.FC = () => {
     stopProgress,
     setProgress,
     getAbortSignal,
-    openGooglePicker,
     downloadDriveFile,
     startGoogleAuth,
     signOutGoogle,
   } = useSession();
+  const { pickFile, pickFolder } = useDrivePicker();
 
   const googleSignedIn = state.isGoogleAuthenticated;
 
@@ -158,10 +157,9 @@ export const ScreenshotConverter: React.FC = () => {
   // ── Shared helper: load image from Drive buffer ────────────────────────────
 
   const loadImageFromBuffer = (buffer: ArrayBuffer, mimeType: string) => {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    bytes.forEach((b) => (binary += String.fromCharCode(b)));
-    const base64 = btoa(binary);
+    // One-character-at-a-time string concatenation built a multi-megabyte string for every
+    // screenshot; bytesToBase64 does the same job in 32KB chunks.
+    const base64 = bytesToBase64(new Uint8Array(buffer));
     const dataUrl = `data:${mimeType};base64,${base64}`;
     setImageFile({ data: base64, mimeType });
     setImagePreview(dataUrl);
@@ -173,7 +171,7 @@ export const ScreenshotConverter: React.FC = () => {
     setIsPickerLoading(true);
     setError(null);
     try {
-      const result = await openGooglePicker();
+      const result = await pickFile();
       if (!result) return;
       if (!result.mimeType.startsWith('image/')) {
         setError('Please select an image file (PNG, JPG, or WebP).');
@@ -193,14 +191,16 @@ export const ScreenshotConverter: React.FC = () => {
   // ── Google Drive URL fetch ─────────────────────────────────────────────────
 
   const handleFetchDriveUrl = async () => {
-    if (!state.googleAccessToken) { setError('Please sign in with Google first.'); return; }
+    if (!state.isGoogleAuthenticated) { setError('Please sign in with Google first.'); return; }
     if (!driveImageUrl.trim()) { setError('Please enter a Google Drive URL.'); return; }
     setIsFetchingUrl(true);
     setError(null);
     try {
       const urlToSave = driveImageUrl.trim();
-      const fileId = googleDriveService.extractFileIdFromUrl(urlToSave);
-      const meta = await googleDriveService.verifyFileAccess(fileId, state.googleAccessToken);
+      const resolved = await window.api.drive.resolveUrl(urlToSave);
+      if (!resolved.ok) throw new Error(resolved.message);
+      const fileId = resolved.fileId;
+      const meta = { name: resolved.name, mimeType: resolved.mimeType };
       if (!meta.mimeType.startsWith('image/')) {
         setError(`"${meta.name}" is not an image file. Please provide a link to a PNG, JPG, or WebP image.`);
         return;
@@ -221,12 +221,17 @@ export const ScreenshotConverter: React.FC = () => {
 
   const handleRecentImageClick = async (img: RecentImage) => {
     setShowRecentImages(false);
-    if (!state.googleAccessToken) { setError('Please sign in with Google first.'); return; }
+    if (!state.isGoogleAuthenticated) { setError('Please sign in with Google first.'); return; }
     setIsPickerLoading(true);
     setError(null);
     try {
-      const fileId = img.fileId || (img.url ? googleDriveService.extractFileIdFromUrl(img.url) : null);
-      if (!fileId) { setError('Could not resolve file ID for this image.'); return; }
+      let fileId = img.fileId ?? null;
+      if (!fileId && img.url) {
+        const resolved = await window.api.drive.resolveUrl(img.url);
+        if (!resolved.ok) { setError(resolved.message); return; }
+        fileId = resolved.fileId;
+      }
+      if (!fileId) { setError('Could not work out which Drive file this was.'); return; }
       const buffer = await downloadDriveFile(fileId);
       const mimeType = img.mimeType || 'image/png';
       loadImageFromBuffer(buffer, mimeType);
@@ -251,7 +256,8 @@ export const ScreenshotConverter: React.FC = () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
       if (signal.aborted) { setError('Screenshot processing cancelled'); return; }
       setProgress({ currentStep: 'Extracting rubric data...', percentage: 0.6 });
-      const rubric = await generateRubricFromScreenshot(imageFile, settings);
+      // See Part1Rubric: the signal has to be passed or Stop is decorative.
+      const rubric = await generateRubricFromScreenshot(imageFile, settings, signal);
       if (signal.aborted) { setError('Screenshot processing cancelled'); return; }
       setProgress({ currentStep: 'Finalizing rubric...', percentage: 0.9 });
       setRubric(rubric);
@@ -265,10 +271,27 @@ export const ScreenshotConverter: React.FC = () => {
     }
   };
 
-  const handleExportToWord = async () => {
+  /** Create a Google Doc in Drive and open it. Needs a Google sign-in. */
+  const handleExportToDrive = async () => {
     if (!state.rubric) return;
-    try { await exportToWord(state.rubric); }
-    catch (err: any) { setError(`Failed to export: ${err.message}`); }
+    try {
+      const folder = await pickFolder({ title: 'Where should the rubric go?' });
+      if (!folder) return;
+      const result = await window.api.rubric.exportToDrive({
+        rubric: state.rubric,
+        folderId: folder.folderId,
+      });
+      if (!result.ok) setError(result.message ?? 'Could not create the Google Doc.');
+    } catch (err) {
+      setError(`Failed to export: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  /** Save the same rubric to this computer. Works with no Google account. */
+  const handleSaveLocal = async () => {
+    if (!state.rubric) return;
+    const result = await window.api.rubric.saveHtml({ rubric: state.rubric });
+    if (!result.ok && !result.cancelled) setError(result.message ?? 'Could not save the file.');
   };
 
   const handleReset = () => {
@@ -336,11 +359,11 @@ export const ScreenshotConverter: React.FC = () => {
   // ── Save to Google Drive ───────────────────────────────────────────────────
 
   const handleSaveToDrive = async () => {
-    if (!state.rubric || !state.googleAccessToken) return;
+    if (!state.rubric || !state.isGoogleAuthenticated) return;
     setSavingToDrive(true);
     setDriveSaveSuccess(null);
     try {
-      const folder = await googleDriveService.openFolderPicker(state.googleAccessToken);
+      const folder = await pickFolder();
       if (!folder) { setSavingToDrive(false); return; }
       const rubric = state.rubric;
       const lines: string[] = [
@@ -357,14 +380,13 @@ export const ScreenshotConverter: React.FC = () => {
         ]),
         `Total Points: ${rubric.totalPoints}`,
       ];
-      await googleDriveService.uploadFileToDrive(
-        state.googleAccessToken,
-        lines.join('\n'),
-        rubric.title,
-        'text/plain',
-        'application/vnd.google-apps.document',
-        folder.folderId,
-      );
+      await window.api.drive.upload({
+        content: lines.join('\n'),
+        name: rubric.title,
+        sourceMimeType: 'text/plain',
+        targetMimeType: 'application/vnd.google-apps.document',
+        folderId: folder.folderId,
+      });
       setDriveSaveSuccess(`Saved to "${folder.folderName}"`);
     } catch (err: any) {
       setError(`Google Drive save failed: ${err.message}`);
@@ -565,7 +587,7 @@ export const ScreenshotConverter: React.FC = () => {
                       }`}
                       onClick={() => pasteAreaRef.current?.focus()}
                     >
-                      <Clipboard className={`w-5 h-5 transition-colors ${isPasteFocused ? 'text-blue-500' : 'text-gray-700'}`} />
+                      <Clipboard className={`w-5 h-5 transition-colors ${isPasteFocused ? 'text-blue-700' : 'text-gray-700'}`} />
                       <p className={`text-sm font-bold transition-colors ${isPasteFocused ? 'text-blue-700' : 'text-gray-700'}`}>
                         {isPasteFocused ? 'Ready — press Ctrl+V (or ⌘+V) to paste' : 'Click here to paste from clipboard'}
                       </p>
@@ -648,7 +670,7 @@ export const ScreenshotConverter: React.FC = () => {
                                 disabled={isPickerLoading || !googleSignedIn}
                                 className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-all text-left border-b border-gray-100 last:border-0 disabled:opacity-50"
                               >
-                                <ImageIcon className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                <ImageIcon className="w-4 h-4 text-gray-600 flex-shrink-0" />
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm font-bold text-gray-900 truncate">{img.name}</p>
                                   <p className="text-xs text-gray-600">
@@ -796,11 +818,11 @@ export const ScreenshotConverter: React.FC = () => {
               {/* Secondary Actions */}
               <div className="flex gap-3 mb-3">
                 <button
-                  onClick={handleExportToWord}
+                  onClick={handleExportToDrive}
                   className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all flex items-center justify-center gap-2 text-sm"
                 >
                   <Download className="w-4 h-4" />
-                  Download as .docx
+                  Open in Google Docs
                 </button>
                 <button
                   onClick={handleSaveToDrive}
@@ -834,7 +856,7 @@ export const ScreenshotConverter: React.FC = () => {
                 <p className="text-xs text-green-700 font-bold text-center mb-3">✓ {driveSaveSuccess}</p>
               )}
               {!state.isGoogleAuthenticated && (
-                <p className="text-xs text-gray-400 text-center mb-3">Sign in with Google on the Dashboard to enable Add to Drive.</p>
+                <p className="text-xs text-gray-600 text-center mb-3">Sign in with Google on the Dashboard to enable Add to Drive.</p>
               )}
 
               {/* Ready confirmation checkbox */}
@@ -941,7 +963,7 @@ export const ScreenshotConverter: React.FC = () => {
                   {/* From Local Drive Tab */}
                   {uploadDocTab === 'local' && (
                     <div className="border-2 border-dashed border-gray-300 rounded-2xl p-8 flex flex-col items-center justify-center gap-3 bg-gray-50 cursor-pointer hover:border-blue-400 transition-all">
-                      <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-10 h-10 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
                       <p className="text-sm font-bold text-gray-700">Drop a .docx or .doc file here or click to browse</p>
@@ -951,7 +973,7 @@ export const ScreenshotConverter: React.FC = () => {
                   {/* From Google Drive Tab */}
                   {uploadDocTab === 'google-drive' && (
                     <div className="border-2 border-dashed border-gray-300 rounded-2xl p-8 flex flex-col items-center justify-center gap-3 bg-gray-50 cursor-pointer hover:border-blue-400 transition-all">
-                      <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-10 h-10 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                       </svg>
                       <p className="text-sm font-bold text-gray-700">Drop a .docx or .doc file from Google Drive here or click to browse</p>
@@ -985,7 +1007,7 @@ export const ScreenshotConverter: React.FC = () => {
                     className={`w-full px-4 py-3 rounded-xl font-bold transition-all ${
                       canvasUrl.trim() && !isDeploying
                         ? 'bg-blue-600 text-white hover:bg-blue-700'
-                        : 'bg-gray-300 text-gray-400 cursor-not-allowed'
+                        : 'bg-gray-300 text-gray-600 cursor-not-allowed'
                     }`}
                   >
                     {isDeploying ? (
@@ -997,7 +1019,7 @@ export const ScreenshotConverter: React.FC = () => {
                       'Analyze Draft Rubric(s) and Deploy to Canvas'
                     )}
                   </button>
-                  <p className="text-xs text-gray-500 text-center mt-2">Button becomes active when Canvas Course URL has been entered.</p>
+                  <p className="text-xs text-gray-600 text-center mt-2">Button becomes active when Canvas Course URL has been entered.</p>
                 </div>
 
                 {/* Deployment Progress Dialog */}
@@ -1010,8 +1032,8 @@ export const ScreenshotConverter: React.FC = () => {
                       </div>
                       <button
                         onClick={handleCancelDeployment}
-                        className="text-gray-400 hover:text-gray-600 transition-colors"
-                      >
+                        className="text-gray-600 hover:text-gray-900 transition-colors"
+                       aria-label="Remove">
                         <X className="w-5 h-5" />
                       </button>
                     </div>
@@ -1020,7 +1042,7 @@ export const ScreenshotConverter: React.FC = () => {
                     <div className="flex items-center gap-2 mb-4 text-sm text-gray-700">
                       <Clock className="w-4 h-4 text-blue-600" />
                       <span>Elapsed: <span className="font-bold">{elapsedSeconds}s</span></span>
-                      <span className="text-gray-500">• Time estimate will appear shortly</span>
+                      <span className="text-gray-600">• Time estimate will appear shortly</span>
                     </div>
 
                     {/* Progress Bar */}
@@ -1062,7 +1084,7 @@ export const ScreenshotConverter: React.FC = () => {
             <h3 className="text-xl font-black text-gray-900">Upload Replacement Rubric</h3>
             <button
               onClick={() => { setShowReplaceCard(false); setReplaceFileText(null); setReplaceFileName(null); setError(null); }}
-              className="text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0 ml-4"
+              className="text-gray-600 hover:text-gray-700 transition-colors flex-shrink-0 ml-4"
             >
               <X className="w-6 h-6" />
             </button>
@@ -1081,7 +1103,7 @@ export const ScreenshotConverter: React.FC = () => {
             }}
             className={`relative w-full p-6 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer transition-all mb-4 ${replaceIsDragging ? 'bg-blue-50 border-blue-400' : 'bg-gray-50 border-gray-200 hover:border-blue-300'}`}
           >
-            <FileText className="w-7 h-7 text-gray-400" />
+            <FileText className="w-7 h-7 text-gray-600" />
             <p className="text-sm font-bold text-gray-800">Drop your modified rubric file here or click to browse</p>
             <p className="text-xs text-gray-600">Supports .docx, .pdf, and .txt</p>
             <input
@@ -1100,7 +1122,7 @@ export const ScreenshotConverter: React.FC = () => {
               <span className="text-sm font-bold text-blue-800 truncate flex-1">{replaceFileName}</span>
               <button
                 onClick={() => { setReplaceFileName(null); setReplaceFileText(null); }}
-                className="text-blue-400 hover:text-blue-600 flex-shrink-0 transition-colors"
+                className="text-blue-600 hover:text-blue-800 flex-shrink-0 transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1131,7 +1153,7 @@ export const ScreenshotConverter: React.FC = () => {
             <h3 className="text-xl font-black text-gray-900">Request Changes</h3>
             <button
               onClick={() => { setShowRequestChangesCard(false); setRequestChangesText(''); setError(null); }}
-              className="text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0 ml-4"
+              className="text-gray-600 hover:text-gray-700 transition-colors flex-shrink-0 ml-4"
             >
               <X className="w-6 h-6" />
             </button>

@@ -1,11 +1,20 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode } from '../types';
 import { HelpCircle, ChevronLeft, Camera, Lightbulb, RotateCcw } from 'lucide-react';
+import UpdateBanner from './UpdateBanner';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
+
+/**
+ * Read once at module scope: the platform cannot change while the app is running.
+ * Optional-chained so that loading the renderer without the preload bridge attached — opening the
+ * dev server straight in a browser — degrades to the Windows layout instead of throwing before
+ * the app can render at all.
+ */
+const isMac = window.api?.app?.platform === 'darwin';
 
 const IconBox = ({ children, className = '' }: { children?: React.ReactNode; className?: string }) => (
   <div className={`w-10 h-10 rounded-lg border border-gray-100 shadow-sm flex items-center justify-center bg-white shrink-0 ${className}`}>
@@ -58,6 +67,23 @@ const CanvasLogo = () => (
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { state, setCurrentStep, setHelpOpen, clearSession, setHasDraftRubric } = useSession();
+
+  /**
+   * Whether a newer version exists on GitHub, checked once at launch.
+   *
+   * Resolves to null when up to date, offline, or the check itself failed — all three mean "show
+   * no bar" here. The Help Center's button is what tells those apart for someone who wants to
+   * know, because it reports a failed check as a failure rather than as good news. Nothing here
+   * surfaces an error: a failed update check must never interrupt startup.
+   */
+  const [update, setUpdate] = useState<{ version: string } | null>(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [appVersion, setAppVersion] = useState('');
+
+  useEffect(() => {
+    window.api.app.checkUpdate().then(setUpdate).catch(() => undefined);
+    window.api.app.version().then(setAppVersion).catch(() => undefined);
+  }, []);
 
   const getRibbonContent = () => {
     const baseClasses = 'flex items-center gap-3';
@@ -128,13 +154,61 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 relative overflow-hidden">
-      {/* Blue Banner */}
-      <div className="bg-[#0033a0] text-white py-6 px-8 sm:px-12 flex items-center justify-center shadow-lg z-50 relative">
+      {/*
+        Blue banner, doubling as the window's title bar.
+
+        The native title bar is hidden (see `titleBarStyle` in electron/main.ts), so this strip is
+        what the user drags to move the window — hence `titlebar-drag`. Anything clickable placed
+        in here must carry `titlebar-no-drag`, or the drag region swallows the click.
+
+        The side padding leaves room for the window controls, which the two platforms put in
+        opposite corners: macOS draws its traffic lights top-left, Windows and Linux draw
+        minimise/maximise/close top-right. Reserving space on the correct side only keeps the
+        banner text centred rather than nudged off-centre on both.
+      */}
+      <div
+        className={`titlebar-drag bg-[#0033a0] text-white py-6 px-8 sm:px-12 flex items-center justify-center shadow-lg z-50 relative ${
+          isMac ? 'pl-24' : 'pr-40'
+        }`}
+      >
         <div className="text-center">
           <h1 className="text-xl font-black">The Canvas Rubric Creator App <span className="font-normal opacity-75">V.2</span></h1>
           <p className="text-xs text-blue-100">Streamlined rubric workflow</p>
         </div>
-        <p className="text-xs text-blue-200 font-medium absolute right-8 sm:right-12">Part of the IDS TOOLKIT</p>
+        {/*
+          Hidden on Windows and Linux at narrow widths: the caption buttons live in that corner,
+          and at a small window size this line would end up underneath them.
+        */}
+        <p
+          className={`text-xs text-blue-200 font-medium absolute ${
+            isMac ? 'right-8 sm:right-12' : 'right-40 hidden lg:block'
+          }`}
+        >
+          Part of the IDS TOOLKIT
+        </p>
+      </div>
+
+      {/*
+        The update bar sits below the title bar, not above it.
+
+        Above it, the bar would occupy the strip where Windows draws the minimise, maximise and
+        close buttons (titleBarOverlay, 36px tall in the top-right) and where macOS draws its
+        traffic lights — so the Download and dismiss buttons would end up underneath the window
+        controls. Here it is clear of both.
+      */}
+      {update && !updateDismissed && (
+        <UpdateBanner
+          version={update.version}
+          currentVersion={appVersion}
+          onDismiss={() => setUpdateDismissed(true)}
+        />
+      )}
+
+      {/* A live region that enters the DOM already holding its text is announced unreliably
+          across screen readers, so this one is mounted for the life of the app and only its
+          contents change. */}
+      <div role="status" aria-live="polite" className="sr-only">
+        {update && !updateDismissed ? `Version ${update.version} is available.` : ''}
       </div>
 
       {/* White Ribbon Bar */}

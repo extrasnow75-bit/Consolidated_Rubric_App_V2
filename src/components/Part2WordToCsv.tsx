@@ -1,5 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useSession } from '../contexts/SessionContext';
+import { bytesToBase64 } from '../utils/driveFile';
+import { useDrivePicker } from '../contexts/DrivePickerContext';
 import { AppMode, Attachment, RubricMeta, BatchItemStatus } from '../types';
 import {
   generateCsvForRubric,
@@ -29,7 +31,6 @@ import {
   FolderOpen,
 } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
-import { googleDriveService } from '../services/googleDriveService';
 
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -83,7 +84,9 @@ export const Part2WordToCsv: React.FC = () => {
     startGoogleAuth,
     addBatchItem,
     removeBatchItem,
+    downloadDriveFile,
   } = useSession();
+  const { pickFile, pickFolder } = useDrivePicker();
 
   // ── File / attachment state ──────────────────────────────────────────
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -164,7 +167,11 @@ export const Part2WordToCsv: React.FC = () => {
       })
       .catch(() => { /* silent — Generate still works without pre-scan */ })
       .finally(() => {
-        if (!controller.signal.aborted) setIsPreScanning(false);
+        // Unconditional. Guarding on `!aborted` meant that aborting the pre-scan — which
+        // handleGenerateAll does deliberately — left this true forever, so the Generate All
+        // button stayed disabled and the "Scanning…" spinner never stopped, until a new file
+        // was picked. Clicking Generate during the ~5s scan is the common case.
+        setIsPreScanning(false);
       });
 
     return () => controller.abort();
@@ -173,25 +180,34 @@ export const Part2WordToCsv: React.FC = () => {
 
   // ── Helpers ───────────────────────────────────────────────────────────
 
-  /** Core download utility — appends anchor to DOM, clicks, then revokes after delay. */
-  const downloadBlob = useCallback((blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, []);
+  /**
+   * Save generated content through the native save dialog.
+   *
+   * The anchor-click download trick this replaces does not work here: the page is served from
+   * file://, and the sandbox blocks a download the page starts itself. It failed silently, which
+   * is the worst way for a save button to fail.
+   */
+  const saveGenerated = useCallback(
+    async (content: string | Uint8Array, filename: string, label: string) => {
+      const ext = filename.split('.').pop() ?? 'txt';
+      const result = await window.api.file.saveText({
+        defaultName: filename,
+        ext,
+        label,
+        content,
+      });
+      if (!result.ok && !result.cancelled && result.message) setError(result.message);
+    },
+    [setError],
+  );
 
-  /** Download a CSV string as a .csv file. */
+  /** Save a CSV string to a file the user picks. */
   const downloadCsv = useCallback(
     (content: string, filename: string) => {
       const safeFilename = filename.endsWith('.csv') ? filename : `${filename}.csv`;
-      downloadBlob(new Blob([content], { type: 'text/csv;charset=utf-8;' }), safeFilename);
+      void saveGenerated(content, safeFilename, 'CSV file');
     },
-    [downloadBlob],
+    [saveGenerated],
   );
 
   const resetForNewFile = () => {
@@ -274,9 +290,11 @@ export const Part2WordToCsv: React.FC = () => {
 
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const base64Data = btoa(
-        String.fromCharCode(...new Uint8Array(arrayBuffer)),
-      );
+      // Chunked: spreading a multi-MB Uint8Array into String.fromCharCode passes hundreds of
+      // thousands of arguments and throws RangeError: Maximum call stack size exceeded. It
+      // surfaced as "Error reading file", which reads as a corrupt document rather than a
+      // size limit.
+      const base64Data = bytesToBase64(new Uint8Array(arrayBuffer));
       const mimeType = isPdf
         ? 'application/pdf'
         : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -412,11 +430,12 @@ export const Part2WordToCsv: React.FC = () => {
         const remaining = MIN_GAP_MS - elapsed;
         if (remaining > 0) {
           await new Promise<void>((resolve) => {
-            const timer = setTimeout(resolve, remaining);
-            controller.signal.addEventListener('abort', () => {
-              clearTimeout(timer);
-              resolve();
-            }, { once: true });
+            // Listener removed on the normal path too: this gap runs once per rubric against
+            // one long-lived signal, so leaving them attached accumulates across the batch.
+            const onAbort = () => { clearTimeout(timer); cleanup(); resolve(); };
+            const cleanup = () => controller.signal.removeEventListener('abort', onAbort);
+            const timer = setTimeout(() => { cleanup(); resolve(); }, remaining);
+            controller.signal.addEventListener('abort', onAbort, { once: true });
           });
         }
       }
@@ -500,8 +519,9 @@ export const Part2WordToCsv: React.FC = () => {
       zip.file(`${safeName}.csv`, result.csvContent!);
     }
 
-    const blob = await zip.generateAsync({ type: 'blob' });
-    downloadBlob(blob, 'all-rubrics.zip');
+    // uint8array rather than blob: the bytes have to cross IPC, and a Blob does not.
+    const bytes = (await zip.generateAsync({ type: 'uint8array' })) as Uint8Array;
+    await saveGenerated(bytes, 'all-rubrics.zip', 'Zip archive');
   };
 
   // ── Other handlers ────────────────────────────────────────────────────
@@ -528,24 +548,23 @@ export const Part2WordToCsv: React.FC = () => {
   const [driveAllSaveSuccess, setDriveAllSaveSuccess] = useState<string | null>(null);
 
   const handleSaveAllToDrive = async () => {
-    if (!state.googleAccessToken) return;
+    if (!state.isGoogleAuthenticated) return;
     const completed = rubricResults.filter(r => r.status === 'done' && r.csvContent);
     if (completed.length === 0) return;
     setSavingAllToDrive(true);
     setDriveAllSaveSuccess(null);
     try {
-      const folder = await googleDriveService.openFolderPicker(state.googleAccessToken);
+      const folder = await pickFolder();
       if (!folder) { setSavingAllToDrive(false); return; }
 
       for (const result of completed) {
-        await googleDriveService.uploadFileToDrive(
-          state.googleAccessToken,
-          result.csvContent!,
-          result.rubric.name,
-          'text/csv',
-          'application/vnd.google-apps.spreadsheet',
-          folder.folderId,
-        );
+        await window.api.drive.upload({
+        content: result.csvContent!,
+        name: result.rubric.name,
+        sourceMimeType: 'text/csv',
+        targetMimeType: 'application/vnd.google-apps.spreadsheet',
+        folderId: folder.folderId,
+      });
       }
       setDriveAllSaveSuccess(`${completed.length} file${completed.length !== 1 ? 's' : ''} saved to "${folder.folderName}"`);
     } catch (err: any) {
@@ -556,22 +575,21 @@ export const Part2WordToCsv: React.FC = () => {
   };
 
   const handleSaveToDrive = async () => {
-    if (!singleCsvContent || !state.googleAccessToken) return;
+    if (!singleCsvContent || !state.isGoogleAuthenticated) return;
     setSavingToDrive(true);
     setDriveSaveSuccess(null);
     try {
-      const folder = await googleDriveService.openFolderPicker(state.googleAccessToken);
+      const folder = await pickFolder();
       if (!folder) { setSavingToDrive(false); return; }
 
       const filename = editableRubricName || state.csvFileName?.replace(/\.csv$/i, '') || 'rubric';
-      await googleDriveService.uploadFileToDrive(
-        state.googleAccessToken,
-        singleCsvContent,
-        filename,
-        'text/csv',
-        'application/vnd.google-apps.spreadsheet',
-        folder.folderId,
-      );
+      await window.api.drive.upload({
+        content: singleCsvContent,
+        name: filename,
+        sourceMimeType: 'text/csv',
+        targetMimeType: 'application/vnd.google-apps.spreadsheet',
+        folderId: folder.folderId,
+      });
       setDriveSaveSuccess(`Saved to "${folder.folderName}"`);
     } catch (err: any) {
       setError(`Google Drive save failed: ${err.message}`);
@@ -582,7 +600,7 @@ export const Part2WordToCsv: React.FC = () => {
 
   /** Open the Google Drive file picker to select a rubric document (Google Doc, .docx, PDF). */
   const handleGoogleDrivePick = async () => {
-    if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+    if (!state.isGoogleAuthenticated) {
       setError('Please sign in with Google first.');
       return;
     }
@@ -590,7 +608,7 @@ export const Part2WordToCsv: React.FC = () => {
     setPickingFromGoogleDrive(true);
     setError(null);
     try {
-      const result = await googleDriveService.openPicker(state.googleAccessToken);
+      const result = await pickFile();
       if (!result) return;
 
       setIsLoading(true);
@@ -599,18 +617,13 @@ export const Part2WordToCsv: React.FC = () => {
       let mimeType: string;
 
       if (result.mimeType === 'application/vnd.google-apps.document') {
-        const text = await googleDriveService.getGoogleDocContent(result.fileId, state.googleAccessToken);
+        const text = await window.api.drive.getDocText(result.fileId);
         // Safely base64-encode potentially unicode text
-        const bytes = new TextEncoder().encode(text);
-        let binary = '';
-        for (let i = 0; i < bytes.length; i += 8192) {
-          binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-        }
-        data = btoa(binary);
+        data = bytesToBase64(new TextEncoder().encode(text));
         mimeType = 'text/plain';
       } else {
-        const arrayBuffer = await googleDriveService.downloadFileAsArrayBuffer(result.fileId, state.googleAccessToken);
-        data = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+        const arrayBuffer = await downloadDriveFile(result.fileId);
+        data = bytesToBase64(new Uint8Array(arrayBuffer));
         mimeType = result.mimeType;
       }
 
@@ -632,7 +645,7 @@ export const Part2WordToCsv: React.FC = () => {
 
   /** Fetch a rubric document from a pasted Google Drive / Docs URL. */
   const handleFetchFromUrl = async () => {
-    if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+    if (!state.isGoogleAuthenticated) {
       setError('Please sign in with Google first.');
       return;
     }
@@ -643,24 +656,21 @@ export const Part2WordToCsv: React.FC = () => {
     setError(null);
 
     try {
-      const fileId = googleDriveService.extractFileIdFromUrl(driveUrl.trim());
-      const meta = await googleDriveService.verifyFileAccess(fileId, state.googleAccessToken);
+      const resolved = await window.api.drive.resolveUrl(driveUrl.trim());
+      if (!resolved.ok) throw new Error(resolved.message);
+      const fileId = resolved.fileId;
+      const meta = { name: resolved.name, mimeType: resolved.mimeType };
 
       let data: string;
       let mimeType: string;
 
       if (meta.mimeType === 'application/vnd.google-apps.document') {
-        const text = await googleDriveService.getGoogleDocContent(fileId, state.googleAccessToken);
-        const bytes = new TextEncoder().encode(text);
-        let binary = '';
-        for (let i = 0; i < bytes.length; i += 8192) {
-          binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-        }
-        data = btoa(binary);
+        const text = await window.api.drive.getDocText(fileId);
+        data = bytesToBase64(new TextEncoder().encode(text));
         mimeType = 'text/plain';
       } else {
-        const arrayBuffer = await googleDriveService.downloadFileAsArrayBuffer(fileId, state.googleAccessToken);
-        data = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+        const arrayBuffer = await downloadDriveFile(fileId);
+        data = bytesToBase64(new Uint8Array(arrayBuffer));
         mimeType = meta.mimeType;
       }
 
@@ -815,7 +825,7 @@ export const Part2WordToCsv: React.FC = () => {
                 className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
                   inputMode === 'from-phase1'
                     ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    : 'border-transparent text-gray-600 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
                 From Phase 1
@@ -825,7 +835,7 @@ export const Part2WordToCsv: React.FC = () => {
                 className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
                   inputMode === 'file'
                     ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    : 'border-transparent text-gray-600 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
                 From Local Drive
@@ -835,7 +845,7 @@ export const Part2WordToCsv: React.FC = () => {
                 className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
                   inputMode === 'google-drive'
                     ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    : 'border-transparent text-gray-600 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
                 From Google Drive
@@ -981,7 +991,7 @@ export const Part2WordToCsv: React.FC = () => {
                     {!state.isGoogleAuthenticated && (
                       <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mt-3">
                         <p className="text-sm font-bold text-gray-700 mb-1">Google sign-in required</p>
-                        <p className="text-xs text-gray-500 mb-3">Sign in to pick files directly from your Drive.</p>
+                        <p className="text-xs text-gray-600 mb-3">Sign in to pick files directly from your Drive.</p>
                         <button
                           onClick={() => startGoogleAuth()}
                           className="w-full py-2.5 px-4 bg-white border border-gray-300 rounded-lg font-bold text-sm text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all flex items-center justify-center gap-2"
@@ -1000,7 +1010,7 @@ export const Part2WordToCsv: React.FC = () => {
                     {/* Divider */}
                     <div className="flex items-center gap-3 my-4">
                       <div className="flex-1 h-px bg-gray-200" />
-                      <span className="text-xs text-gray-400 font-semibold">OR</span>
+                      <span className="text-xs text-gray-600 font-semibold">OR</span>
                       <div className="flex-1 h-px bg-gray-200" />
                     </div>
 
@@ -1138,7 +1148,7 @@ export const Part2WordToCsv: React.FC = () => {
                           <Loader2 className="w-4 h-4 animate-spin text-blue-600 flex-shrink-0" />
                         )}
                         {result.status === 'pending' && (
-                          <Clock className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                          <Clock className="w-4 h-4 text-gray-600 flex-shrink-0" />
                         )}
 
                         {/* Labels */}
@@ -1156,7 +1166,7 @@ export const Part2WordToCsv: React.FC = () => {
                           )}
                         </div>
 
-                        <span className="text-xs text-gray-500 flex-shrink-0">
+                        <span className="text-xs text-gray-600 flex-shrink-0">
                           {result.rubric.totalPoints} pts
                         </span>
 
@@ -1224,7 +1234,7 @@ export const Part2WordToCsv: React.FC = () => {
                       )}
                     </div>
 
-                    <p className="text-xs text-blue-500">
+                    <p className="text-xs text-blue-700">
                       {isDiscovering
                         ? 'Scanning document for rubric titles…'
                         : 'Generating rubrics one at a time — each card updates as it finishes'}
@@ -1239,7 +1249,7 @@ export const Part2WordToCsv: React.FC = () => {
                       {doneCount} of {totalCount} succeeded
                       {errorCount > 0 && ` · ${errorCount} failed — use Retry on individual items`}
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="text-xs text-gray-600 mt-0.5">
                       Total time: {fmtSeconds(elapsedSeconds)}
                       {doneCount > 0 && ` · avg ${(elapsedSeconds / doneCount).toFixed(1)}s per rubric`}
                     </p>
@@ -1297,7 +1307,7 @@ export const Part2WordToCsv: React.FC = () => {
                 <div className="flex flex-col gap-2 mt-3">
                   <button
                     onClick={resetForNewFile}
-                    className="w-full py-2 text-gray-500 rounded-xl font-bold hover:bg-gray-100 hover:brightness-110 transition-all text-sm"
+                    className="w-full py-2 text-gray-600 rounded-xl font-bold hover:bg-gray-100 hover:brightness-110 transition-all text-sm"
                   >
                     Choose Different File
                   </button>

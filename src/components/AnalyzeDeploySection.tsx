@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { CheckCircle, XCircle, Loader2, Download, Copy, Trash2, ExternalLink } from 'lucide-react';
 import { RubricData, CanvasConfig } from '../types';
 import { generateCsvFromRubricObject, generateAllCsvsFromDoc } from '../services/geminiService';
-import { pushRubricToCanvas } from '../services/canvasService';
 import JSZip from 'jszip';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -35,7 +34,6 @@ interface Props {
   /** "Yes" path — user-uploaded document files */
   uploadedFiles?: UploadedDocFile[];
   courseUrl: string;
-  canvasToken: string;
   onStartOver?: () => void;
 }
 
@@ -56,7 +54,6 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
   scoringMethod = 'ranges',
   uploadedFiles = [],
   courseUrl,
-  canvasToken,
   onStartOver,
 }) => {
   const [runStatus, setRunStatus] = useState<RunStatus>('running');
@@ -157,7 +154,6 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
         addLog(`Ready to deploy ${pending.length} rubric(s) to Canvas…`, 'info');
 
         // ── Step 2: Deploy to Canvas ─────────────────────────────────────────
-        const config: CanvasConfig = { courseHomeUrl: courseUrl, accessToken: canvasToken };
         const finalResults: RubricResult[] = [];
 
         for (let i = 0; i < pending.length; i++) {
@@ -166,7 +162,10 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
           addLog(`Deploying "${item.name}" to Canvas…`, 'info');
 
           try {
-            const res = await pushRubricToCanvas(config, item.csvContent);
+            const res = await window.api.canvas.pushRubric({
+              csvContent: item.csvContent,
+              courseUrl,
+            });
             if (res.success) {
               addLog(`✓ "${item.name}" deployed successfully`, 'success');
               finalResults.push({ name: item.name, status: 'success', csvContent: item.csvContent });
@@ -216,6 +215,9 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      // Abort too, not just the timer. Without this, navigating away mid-run left the loop
+      // POSTing rubrics to Canvas and calling setState on an unmounted component.
+      abortRef.current?.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -227,26 +229,28 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
   const handleDownloadCsvs = async () => {
     const withCsv = results.filter((r) => r.csvContent);
     if (withCsv.length === 0) return;
+    // Saved through the native dialog: an anchor-click download does not work from a file://
+    // page, and used to fail silently.
     if (withCsv.length === 1) {
-      const blob = new Blob([withCsv[0].csvContent!], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${withCsv[0].name.replace(/[^a-z0-9]/gi, '_')}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await window.api.file.saveText({
+        defaultName: `${withCsv[0].name.replace(/[^a-z0-9]/gi, '_')}.csv`,
+        ext: 'csv',
+        label: 'CSV file',
+        content: withCsv[0].csvContent!,
+      });
     } else {
       const zip = new JSZip();
       withCsv.forEach((r) => {
         zip.file(`${r.name.replace(/[^a-z0-9]/gi, '_')}.csv`, r.csvContent!);
       });
-      const blob = await zip.generateAsync({ type: 'blob' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'rubric_csvs.zip';
-      a.click();
-      URL.revokeObjectURL(url);
+      // uint8array rather than blob: the bytes have to cross IPC, and a Blob does not.
+      const bytes = (await zip.generateAsync({ type: 'uint8array' })) as Uint8Array;
+      await window.api.file.saveText({
+        defaultName: 'rubric_csvs.zip',
+        ext: 'zip',
+        label: 'Zip archive',
+        content: bytes,
+      });
     }
   };
 
@@ -277,7 +281,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
     if (isRunning) {
       return (
         <div className="flex items-center gap-3">
-          <Loader2 className="w-6 h-6 text-blue-500 animate-spin flex-shrink-0" />
+          <Loader2 className="w-6 h-6 text-blue-700 animate-spin flex-shrink-0" />
           <div>
             <p className="font-black text-gray-900">Analyzing & Deploying…</p>
             <p className="text-sm text-gray-600">Please wait while we process your rubric(s)</p>
@@ -351,7 +355,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
         </div>
 
         {/* Timing row */}
-        <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
+        <div className="flex items-center justify-between mt-2 text-xs text-gray-600">
           <span>Elapsed: {formatMs(elapsedMs)}</span>
           {isRunning && (
             estimatedMs > 0
@@ -408,14 +412,14 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
           <div className="flex items-center gap-3">
             <button
               onClick={handleCopyLogs}
-              className="text-xs text-gray-400 hover:text-gray-200 font-bold flex items-center gap-1 transition-colors"
+              className="text-xs text-gray-600 hover:text-gray-200 font-bold flex items-center gap-1 transition-colors"
             >
               <Copy className="w-3 h-3" />
               Copy Logs
             </button>
             <button
               onClick={handleClearLogs}
-              className="text-xs text-gray-400 hover:text-gray-200 font-bold flex items-center gap-1 transition-colors"
+              className="text-xs text-gray-600 hover:text-gray-200 font-bold flex items-center gap-1 transition-colors"
             >
               <Trash2 className="w-3 h-3" />
               Clear
@@ -426,11 +430,11 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
         {/* Log body */}
         <div className="bg-[#0d0d1a] p-4 h-56 overflow-y-auto font-mono text-xs space-y-1">
           {logs.length === 0 ? (
-            <p className="text-gray-500 italic">No activity yet.</p>
+            <p className="text-gray-600 italic">No activity yet.</p>
           ) : (
             logs.map((entry, i) => (
               <div key={i} className="flex gap-2">
-                <span className="text-gray-500 flex-shrink-0">[{entry.timestamp}]</span>
+                <span className="text-gray-600 flex-shrink-0">[{entry.timestamp}]</span>
                 <span
                   className={
                     entry.type === 'success'

@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
+import { useDrivePicker } from '../contexts/DrivePickerContext';
+import { fetchDriveFileAsBase64 } from '../utils/driveFile';
 import {
   Key, Check, X, Loader2, ExternalLink, Eye, EyeOff,
   LogOut, Link, FileText, Upload, ChevronDown, FolderOpen, Settings2,
   Lightbulb, Camera, ArrowRight, Clipboard, HardDrive, Clock, ChevronUp,
 } from 'lucide-react';
-import { googleDriveService } from '../services/googleDriveService';
 import { getRecentDocs, saveRecentDoc, RecentDoc } from '../utils/recentDocs';
 import { AppMode } from '../types';
 import { validateGeminiApiKey } from '../services/geminiService';
@@ -64,10 +65,10 @@ export const Dashboard: React.FC = () => {
     setCourseUrl,
     setCurrentStep,
     setHelpOpen,
-    openGooglePicker,
     downloadDriveFile,
     setRubric,
   } = useSession();
+  const { pickFile } = useDrivePicker();
 
   // ── Gemini API Key ──
   const [apiKeyInput, setApiKeyInput] = useState('');
@@ -111,8 +112,8 @@ export const Dashboard: React.FC = () => {
 
   // ─── Derived validity ────────────────────────────────────────────────────────
 
-  const geminiValid = !!state.geminiApiKey;
-  const canvasTokenValid = !!state.canvasApiToken;
+  const geminiValid = !!state.geminiKeyStatus?.hasValue;
+  const canvasTokenValid = !!state.canvasTokenStatus?.hasValue;
   const googleSignedIn = state.isGoogleAuthenticated;
   const draftRubricValid =
     hasDraftRubric === 'yes' ? uploadedFiles.length > 0 : hasDraftRubric === 'no';
@@ -143,6 +144,10 @@ export const Dashboard: React.FC = () => {
   }, [allSetupComplete]);
 
   // ── Fetch course name when URL and token are both valid ──
+  //
+  // The lookup happens in the main process, which loads the token from the keychain itself. This
+  // used to be a fetch from here with the token in an Authorization header, routed through the
+  // Canvas proxy to get around CORS; neither the proxy nor the token is in the renderer now.
   useEffect(() => {
     if (!courseUrlValid || !canvasTokenValid) {
       setCourseName(null);
@@ -150,37 +155,27 @@ export const Dashboard: React.FC = () => {
     }
     let cancelled = false;
     setCourseNameLoading(true);
-    const fetchCourseName = async () => {
-      try {
-        const url = new URL(courseUrlInput.trim());
-        const match = url.pathname.match(/\/courses\/(\d+)/);
-        if (!match) return;
-        const courseId = match[1];
-        const instanceUrl = `${url.protocol}//${url.host}`;
-        const resp = await fetch(`/canvas-proxy/api/v1/courses/${courseId}`, {
-          headers: {
-            'Authorization': `Bearer ${state.canvasApiToken}`,
-            'X-Canvas-Instance': instanceUrl,
-          },
+    // Debounced: the effect depends on the live input, so every additional character typed
+    // after the URL first became valid fired another authenticated request to the institution's
+    // Canvas. The `cancelled` flag protected the state, not the network.
+    const timer = window.setTimeout(() => {
+      window.api.canvas
+        .getCourseName({ courseUrl: courseUrlInput.trim() })
+        .then((result) => {
+          if (!cancelled) setCourseName(result.ok ? result.name ?? null : null);
+        })
+        .catch(() => {
+          // A failed lookup is cosmetic — it only means the course name is not shown.
+        })
+        .finally(() => {
+          if (!cancelled) setCourseNameLoading(false);
         });
-        if (!cancelled && resp.ok) {
-          const data = await resp.json();
-          setCourseName(data.name || null);
-        }
-      } catch {
-        // silently ignore network errors
-      } finally {
-        if (!cancelled) setCourseNameLoading(false);
-      }
-    };
-    fetchCourseName();
-    return () => { cancelled = true; };
-  }, [courseUrlValid, canvasTokenValid, courseUrlInput, state.canvasApiToken]);
+    }, 500);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [courseUrlValid, canvasTokenValid, courseUrlInput]);
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
 
-  const maskKey = (key: string) =>
-    key.length <= 8 ? key : key.substring(0, 8) + '\u2026' + key.substring(key.length - 4);
 
   const handleSaveApiKey = async () => {
     if (!apiKeyInput.trim()) return;
@@ -188,22 +183,28 @@ export const Dashboard: React.FC = () => {
     setKeyValidationResult('idle');
     const isValid = await validateGeminiApiKey(apiKeyInput.trim());
     if (isValid) {
-      setKeyValidationResult('valid');
-      setUserGeminiApiKey(apiKeyInput.trim());
-      setApiKeyInput('');
+      try {
+        await setUserGeminiApiKey(apiKeyInput.trim());
+        setKeyValidationResult('valid');
+        setApiKeyInput('');
+      } catch {
+        // The key works but the OS keychain would not store it. Treat that as a failure to
+        // save rather than a bad key, so the user is not sent hunting for a new one.
+        setKeyValidationResult('invalid');
+      }
     } else {
       setKeyValidationResult('invalid');
     }
     setIsValidatingKey(false);
   };
 
-  const handleRemoveApiKey = () => {
-    setUserGeminiApiKey(null);
+  const handleRemoveApiKey = async () => {
+    await setUserGeminiApiKey(null).catch(() => undefined);
     setKeyValidationResult('idle');
     setApiKeyInput('');
   };
 
-  const handleSaveCanvasToken = () => {
+  const handleSaveCanvasToken = async () => {
     const trimmed = canvasTokenInput.trim();
     if (!trimmed) return;
     if (trimmed.length < 20) {
@@ -215,11 +216,23 @@ export const Dashboard: React.FC = () => {
       return;
     }
     setCanvasTokenError(null);
-    setUserCanvasApiToken(trimmed);
-    setCanvasTokenInput('');
+    try {
+      await setUserCanvasApiToken(trimmed);
+      setCanvasTokenInput('');
+    } catch (e) {
+      // The OS keychain is unavailable, so nothing was stored. Say so plainly: silently keeping
+      // the token in memory would let the user believe setup is finished when it is not.
+      setCanvasTokenError(e instanceof Error ? e.message : 'Could not save the token securely.');
+    }
   };
 
-  const handleRemoveCanvasToken = () => setUserCanvasApiToken(null);
+  const handleRemoveCanvasToken = async () => {
+    try {
+      await setUserCanvasApiToken(null);
+    } catch {
+      // Nothing stored means nothing to remove.
+    }
+  };
 
   const handleCourseUrlChange = (val: string) => {
     setCourseUrlInput(val);
@@ -313,76 +326,48 @@ export const Dashboard: React.FC = () => {
 
   const handleGooglePicker = async () => {
     try {
-      const result = await openGooglePicker();
+      const result = await pickFile();
       if (!result) return;
 
-      const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      let buffer: ArrayBuffer;
-      let fileName = result.name;
-
-      if (result.mimeType === 'application/vnd.google-apps.document') {
-        if (!fileName.toLowerCase().endsWith('.docx')) fileName = `${fileName}.docx`;
-        const exportUrl =
-          `https://www.googleapis.com/drive/v3/files/${result.fileId}/export` +
-          `?mimeType=${encodeURIComponent(DOCX_MIME)}`;
-        const resp = await fetch(exportUrl, {
-          headers: { Authorization: `Bearer ${state.googleAccessToken}` },
-        });
-        if (!resp.ok) throw new Error(`Google Drive export failed (${resp.status})`);
-        buffer = await resp.arrayBuffer();
-      } else {
-        buffer = await downloadDriveFile(result.fileId);
-      }
-
-      const bytes = new Uint8Array(buffer);
-      let binary = '';
-      bytes.forEach((b) => (binary += String.fromCharCode(b)));
-      const base64 = btoa(binary);
+      // One call gets the bytes, already converted to .docx if this was a Google Doc.
+      const file = await fetchDriveFileAsBase64(result.fileId);
       setUploadedFiles((prev) => {
-        if (prev.some((p) => p.name === fileName)) return prev;
-        return [...prev, { name: fileName, data: base64, mimeType: DOCX_MIME }];
+        if (prev.some((p) => p.name === file.name)) return prev;
+        return [...prev, { name: file.name, data: file.base64, mimeType: file.mimeType }];
       });
-      saveRecentDoc({ name: fileName, fileId: result.fileId, mimeType: result.mimeType, source: 'picker' });
+      saveRecentDoc({
+        name: file.name,
+        fileId: result.fileId,
+        mimeType: result.mimeType,
+        source: 'picker',
+      });
       setRecentDocs(getRecentDocs());
-    } catch (err: any) {
-      console.error('Google Picker error:', err);
+    } catch (err) {
+      setDriveUrlError(
+        `Could not open that file: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 
   const handleFetchFromDriveUrl = async () => {
-    if (!driveUrl.trim() || !state.googleAccessToken) return;
+    if (!driveUrl.trim() || !state.isGoogleAuthenticated) return;
     setIsFetchingDriveUrl(true);
     setDriveUrlError(null);
     try {
-      const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      const fileId = googleDriveService.extractFileIdFromUrl(driveUrl.trim());
-      const meta = await googleDriveService.verifyFileAccess(fileId, state.googleAccessToken);
-      let buffer: ArrayBuffer;
-      let fileName = meta.name;
-      if (meta.mimeType === 'application/vnd.google-apps.document') {
-        if (!fileName.toLowerCase().endsWith('.docx')) fileName = `${fileName}.docx`;
-        const exportUrl =
-          `https://www.googleapis.com/drive/v3/files/${fileId}/export` +
-          `?mimeType=${encodeURIComponent(DOCX_MIME)}`;
-        const resp = await fetch(exportUrl, { headers: { Authorization: `Bearer ${state.googleAccessToken}` } });
-        if (!resp.ok) throw new Error(`Export failed (${resp.status})`);
-        buffer = await resp.arrayBuffer();
-      } else {
-        buffer = await googleDriveService.downloadFileAsArrayBuffer(fileId, state.googleAccessToken);
-      }
-      const bytes = new Uint8Array(buffer);
-      let binary = '';
-      bytes.forEach((b) => (binary += String.fromCharCode(b)));
-      const base64 = btoa(binary);
+      const resolved = await window.api.drive.resolveUrl(driveUrl.trim());
+      if (!resolved.ok) throw new Error(resolved.message);
+      const file = await fetchDriveFileAsBase64(resolved.fileId);
       setUploadedFiles((prev) => {
-        if (prev.some((p) => p.name === fileName)) return prev;
-        return [...prev, { name: fileName, data: base64, mimeType: DOCX_MIME }];
+        if (prev.some((p) => p.name === file.name)) return prev;
+        return [...prev, { name: file.name, data: file.base64, mimeType: file.mimeType }];
       });
-      saveRecentDoc({ name: fileName, url: driveUrl.trim(), source: 'url' });
+      saveRecentDoc({ name: file.name, url: driveUrl.trim(), source: 'url' });
       setRecentDocs(getRecentDocs());
       setDriveUrl('');
-    } catch (err: any) {
-      setDriveUrlError(`Could not fetch file: ${err.message}`);
+    } catch (err) {
+      setDriveUrlError(
+        `Could not fetch file: ${err instanceof Error ? err.message : String(err)}`,
+      );
     } finally {
       setIsFetchingDriveUrl(false);
     }
@@ -394,32 +379,17 @@ export const Dashboard: React.FC = () => {
       setDriveUrl(doc.url);
       return;
     }
-    if (doc.source === 'picker' && doc.fileId && state.googleAccessToken) {
+    if (doc.source === 'picker' && doc.fileId && state.isGoogleAuthenticated) {
       try {
-        const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-        let buffer: ArrayBuffer;
-        let fileName = doc.name;
-        if (doc.mimeType === 'application/vnd.google-apps.document') {
-          if (!fileName.toLowerCase().endsWith('.docx')) fileName = `${fileName}.docx`;
-          const exportUrl =
-            `https://www.googleapis.com/drive/v3/files/${doc.fileId}/export` +
-            `?mimeType=${encodeURIComponent(DOCX_MIME)}`;
-          const resp = await fetch(exportUrl, { headers: { Authorization: `Bearer ${state.googleAccessToken}` } });
-          if (!resp.ok) throw new Error(`Export failed (${resp.status})`);
-          buffer = await resp.arrayBuffer();
-        } else {
-          buffer = await googleDriveService.downloadFileAsArrayBuffer(doc.fileId, state.googleAccessToken);
-        }
-        const bytes = new Uint8Array(buffer);
-        let binary = '';
-        bytes.forEach((b) => (binary += String.fromCharCode(b)));
-        const base64 = btoa(binary);
+        const file = await fetchDriveFileAsBase64(doc.fileId);
         setUploadedFiles((prev) => {
-          if (prev.some((p) => p.name === fileName)) return prev;
-          return [...prev, { name: fileName, data: base64, mimeType: DOCX_MIME }];
+          if (prev.some((p) => p.name === file.name)) return prev;
+          return [...prev, { name: file.name, data: file.base64, mimeType: file.mimeType }];
         });
-      } catch (err: any) {
-        setDriveUrlError(`Could not reload document: ${err.message}`);
+      } catch (err) {
+        setDriveUrlError(
+          `Could not reload document: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
   };
@@ -491,7 +461,9 @@ export const Dashboard: React.FC = () => {
                       <div className="w-2 h-2 bg-green-500 rounded-full" />
                       <span className="text-sm font-bold text-green-700">API key active</span>
                     </div>
-                    <p className="text-xs text-gray-500 font-mono mb-3 break-all">{maskKey(state.geminiApiKey!)}</p>
+                    <p className="text-xs text-gray-600 font-mono mb-3">
+                      In your keychain, ending …{state.geminiKeyStatus?.hint}
+                    </p>
                     <button onClick={handleRemoveApiKey} className="w-full px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-sm flex items-center justify-center gap-2">
                       <LogOut className="w-4 h-4" /> Remove Key
                     </button>
@@ -540,7 +512,9 @@ export const Dashboard: React.FC = () => {
                       <div className="w-2 h-2 bg-green-500 rounded-full" />
                       <span className="text-sm font-bold text-green-700">Token saved</span>
                     </div>
-                    <p className="text-xs text-gray-500 font-mono mb-3 break-all">{maskKey(state.canvasApiToken!)}</p>
+                    <p className="text-xs text-gray-600 font-mono mb-3">
+                      In your keychain, ending …{state.canvasTokenStatus?.hint}
+                    </p>
                     <button onClick={handleRemoveCanvasToken} className="w-full px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-sm flex items-center justify-center gap-2">
                       <LogOut className="w-4 h-4" /> Remove Token
                     </button>
@@ -557,7 +531,12 @@ export const Dashboard: React.FC = () => {
                         placeholder="Paste your Canvas token here..."
                         className={`w-full px-4 py-3 border-2 rounded-xl text-sm font-mono focus:outline-none transition-all pr-10 ${canvasTokenError ? 'border-red-400' : 'border-gray-200 focus:border-red-400'}`}
                       />
-                      <button type="button" onClick={() => setShowCanvasToken((v) => !v)} className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600">
+                      <button
+                        type="button"
+                        onClick={() => setShowCanvasToken((v) => !v)}
+                        aria-label={showCanvasToken ? 'Hide Canvas token' : 'Show Canvas token'}
+                        className="absolute right-3 top-3.5 text-gray-600 hover:text-gray-900"
+                      >
                         {showCanvasToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
@@ -594,7 +573,7 @@ export const Dashboard: React.FC = () => {
                     <div className="flex items-center gap-2 mb-1">
                       <GoogleIcon />
                       <h3 className="font-black text-lg text-gray-900">Google Sign-In</h3>
-                      <span className="ml-auto text-xs text-gray-400 font-bold uppercase tracking-wide">Optional</span>
+                      <span className="ml-auto text-xs text-gray-600 font-bold uppercase tracking-wide">Optional</span>
                     </div>
                     <p className="text-sm text-gray-600 mb-4">Sign in to select rubric documents directly from Google Drive.</p>
                     <button
@@ -620,7 +599,7 @@ export const Dashboard: React.FC = () => {
                         <p className="font-black text-gray-900 truncate">{state.googleUser?.name}</p>
                         <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
                       </div>
-                      <p className="text-xs text-gray-500 truncate">{state.googleUser?.email}</p>
+                      <p className="text-xs text-gray-600 truncate">{state.googleUser?.email}</p>
                     </div>
                     <button onClick={() => signOutGoogle()} className="px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-xs flex items-center gap-1 flex-shrink-0">
                       <LogOut className="w-3 h-3" /> Sign Out
@@ -653,7 +632,7 @@ export const Dashboard: React.FC = () => {
                 <option value="yes">Yes - I have a draft rubric document</option>
                 <option value="no">No - I need to create one first</option>
               </select>
-              <ChevronDown className="absolute right-3 top-3.5 w-4 h-4 text-gray-400 pointer-events-none" />
+              <ChevronDown className="absolute right-3 top-3.5 w-4 h-4 text-gray-600 pointer-events-none" />
             </div>
 
             {/* "Yes" path — tabbed file upload area */}
@@ -667,7 +646,7 @@ export const Dashboard: React.FC = () => {
                     className={`flex items-center gap-1.5 px-4 py-2.5 font-bold text-sm transition-all border-b-2 -mb-px ${
                       docUploadTab === 'local'
                         ? 'border-[#0033a0] text-[#0033a0]'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                        : 'border-transparent text-gray-600 hover:text-gray-700 hover:border-gray-300'
                     }`}
                   >
                     <HardDrive className="w-4 h-4" /> From Local Drive
@@ -677,7 +656,7 @@ export const Dashboard: React.FC = () => {
                     className={`flex items-center gap-1.5 px-4 py-2.5 font-bold text-sm transition-all border-b-2 -mb-px ${
                       docUploadTab === 'google'
                         ? 'border-[#0033a0] text-[#0033a0]'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                        : 'border-transparent text-gray-600 hover:text-gray-700 hover:border-gray-300'
                     }`}
                   >
                     <FolderOpen className="w-4 h-4" /> From Google Drive
@@ -696,7 +675,7 @@ export const Dashboard: React.FC = () => {
                       }`}
                       onClick={() => fileInputRef.current?.click()}
                     >
-                      <FileText className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                      <FileText className="w-8 h-8 text-gray-600 mx-auto mb-2" />
                       <p className="text-sm font-bold text-gray-700">Drop a .docx or .doc file here or click to browse</p>
                     </div>
                   </>
@@ -717,7 +696,7 @@ export const Dashboard: React.FC = () => {
                         </div>
                         <button
                           onClick={() => signOutGoogle()}
-                          className="text-xs font-bold text-gray-500 hover:text-red-600 transition-colors"
+                          className="text-xs font-bold text-gray-600 hover:text-red-600 transition-colors"
                         >
                           Sign Out
                         </button>
@@ -772,7 +751,7 @@ export const Dashboard: React.FC = () => {
                                 onClick={() => handleRecentDocClick(doc)}
                                 className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-all text-left border-b border-gray-100 last:border-0"
                               >
-                                <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                <FileText className="w-4 h-4 text-gray-600 flex-shrink-0" />
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm font-bold text-gray-900 truncate">{doc.name}</p>
                                   <p className="text-xs text-gray-600">
@@ -789,7 +768,7 @@ export const Dashboard: React.FC = () => {
                     {/* OR divider */}
                     <div className="flex items-center gap-3">
                       <div className="flex-1 h-px bg-gray-200" />
-                      <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Or Paste a URL</span>
+                      <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">Or Paste a URL</span>
                       <div className="flex-1 h-px bg-gray-200" />
                     </div>
 
@@ -809,7 +788,7 @@ export const Dashboard: React.FC = () => {
                       )}
                       <p className="text-xs text-blue-700 mt-1.5">
                         Supports Google Docs, Word (.docx), and PDF files stored in Drive.{' '}
-                        <span className="text-gray-500">The file must be accessible to your signed-in account.</span>
+                        <span className="text-gray-600">The file must be accessible to your signed-in account.</span>
                       </p>
                       <button
                         onClick={handleFetchFromDriveUrl}
@@ -838,7 +817,11 @@ export const Dashboard: React.FC = () => {
                       <div key={i} className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm">
                         <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
                         <span className="flex-1 truncate font-medium text-gray-800">{f.name}</span>
-                        <button onClick={() => setUploadedFiles((prev) => prev.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-500 transition-colors flex-shrink-0">
+                        <button
+                          onClick={() => setUploadedFiles((prev) => prev.filter((_, j) => j !== i))}
+                          aria-label={`Remove ${f.name}`}
+                          className="text-gray-600 hover:text-red-600 transition-colors flex-shrink-0"
+                        >
                           <X className="w-4 h-4" />
                         </button>
                       </div>
@@ -904,13 +887,13 @@ export const Dashboard: React.FC = () => {
             className={`w-full py-4 rounded-2xl font-black text-base uppercase tracking-widest transition-all active:scale-95 ${
               allRequiredValid
                 ? 'bg-[#0033a0] text-white hover:bg-blue-900 shadow-xl cursor-pointer'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
+                : 'bg-gray-200 text-gray-600 cursor-not-allowed shadow-none'
             }`}
           >
             Analyze Draft Rubric(s) and Deploy To Canvas
           </button>
           {!allRequiredValid && (
-            <p className="text-center text-sm text-gray-500 mt-2">
+            <p className="text-center text-sm text-gray-600 mt-2">
               Button becomes active when form is completely filled out.
             </p>
           )}
@@ -1014,7 +997,6 @@ export const Dashboard: React.FC = () => {
             phase1Rubric={analyzeRubricSource === 'no' ? (state.rubric ?? undefined) : undefined}
             uploadedFiles={analyzeRubricSource === 'yes' ? uploadedFiles : undefined}
             courseUrl={analyzeRubricSource === 'no' ? (state.courseUrl || courseUrlInput) : courseUrlInput}
-            canvasToken={state.canvasApiToken ?? ''}
             onStartOver={() => {
               setShowAnalyze(false);
               setAnalyzeRubricSource(null);

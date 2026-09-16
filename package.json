@@ -1,23 +1,20 @@
 {
-  "name": "rubric-app-consolidated",
-  "private": true,
+  "name": "canvas-rubric-creator",
   "version": "1.0.0",
-  "type": "module",
+  "description": "Desktop app for creating Canvas rubrics from assignment descriptions, converting them to CSV, and pushing them to Canvas",
+  "author": "Boise State University eCampus Center",
+  "private": true,
+  "main": "out/main/index.js",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "lint": "tsc --noEmit"
+    "dev": "electron-vite dev",
+    "build": "electron-vite build && electron-builder",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@google/genai": "^1.39.0",
-    "@vercel/speed-insights": "^1.3.1",
-    "cors": "^2.8.6",
-    "docx": "^9.5.1",
-    "dotenv": "^17.3.1",
-    "express": "^5.2.1",
-    "firebase": "^12.10.0",
-    "google-auth-library": "^10.6.1",
     "js-sha256": "^0.11.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.563.0",
@@ -30,8 +27,48 @@
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "autoprefixer": "^10.4.19",
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "postcss": "^8.5.25",
+    "tailwindcss": "^3.4.4",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "vitest": "^3.2.4"
+  },
+  "build": {
+    "appId": "com.boisestate.canvas-rubric-creator",
+    "productName": "Canvas Rubric Creator",
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.png",
+      "category": "public.app-category.education"
+    },
+    "files": [
+      "out/**"
+    ]
   }
 }

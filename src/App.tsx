@@ -1,5 +1,6 @@
 import React from 'react';
 import { SessionProvider, useSession } from './contexts/SessionContext';
+import { DrivePickerProvider } from './contexts/DrivePickerContext';
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
 import { Part1Rubric } from './components/Part1Rubric';
@@ -10,7 +11,6 @@ import HelpCenter from './components/HelpCenter';
 import ProgressDisplay from './components/ProgressDisplay';
 import TaskCompletionDialog from './components/TaskCompletionDialog';
 import { AppMode } from './types';
-import { SpeedInsights } from '@vercel/speed-insights/react';
 
 const AppContent: React.FC = () => {
   const {
@@ -89,8 +89,9 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <SessionProvider>
-      <AppContent />
-      <SpeedInsights />
+      <DrivePickerProvider>
+        <AppContent />
+      </DrivePickerProvider>
     </SessionProvider>
   );
 };

@@ -1,0 +1,42 @@
+<!--
+  Canvas Rubric Creator app icon.
+
+  A white rubric grid on a Boise State blue tile: a header row, three criterion rows, and a
+  narrower final column for points — the shape of the table the app produces, reduced until it
+  still reads at 16px in a taskbar.
+
+  Everything is an axis-aligned rectangle on purpose. At 16px, curves and letterforms turn to
+  mush, and the grid is the one thing about a rubric that survives being that small. It also
+  makes the icon trivial to rasterise exactly (see make-icon.py) with no font dependency and no
+  anti-aliasing guesswork on diagonals.
+
+  This file is the design source of truth. The packaged icons are rasterised from these same
+  numbers by make-icon.py — if you change the geometry here, mirror it there and re-run it.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 64 64">
+  <title>Canvas Rubric Creator</title>
+
+  <!-- Tile: Boise State blue -->
+  <rect width="64" height="64" rx="11" fill="#0033a0"/>
+
+  <!-- Grid: 4 columns x 4 rows inside a 44x36 area, inset 10 from the left, 14 from the top.
+       The header row is filled solid; the points column is narrower than the rating columns. -->
+  <g fill="#ffffff">
+    <!-- Header row, solid -->
+    <rect x="10" y="14" width="44" height="8"/>
+
+    <!-- Row separators (1 unit tall), at the foot of each of the three criterion rows -->
+    <rect x="10" y="30" width="44" height="1.5"/>
+    <rect x="10" y="39" width="44" height="1.5"/>
+    <rect x="10" y="48.5" width="44" height="1.5"/>
+
+    <!-- Column separators (1.5 units wide), spanning the criterion rows only -->
+    <rect x="23" y="22" width="1.5" height="28"/>
+    <rect x="34" y="22" width="1.5" height="28"/>
+    <rect x="45" y="22" width="1.5" height="28"/>
+
+    <!-- Outer frame around the criterion rows, so the grid reads as a table rather than stripes -->
+    <rect x="10" y="22" width="1.5" height="28"/>
+    <rect x="52.5" y="22" width="1.5" height="28"/>
+  </g>
+</svg>

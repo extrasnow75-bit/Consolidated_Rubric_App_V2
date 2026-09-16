@@ -1,15 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { useSession } from '../contexts/SessionContext';
+import { useDrivePicker } from '../contexts/DrivePickerContext';
 import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
 import { generateRubricFromDescription, extractRubricFromDocument, applyRubricChanges } from '../services/geminiService';
-import { exportToWord } from '../services/wordExportService';
 import { Loader2, Download, FileText, CheckCircle, ArrowRight, RotateCw, Home, X, Clock, ChevronDown, ChevronUp, Link, Check } from 'lucide-react';
-import { googleDriveService } from '../services/googleDriveService';
 import ErrorDisplay from './ErrorDisplay';
 import mammoth from 'mammoth';
-import * as pdfjsLib from 'pdfjs-dist';
+import { pdfjsLib } from '../utils/pdfWorker';
 import { getRecentDocs, saveRecentDoc, RecentDoc } from '../utils/recentDocs';
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
 
 interface Part1RubricProps {
   onAnalyzeDeploy?: () => void;
@@ -32,9 +30,9 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
     downloadDriveFile,
     startGoogleAuth,
     signOutGoogle,
-    openGooglePicker,
     setCourseUrl,
   } = useSession();
+  const { pickFile, pickFolder } = useDrivePicker();
 
   const [assignmentDescription, setAssignmentDescription] = useState<string>('');
   const [settings, setSettings] = useState<GenerationSettings>({
@@ -90,40 +88,31 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
 
   const deployUrlValid = isCourseUrlValid(deployUrlInput);
 
-  // Fetch course name when deploy URL becomes valid
+  // Fetch course name when deploy URL becomes valid.
+  // Looked up in the main process, which loads the Canvas token from the keychain itself.
   React.useEffect(() => {
-    if (!deployUrlValid || !state.canvasApiToken) {
+    if (!deployUrlValid || !state.canvasTokenStatus?.hasValue) {
       setDeployCourseName(null);
       return;
     }
     let cancelled = false;
     setDeployCourseNameLoading(true);
-    const fetchName = async () => {
-      try {
-        const url = new URL(deployUrlInput.trim());
-        const match = url.pathname.match(/\/courses\/(\d+)/);
-        if (!match) return;
-        const courseId = match[1];
-        const instanceUrl = `${url.protocol}//${url.host}`;
-        const resp = await fetch(`/canvas-proxy/api/v1/courses/${courseId}`, {
-          headers: {
-            'Authorization': `Bearer ${state.canvasApiToken}`,
-            'X-Canvas-Instance': instanceUrl,
-          },
-        });
-        if (!cancelled && resp.ok) {
-          const data = await resp.json();
-          setDeployCourseName(data.name || null);
-        }
-      } catch {
-        // silently ignore
-      } finally {
+    // Debounced for the same reason as Dashboard: one authenticated Canvas call per keystroke.
+    const timer = window.setTimeout(() => {
+    window.api.canvas
+      .getCourseName({ courseUrl: deployUrlInput.trim() })
+      .then((result) => {
+        if (!cancelled) setDeployCourseName(result.ok ? result.name ?? null : null);
+      })
+      .catch(() => {
+        // Cosmetic only: a failed lookup just means no course name is shown.
+      })
+      .finally(() => {
         if (!cancelled) setDeployCourseNameLoading(false);
-      }
-    };
-    fetchName();
-    return () => { cancelled = true; };
-  }, [deployUrlValid, deployUrlInput, state.canvasApiToken]);
+      });
+    }, 500);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [deployUrlValid, deployUrlInput, state.canvasTokenStatus?.hasValue]);
 
   const handleFileUpload = async (file: File) => {
     setIsLoading(true);
@@ -183,7 +172,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
   };
 
   const handleFetchGoogleDoc = async () => {
-    if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+    if (!state.isGoogleAuthenticated) {
       setError('Please sign in with Google first');
       return;
     }
@@ -198,8 +187,10 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
 
     try {
       const urlToSave = googleDocUrl.trim();
-      const fileId = googleDriveService.extractFileIdFromUrl(urlToSave);
-      const meta = await googleDriveService.verifyFileAccess(fileId, state.googleAccessToken);
+      const resolved = await window.api.drive.resolveUrl(urlToSave);
+      if (!resolved.ok) throw new Error(resolved.message);
+      const fileId = resolved.fileId;
+      const meta = { name: resolved.name, mimeType: resolved.mimeType };
       let text = '';
 
       if (meta.mimeType === 'application/vnd.google-apps.document') {
@@ -251,7 +242,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
     setError(null);
 
     try {
-      const result = await openGooglePicker();
+      const result = await pickFile();
       if (!result) return; // User cancelled
 
       setFetchingGoogleDoc(true);
@@ -338,9 +329,12 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
       setProgress({ currentStep: 'Creating evaluation scales...', percentage: 0.5 });
       await new Promise((resolve) => setTimeout(resolve, 100));
 
+      // `signal` third: without it withCancellation never sends gemini:cancel, so Stop did
+      // nothing and the user watched a dead button through the retry back-off — up to minutes.
       const rubric = await generateRubricFromDescription(
         assignmentDescription,
-        settings
+        settings,
+        signal,
       );
 
       if (signal.aborted) {
@@ -372,57 +366,63 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
     }
   };
 
-  const handleExportToWord = async () => {
-    if (!state.rubric) return;
-    try {
-      await exportToWord(state.rubric);
-    } catch (err: any) {
-      setError(`Failed to export: ${err.message}`);
-    }
-  };
-
   const [savingToDrive, setSavingToDrive] = useState(false);
+  const [savingLocal, setSavingLocal] = useState(false);
   const [driveSaveSuccess, setDriveSaveSuccess] = useState<string | null>(null);
 
-  const handleSaveToDrive = async () => {
-    if (!state.rubric || !state.googleAccessToken) return;
+  /**
+   * The default: create a Google Doc in Drive and open it.
+   *
+   * The rubric is rendered as an HTML table and handed to Drive to convert, which preserves the
+   * table. The previous version of this flattened the rubric into plain-text lines before
+   * uploading, so everything below the words — the grid, the ratings columns, the points — was
+   * lost on the way to Drive.
+   */
+  const handleExportToDrive = async () => {
+    if (!state.rubric) return;
     setSavingToDrive(true);
     setDriveSaveSuccess(null);
     try {
-      const folder = await googleDriveService.openFolderPicker(state.googleAccessToken);
-      if (!folder) { setSavingToDrive(false); return; }
+      const folder = await pickFolder({ title: 'Where should the rubric go?' });
+      if (!folder) return;
 
-      // Format the rubric as readable plain text for a Google Doc
-      const rubric = state.rubric;
-      const lines: string[] = [
-        rubric.title,
-        '',
-        ...rubric.criteria.flatMap(c => [
-          `${c.category}`,
-          c.description ? `  ${c.description}` : '',
-          `  Exemplary (${c.exemplary.points} pts): ${c.exemplary.text}`,
-          `  Proficient (${c.proficient.points} pts): ${c.proficient.text}`,
-          `  Developing (${c.developing.points} pts): ${c.developing.text}`,
-          `  Unsatisfactory (${c.unsatisfactory.points} pts): ${c.unsatisfactory.text}`,
-          '',
-        ]),
-        `Total Points: ${rubric.totalPoints}`,
-      ];
-      const text = lines.join('\n');
-
-      await googleDriveService.uploadFileToDrive(
-        state.googleAccessToken,
-        text,
-        rubric.title,
-        'text/plain',
-        'application/vnd.google-apps.document',
-        folder.folderId,
-      );
-      setDriveSaveSuccess(`Saved to "${folder.folderName}"`);
-    } catch (err: any) {
-      setError(`Google Drive save failed: ${err.message}`);
+      const result = await window.api.rubric.exportToDrive({
+        rubric: state.rubric,
+        folderId: folder.folderId,
+      });
+      if (result.ok) {
+        setDriveSaveSuccess(`Opened in your browser, saved to "${folder.folderName}"`);
+      } else {
+        setError(result.message ?? 'Could not create the Google Doc.');
+      }
+    } catch (err) {
+      setError(`Google Drive save failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSavingToDrive(false);
+    }
+  };
+
+  /**
+   * The fallback: write the same HTML to a file on this computer.
+   *
+   * Deliberately available whether or not the user is signed in. Google sign-in is the part of
+   * this app most likely to be broken for someone — refresh tokens expire weekly while the
+   * consent screen is in Testing, and new staff hit consent problems — and a rubric they cannot
+   * get out of the app is worse than one in a slightly less convenient format.
+   */
+  const handleSaveLocal = async () => {
+    if (!state.rubric) return;
+    setSavingLocal(true);
+    setDriveSaveSuccess(null);
+    try {
+      const result = await window.api.rubric.saveHtml({ rubric: state.rubric });
+      if (result.ok) {
+        setDriveSaveSuccess(`Saved to ${result.path}`);
+      } else if (!result.cancelled) {
+        setError(result.message ?? 'Could not save the file.');
+      }
+    } finally {
+      setSavingLocal(false);
     }
   };
 
@@ -715,7 +715,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                   : 'bg-gray-50 border-gray-200 hover:border-blue-300'
               }`}
             >
-              <FileText className="w-8 h-8 text-gray-500" />
+              <FileText className="w-8 h-8 text-gray-600" />
               <p className="text-sm font-bold text-gray-800">
                 Drop an assignment description document here or click to browse
               </p>
@@ -762,7 +762,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                   {isGenerating ? 'Generating Rubric...' : 'Generate Rubric'}
                 </button>
                 {assignmentDescription.trim() && (
-                  <p className="text-xs text-gray-400 text-center mt-2 italic">
+                  <p className="text-xs text-gray-600 text-center mt-2 italic">
                     This usually takes less than a minute to generate a rubric.
                   </p>
                 )}
@@ -828,7 +828,11 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                   <div className="flex items-center gap-2 mb-4 mt-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl">
                     <FileText className="w-4 h-4 text-blue-600 flex-shrink-0" />
                     <span className="text-sm font-bold text-blue-800 truncate flex-1">{pickedFileName}</span>
-                    <button onClick={() => setPickedFileName(null)} className="text-blue-400 hover:text-blue-600 flex-shrink-0 transition-colors">
+                    <button
+                      onClick={() => setPickedFileName(null)}
+                      aria-label="Remove selected file"
+                      className="text-blue-600 hover:text-blue-800 flex-shrink-0 transition-colors"
+                    >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
@@ -854,7 +858,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                             disabled={isPickerLoading}
                             className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-all text-left border-b border-gray-100 last:border-0 disabled:opacity-50"
                           >
-                            <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                            <FileText className="w-4 h-4 text-gray-600 flex-shrink-0" />
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-bold text-gray-900 truncate">{doc.name}</p>
                               <p className="text-xs text-gray-600">
@@ -927,7 +931,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
               {/* Left column: original assignment text */}
               {showComparison && snapshotDescription && (
                 <div className="flex flex-col">
-                  <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Original Assignment</h3>
+                  <h3 className="text-xs font-black text-gray-600 uppercase tracking-widest mb-3">Original Assignment</h3>
                   <div className="flex-1 h-96 overflow-y-auto p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-700 whitespace-pre-wrap leading-relaxed font-mono">
                     {snapshotDescription}
                   </div>
@@ -999,23 +1003,29 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                 {/* Secondary Actions */}
                 <div className="flex gap-3 mb-3">
                   <button
-                    onClick={handleExportToWord}
-                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-900 rounded-xl font-bold hover:bg-gray-200 transition-all flex items-center justify-center gap-2 text-sm"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download as .docx
-                  </button>
-                  <button
-                    onClick={handleSaveToDrive}
+                    onClick={handleExportToDrive}
                     disabled={savingToDrive || !state.isGoogleAuthenticated}
-                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-900 rounded-xl font-bold hover:bg-gray-200 disabled:opacity-50 transition-all text-sm flex items-center justify-center gap-2"
+                    title={
+                      state.isGoogleAuthenticated
+                        ? undefined
+                        : 'Sign in to Google under Initial Setup to use this'
+                    }
+                    className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-400 transition-all text-sm flex items-center justify-center gap-2"
                   >
                     {savingToDrive ? <Loader2 className="w-4 h-4 animate-spin" /> : (
                       <svg className="w-4 h-4 flex-shrink-0" viewBox="0 -960 960 960" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                         <path d="M220-100q-17 0-34.5-10.5T160-135L60-310q-8-14-8-34.5t8-34.5l260-446q8-14 25.5-24.5T380-860h200q17 0 34.5 10.5T640-825l182 312q-23-6-47.5-8t-48.5 2L574-780H386L132-344l94 164h316q11 23 25.5 43t33.5 37H220Zm70-180-29-51 183-319h72l101 176q-17 13-31.5 28.5T560-413l-80-139-110 192h164q-7 19-10.5 39t-3.5 41H290Zm430 160v-120H600v-80h120v-120h80v120h120v80H800v120h-80Z"/>
                       </svg>
                     )}
-                    {savingToDrive ? 'Adding…' : 'Add to Drive'}
+                    {savingToDrive ? 'Creating\u2026' : 'Open in Google Docs'}
+                  </button>
+                  <button
+                    onClick={handleSaveLocal}
+                    disabled={savingLocal}
+                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-900 rounded-xl font-bold hover:bg-gray-200 disabled:opacity-50 transition-all flex items-center justify-center gap-2 text-sm"
+                  >
+                    {savingLocal ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                    {savingLocal ? 'Saving\u2026' : 'Save to this computer'}
                   </button>
                   <button
                     onClick={() => { setShowReplaceCard(true); setShowRequestChangesCard(false); }}
@@ -1037,7 +1047,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                   <p className="text-xs text-green-700 font-bold text-center mb-3">✓ {driveSaveSuccess}</p>
                 )}
                 {!state.isGoogleAuthenticated && (
-                  <p className="text-xs text-gray-400 text-center mb-3">Sign in with Google on the Dashboard to enable Add to Drive.</p>
+                  <p className="text-xs text-gray-600 text-center mb-3">Sign in with Google on the Dashboard to enable Add to Drive.</p>
                 )}
 
                 {/* Ready confirmation checkbox */}
@@ -1155,7 +1165,8 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
             <h3 className="text-xl font-black text-gray-900">Upload Replacement Rubric</h3>
             <button
               onClick={() => { setShowReplaceCard(false); setReplaceFileText(null); setReplaceFileName(null); setError(null); }}
-              className="text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0 ml-4"
+              aria-label="Close upload replacement rubric"
+              className="text-gray-600 hover:text-gray-900 transition-colors flex-shrink-0 ml-4"
             >
               <X className="w-6 h-6" />
             </button>
@@ -1175,7 +1186,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
             }}
             className={`relative w-full p-6 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer transition-all mb-4 ${replaceIsDragging ? 'bg-blue-50 border-blue-400' : 'bg-gray-50 border-gray-200 hover:border-blue-300'}`}
           >
-            <FileText className="w-7 h-7 text-gray-400" />
+            <FileText className="w-7 h-7 text-gray-600" />
             <p className="text-sm font-bold text-gray-800">Drop your modified rubric file here or click to browse</p>
             <p className="text-xs text-gray-600">Supports .docx, .pdf, and .txt</p>
             <input
@@ -1195,7 +1206,8 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
               <span className="text-sm font-bold text-blue-800 truncate flex-1">{replaceFileName}</span>
               <button
                 onClick={() => { setReplaceFileName(null); setReplaceFileText(null); }}
-                className="text-blue-400 hover:text-blue-600 flex-shrink-0 transition-colors"
+                aria-label="Remove replacement file"
+                className="text-blue-600 hover:text-blue-800 flex-shrink-0 transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1226,7 +1238,8 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
             <h3 className="text-xl font-black text-gray-900">Request Changes</h3>
             <button
               onClick={() => { setShowRequestChangesCard(false); setRequestChangesText(''); setError(null); }}
-              className="text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0 ml-4"
+              aria-label="Close request changes"
+              className="text-gray-600 hover:text-gray-900 transition-colors flex-shrink-0 ml-4"
             >
               <X className="w-6 h-6" />
             </button>

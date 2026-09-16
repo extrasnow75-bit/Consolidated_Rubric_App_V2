@@ -1,4 +1,5 @@
 import React from 'react';
+import { useDialogFocus } from '../hooks/useDialogFocus';
 import { AppMode } from '../types';
 import { CheckCircle, ArrowRight, RotateCw, Home, X } from 'lucide-react';
 
@@ -23,6 +24,13 @@ const TaskCompletionDialog: React.FC<TaskCompletionDialogProps> = ({
   onExport,
   onDownload,
 }) => {
+  /**
+   * This dialog appears automatically after every generation, conversion and upload, so it had
+   * the widest reach of any accessibility gap in the app: it had no dialog role, took no focus,
+   * trapped none, and ignored Escape. A screen-reader user got no signal it had opened and could
+   * keep interacting with a page that was visually covered.
+   */
+  const dialogRef = useDialogFocus(isOpen, onClose);
   if (!isOpen) return null;
 
   const getDialogContent = () => {
@@ -75,21 +83,27 @@ const TaskCompletionDialog: React.FC<TaskCompletionDialogProps> = ({
       case AppMode.PART_1:
         return 'text-amber-500';
       case AppMode.PART_2:
-        return 'text-blue-500';
+        return 'text-blue-700';
       case AppMode.PART_3:
         return 'text-green-500';
       default:
-        return 'text-gray-500';
+        return 'text-gray-600';
     }
   };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40">
-      <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full mx-4 relative">
+      <div
+        ref={dialogRef as React.RefObject<HTMLDivElement>}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="task-completion-title"
+        className="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full mx-4 relative"
+      >
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+          className="absolute top-4 right-4 text-gray-600 hover:text-gray-900 transition-colors"
           aria-label="Close"
         >
           <X className="w-6 h-6" />
@@ -101,7 +115,9 @@ const TaskCompletionDialog: React.FC<TaskCompletionDialogProps> = ({
         </div>
 
         {/* Title */}
-        <h2 className="text-2xl font-black text-gray-900 text-center mb-2">{content.title}</h2>
+        <h2 id="task-completion-title" className="text-2xl font-black text-gray-900 text-center mb-2">
+          {content.title}
+        </h2>
 
         {/* Message */}
         <p className="text-gray-600 text-center mb-8">{content.message}</p>
@@ -132,7 +148,7 @@ const TaskCompletionDialog: React.FC<TaskCompletionDialogProps> = ({
 
         {/* Workflow Progress Indicator */}
         <div className="mt-8 pt-6 border-t border-gray-200">
-          <p className="text-xs text-gray-500 text-center font-bold uppercase tracking-widest mb-3">
+          <p className="text-xs text-gray-600 text-center font-bold uppercase tracking-widest mb-3">
             Workflow Progress
           </p>
           <div className="flex gap-2 justify-center">
@@ -159,7 +175,7 @@ const TaskCompletionDialog: React.FC<TaskCompletionDialogProps> = ({
               }`}
             />
           </div>
-          <div className="flex gap-2 justify-center mt-2 text-xs text-gray-500">
+          <div className="flex gap-2 justify-center mt-2 text-xs text-gray-600">
             <span>Create</span>
             <span>Convert</span>
             <span>Upload</span>

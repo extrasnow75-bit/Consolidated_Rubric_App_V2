@@ -105,7 +105,9 @@ const ErrorDisplay: React.FC<ErrorDisplayProps> = ({ error, className = '' }) =>
   const hasDetails = error.length > 80 || error.includes('{') || error.includes('code":');
 
   return (
-    <div className={`p-4 bg-red-50 border border-red-200 rounded-2xl ${className}`}>
+    // role="alert": a failed generation or upload was previously silent to assistive tech
+    // unless the user happened to be focused nearby.
+    <div role="alert" className={`p-4 bg-red-50 border border-red-200 rounded-2xl ${className}`}>
       <div className="flex items-start gap-3">
         <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
         <div className="flex-1 min-w-0">

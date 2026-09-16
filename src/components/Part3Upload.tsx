@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useSession } from '../contexts/SessionContext';
+import { useDrivePicker } from '../contexts/DrivePickerContext';
 import { AppMode, BatchItemStatus, CanvasConfig } from '../types';
-import { pushRubricToCanvas } from '../services/canvasService';
 import { Eye, EyeOff, Loader2, Upload, CheckCircle, AlertCircle, X, Zap, FolderOpen, ChevronLeft } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import JSZip from 'jszip';
-import { googleDriveService } from '../services/googleDriveService';
 
 interface BatchFile {
   id: string;
@@ -30,11 +29,13 @@ export const Part3Upload: React.FC = () => {
     getAbortSignal,
     startGoogleAuth,
     setCurrentStep,
+    downloadDriveFile,
   } = useSession();
+  const { pickFile } = useDrivePicker();
 
   const [courseUrl, setCourseUrl] = useState('');
-  const [accessToken, setAccessToken] = useState(state.canvasApiToken || '');
-  const [showToken, setShowToken] = useState(false);
+  /** The token itself is in the OS keychain; this is all the renderer knows about it. */
+  const hasToken = !!state.canvasTokenStatus?.hasValue;
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -141,7 +142,7 @@ export const Part3Upload: React.FC = () => {
   );
 
   const handleUpload = async () => {
-    if (!courseUrl.trim() || !accessToken.trim()) {
+    if (!courseUrl.trim() || !hasToken) {
       setError('Please enter Canvas URL and access token');
       return;
     }
@@ -168,10 +169,7 @@ export const Part3Upload: React.FC = () => {
     const courseHomeUrl = courseUrl.startsWith('http')
       ? courseUrl.replace(/\/$/, '')
       : `https://${courseUrl.replace(/\/$/, '')}`;
-    const config: CanvasConfig = {
-      courseHomeUrl,
-      accessToken,
-    };
+    const config: CanvasConfig = { courseHomeUrl };
 
     try {
       if (uploadMode === 'from-phase2' && phase2Items.length >= 1) {
@@ -221,7 +219,10 @@ export const Part3Upload: React.FC = () => {
           });
 
           try {
-            const result = await pushRubricToCanvas(config, item.csvContent!);
+            const result = await window.api.canvas.pushRubric({
+              csvContent: item.csvContent!,
+              courseUrl: courseHomeUrl,
+            });
             if (result.success) {
               setPhase2UploadStatuses(prev => ({ ...prev, [item.id]: { status: 'success', message: 'Successfully uploaded' } }));
               successCount++;
@@ -265,7 +266,10 @@ export const Part3Upload: React.FC = () => {
         setProgress({ currentStep: 'Uploading rubric to Canvas...' });
 
         try {
-          const result = await pushRubricToCanvas(config, csvToUse);
+          const result = await window.api.canvas.pushRubric({
+            csvContent: csvToUse,
+            courseUrl: courseHomeUrl,
+          });
 
           if (result.success) {
             addLog('✓ Upload successful!');
@@ -347,7 +351,10 @@ export const Part3Upload: React.FC = () => {
           });
 
           try {
-            const result = await pushRubricToCanvas(config, file.content);
+            const result = await window.api.canvas.pushRubric({
+              csvContent: file.content,
+              courseUrl: courseHomeUrl,
+            });
 
             if (result.success) {
               updatedFiles[i] = {
@@ -433,10 +440,10 @@ export const Part3Upload: React.FC = () => {
     let csvData: string;
     let fileName: string;
     if (mimeType === 'application/vnd.google-apps.spreadsheet') {
-      csvData = await googleDriveService.getGoogleSheetContent(fileId, state.googleAccessToken!);
+      csvData = await window.api.drive.getSheetCsv(fileId);
       fileName = `${name}.csv`;
     } else if (mimeType === 'text/csv' || mimeType === 'text/plain') {
-      const arrayBuffer = await googleDriveService.downloadFileAsArrayBuffer(fileId, state.googleAccessToken!);
+      const arrayBuffer = await downloadDriveFile(fileId);
       csvData = new TextDecoder().decode(arrayBuffer);
       fileName = name.endsWith('.csv') ? name : `${name}.csv`;
     } else {
@@ -449,17 +456,14 @@ export const Part3Upload: React.FC = () => {
 
   /** Open the Google Drive file picker filtered to Sheets and CSV files. */
   const handleGoogleDrivePick = async () => {
-    if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+    if (!state.isGoogleAuthenticated) {
       setError('Please sign in with Google on the Dashboard first.');
       return;
     }
     setPickingFromDrive(true);
     setError(null);
     try {
-      const result = await googleDriveService.openPicker(
-        state.googleAccessToken,
-        ['application/vnd.google-apps.spreadsheet', 'text/csv'],
-      );
+      const result = await pickFile({ mimeTypes: ['application/vnd.google-apps.spreadsheet', 'text/csv'] });
       if (result) {
         await resolveDriveCsv(result.fileId, result.mimeType, result.name);
       }
@@ -472,7 +476,7 @@ export const Part3Upload: React.FC = () => {
 
   /** Fetch a CSV or Google Sheet from a pasted Drive URL. */
   const handleFetchFromDriveUrl = async () => {
-    if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
+    if (!state.isGoogleAuthenticated) {
       setError('Please sign in with Google on the Dashboard first.');
       return;
     }
@@ -480,8 +484,10 @@ export const Part3Upload: React.FC = () => {
     setFetchingDriveUrl(true);
     setError(null);
     try {
-      const fileId = googleDriveService.extractFileIdFromUrl(driveUrl.trim());
-      const meta = await googleDriveService.verifyFileAccess(fileId, state.googleAccessToken);
+      const resolved = await window.api.drive.resolveUrl(driveUrl.trim());
+      if (!resolved.ok) throw new Error(resolved.message);
+      const fileId = resolved.fileId;
+      const meta = { name: resolved.name, mimeType: resolved.mimeType };
       await resolveDriveCsv(fileId, meta.mimeType, meta.name);
       setDriveUrl('');
     } catch (err: any) {
@@ -491,76 +497,29 @@ export const Part3Upload: React.FC = () => {
     }
   };
 
-  // Validate Canvas credentials by making a test GET request to the course endpoint
+  /**
+   * Confirm the saved token still works against this course.
+   *
+   * The whole request happens in the main process: it loads the token from the keychain, calls
+   * Canvas directly and returns a verdict. The previous version built the request here with the
+   * token in an Authorization header and sent it through the Canvas proxy — which is also why it
+   * had to distinguish a genuine Canvas 404 from a proxy routing error. With no proxy in the
+   * path, a 404 means what it says.
+   */
   const handleValidate = async () => {
     const courseId = extractCourseId(courseUrl);
-    if (!courseUrl.trim() || !courseId || !accessToken.trim()) return;
+    if (!courseUrl.trim() || !courseId || !hasToken) return;
     setValidating(true);
     setValidationResult(null);
     try {
-      const base = courseUrl.startsWith('http')
-        ? courseUrl.replace(/\/courses\/\d+.*$/, '').replace(/\/$/, '')
-        : `https://${courseUrl.replace(/\/courses\/\d+.*$/, '').replace(/\/$/, '')}`;
-      addLog(`Checking: ${base}/api/v1/courses/${courseId}`);
-      const res = await fetch('/canvas-proxy/api/v1/courses/' + courseId, {
-        headers: {
-          'Authorization': 'Bearer ' + accessToken,
-          'x-canvas-base': base,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      // Read the body for all responses so we can show the actual Canvas / proxy error
-      const rawText = await res.text().catch(() => '');
-      let errorDetail = '';
-      if (!res.ok) {
-        try {
-          const json = JSON.parse(rawText);
-          // Canvas wraps errors as { errors: [{ type, message }] } or { message }
-          errorDetail =
-            json.errors?.[0]?.message ||
-            json.errors?.[0]?.type ||
-            json.message ||
-            json.error ||
-            '';
-        } catch {
-          // Not JSON — could be an HTML Vercel error page or plain text
-          errorDetail = rawText.replace(/<[^>]+>/g, '').trim().slice(0, 200);
-        }
-      }
-
-      if (res.ok) {
-        let data: any = {};
-        try { data = JSON.parse(rawText); } catch { /* ignore */ }
-        const msg = `✓ Connected — ${data.name || 'Course found'}`;
-        setValidationResult({ ok: true, message: msg });
-        addLog(msg);
-      } else if (res.status === 401) {
-        const detail = errorDetail ? ` (${errorDetail})` : '';
-        const msg = `✗ Unauthorized (401)${detail} — token may be invalid or expired`;
-        setValidationResult({ ok: false, message: msg });
-        addLog(msg);
-      } else if (res.status === 404) {
-        const detail = errorDetail ? ` — ${errorDetail}` : '';
-        addLog(`✗ Not found (404)${detail}`);
-        if (!errorDetail || errorDetail.toLowerCase().includes('not') || errorDetail.toLowerCase().includes('course')) {
-          // Looks like a genuine Canvas 404
-          const msg = '✗ Course not found (404) — verify the Course URL and that your token has access to this course';
-          setValidationResult({ ok: false, message: msg });
-        } else {
-          // Unexpected body — likely a Vercel routing error, not Canvas
-          const msg = `✗ Proxy error (404): ${errorDetail || 'unexpected response — check Vercel function logs'}`;
-          setValidationResult({ ok: false, message: msg });
-          addLog('  Hint: This may be a proxy routing issue, not a Canvas error.');
-        }
-      } else {
-        const detail = errorDetail ? `: ${errorDetail}` : `: ${res.statusText}`;
-        const msg = `✗ Error ${res.status}${detail}`;
-        setValidationResult({ ok: false, message: msg });
-        addLog(msg);
-      }
-    } catch (err: any) {
-      const msg = `✗ Network error: ${err.message}`;
+      const result = await window.api.canvas.getCourseName({ courseUrl: courseUrl.trim() });
+      const msg = result.ok
+        ? `\u2713 Connected \u2014 ${result.name || 'Course found'}`
+        : `\u2717 ${result.message || 'Could not reach that course.'}`;
+      setValidationResult({ ok: result.ok, message: msg });
+      addLog(msg);
+    } catch (e) {
+      const msg = `\u2717 ${e instanceof Error ? e.message : 'Validation failed.'}`;
       setValidationResult({ ok: false, message: msg });
       addLog(msg);
     } finally {
@@ -618,7 +577,7 @@ export const Part3Upload: React.FC = () => {
             className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
               uploadMode === 'from-phase2'
                 ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                : 'border-transparent text-gray-600 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
             From Phase 2
@@ -628,7 +587,7 @@ export const Part3Upload: React.FC = () => {
             className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
               uploadMode === 'google-drive'
                 ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                : 'border-transparent text-gray-600 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
             From Google Drive
@@ -638,7 +597,7 @@ export const Part3Upload: React.FC = () => {
             className={`px-4 py-3 font-bold text-sm transition-all border-b-2 -mb-px ${
               uploadMode === 'batch'
                 ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                : 'border-transparent text-gray-600 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
             Batch Upload
@@ -666,7 +625,7 @@ export const Part3Upload: React.FC = () => {
                         className="p-3 bg-gray-50 border border-gray-200 rounded-xl flex items-center gap-3"
                       >
                         {(!st || st.status === 'pending') && (
-                          <Upload className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                          <Upload className="w-5 h-5 text-gray-600 flex-shrink-0" />
                         )}
                         {st?.status === 'uploading' && (
                           <div className="w-5 h-5 rounded-full border-2 border-gray-300 border-t-blue-600 animate-spin flex-shrink-0" />
@@ -680,7 +639,7 @@ export const Part3Upload: React.FC = () => {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-bold text-gray-900 truncate">{item.name}</p>
                           {st?.message && (
-                            <p className="text-xs text-gray-500 truncate">{st.message}</p>
+                            <p className="text-xs text-gray-600 truncate">{st.message}</p>
                           )}
                         </div>
                       </div>
@@ -743,7 +702,7 @@ export const Part3Upload: React.FC = () => {
                     {!state.isGoogleAuthenticated && (
                       <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
                         <p className="text-sm font-bold text-gray-700 mb-1">Google sign-in required</p>
-                        <p className="text-xs text-gray-500 mb-3">Sign in to pick CSV files directly from your Drive.</p>
+                        <p className="text-xs text-gray-600 mb-3">Sign in to pick CSV files directly from your Drive.</p>
                         <button
                           onClick={() => startGoogleAuth()}
                           className="w-full py-2.5 px-4 bg-white border border-gray-300 rounded-lg font-bold text-sm text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all flex items-center justify-center gap-2"
@@ -762,7 +721,7 @@ export const Part3Upload: React.FC = () => {
                     {/* OR divider */}
                     <div className="flex items-center gap-3">
                       <div className="flex-1 h-px bg-gray-200" />
-                      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">or paste a URL</span>
+                      <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">or paste a URL</span>
                       <div className="flex-1 h-px bg-gray-200" />
                     </div>
 
@@ -808,11 +767,11 @@ export const Part3Upload: React.FC = () => {
                     onChange={(e) => handleFileSelect(e.target.files)}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   />
-                  <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                  <Upload className="w-8 h-8 text-gray-600 mx-auto mb-2" />
                   <p className="text-sm font-bold text-gray-700">
                     Drag & drop CSV files or ZIP archive here
                   </p>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-600 mt-1">
                     Supports .csv files and .zip archives containing CSV files
                   </p>
                 </div>
@@ -833,7 +792,7 @@ export const Part3Upload: React.FC = () => {
                             <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
                           )}
                           {file.status === 'pending' && (
-                            <Upload className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                            <Upload className="w-5 h-5 text-gray-600 flex-shrink-0" />
                           )}
                           {file.status === 'uploading' && (
                             <div className="w-5 h-5 rounded-full border-2 border-gray-300 border-t-blue-600 animate-spin flex-shrink-0" />
@@ -852,7 +811,7 @@ export const Part3Upload: React.FC = () => {
                         {file.status === 'pending' && (
                           <button
                             onClick={() => removeBatchFile(file.id)}
-                            className="ml-2 text-gray-400 hover:text-red-600 flex-shrink-0"
+                            className="ml-2 text-gray-600 hover:text-red-600 flex-shrink-0"
                           >
                             <X className="w-5 h-5" />
                           </button>
@@ -882,13 +841,13 @@ export const Part3Upload: React.FC = () => {
                   <button
                     onClick={() => navigator.clipboard.writeText(deploymentLogs.join('\n'))}
                     disabled={deploymentLogs.length === 0}
-                    className="text-xs text-gray-500 hover:text-gray-300 font-bold disabled:opacity-40"
+                    className="text-xs text-gray-300 hover:text-gray-300 font-bold disabled:opacity-40"
                   >
                     Copy Logs
                   </button>
                   <button
                     onClick={() => setDeploymentLogs([])}
-                    className="text-xs text-gray-500 hover:text-gray-300 font-bold"
+                    className="text-xs text-gray-300 hover:text-gray-300 font-bold"
                   >
                     Clear
                   </button>
@@ -896,7 +855,7 @@ export const Part3Upload: React.FC = () => {
               </div>
               <div className="p-4 h-64 overflow-y-auto font-mono text-xs">
                 {deploymentLogs.length === 0 ? (
-                  <p className="text-gray-600">No activity yet. Upload CSVs to start deployment.</p>
+                  <p className="text-gray-300">No activity yet. Upload CSVs to start deployment.</p>
                 ) : (
                   deploymentLogs.map((log, i) => {
                     const isSuccess = log.includes('✓');
@@ -905,7 +864,7 @@ export const Part3Upload: React.FC = () => {
                       <div
                         key={i}
                         className={`whitespace-pre-wrap break-words mb-1 ${
-                          isSuccess ? 'text-green-400' : isError ? 'text-red-400' : 'text-gray-400'
+                          isSuccess ? 'text-green-400' : isError ? 'text-red-400' : 'text-gray-300'
                         }`}
                       >
                         {log}
@@ -965,35 +924,40 @@ export const Part3Upload: React.FC = () => {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                {/*
+                  The token is not editable here.
+
+                  It used to be a second password box duplicating the one in Initial Setup, which
+                  meant two places to paste the same secret and no clear answer to which one was
+                  in effect. Now there is one: it is saved once, encrypted in the OS keychain, and
+                  this panel only reports whether it is there.
+                */}
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                  <label className="block text-sm font-bold text-gray-900 mb-1">
                     Canvas API Token
                   </label>
-                  <div className="relative">
-                    <input
-                      type={showToken ? 'text' : 'password'}
-                      value={accessToken}
-                      onChange={(e) => setAccessToken(e.target.value)}
-                      placeholder="Type your token here"
-                      className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowToken(!showToken)}
-                      className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
-                    >
-                      {showToken ? (
-                        <EyeOff className="w-5 h-5" />
-                      ) : (
-                        <Eye className="w-5 h-5" />
-                      )}
-                    </button>
-                  </div>
+                  {hasToken ? (
+                    <p className="text-sm text-gray-700 flex items-center gap-2">
+                      <span className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0" />
+                      Saved in your keychain, ending &hellip;{state.canvasTokenStatus?.hint}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-gray-700">
+                      No token saved yet. Add one under{' '}
+                      <button
+                        onClick={() => setCurrentStep(AppMode.DASHBOARD)}
+                        className="font-bold text-[#0033a0] underline hover:text-blue-800"
+                      >
+                        Initial Setup
+                      </button>{' '}
+                      to upload to Canvas.
+                    </p>
+                  )}
                 </div>
 
                 <button
                   onClick={handleValidate}
-                  disabled={validating || !courseUrl.trim() || !accessToken.trim()}
+                  disabled={validating || !courseUrl.trim() || !hasToken}
                   className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-all text-sm disabled:opacity-50 disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
                 >
                   {validating ? (
@@ -1002,8 +966,8 @@ export const Part3Upload: React.FC = () => {
                     'Validate Connection'
                   )}
                 </button>
-                {!validationResult && (!courseUrl.trim() || !accessToken.trim()) && (
-                  <p className="text-xs text-gray-400 text-center">
+                {!validationResult && (!courseUrl.trim() || !hasToken) && (
+                  <p className="text-xs text-gray-600 text-center">
                     {!courseUrl.trim() ? 'Enter Canvas URL (with course ID)' : 'Enter API Token'} to enable validation
                   </p>
                 )}
@@ -1048,7 +1012,7 @@ export const Part3Upload: React.FC = () => {
                 disabled={
                   isUploading ||
                   !courseUrl.trim() ||
-                  !accessToken.trim() ||
+                  !hasToken ||
                   (uploadMode === 'from-phase2' && phase2Items.length === 0 && !csvToUse.trim()) ||
                   (uploadMode === 'google-drive' && !csvToUse.trim()) ||
                   (uploadMode === 'batch' && batchFiles.length === 0)
@@ -1069,24 +1033,24 @@ export const Part3Upload: React.FC = () => {
 
               {/* Time estimate */}
               {!isUploading && uploadMode === 'batch' && batchFiles.length > 0 && (
-                <p className="text-xs text-gray-500 text-center mt-2">
+                <p className="text-xs text-gray-600 text-center mt-2">
                   {batchFiles.length === 1
                     ? 'Estimated time: ~2s'
                     : `Estimated time: ~${batchFiles.length * 2 + (batchFiles.length - 1) * 10}s (${batchFiles.length} uploads + ${batchFiles.length - 1}×10s gaps)`}
                 </p>
               )}
               {!isUploading && uploadMode === 'from-phase2' && phase2Items.length > 1 && (
-                <p className="text-xs text-gray-500 text-center mt-2">
+                <p className="text-xs text-gray-600 text-center mt-2">
                   {`Estimated time: ~${phase2Items.length * 2 + (phase2Items.length - 1) * 10}s (${phase2Items.length} uploads + ${phase2Items.length - 1}×10s gaps)`}
                 </p>
               )}
               {!isUploading && uploadMode === 'from-phase2' && phase2Items.length === 1 && (
-                <p className="text-xs text-gray-500 text-center mt-2">
+                <p className="text-xs text-gray-600 text-center mt-2">
                   Estimated time: ~2 seconds
                 </p>
               )}
               {!isUploading && uploadMode === 'from-phase2' && phase2Items.length === 0 && csvToUse.trim() && (
-                <p className="text-xs text-gray-500 text-center mt-2">
+                <p className="text-xs text-gray-600 text-center mt-2">
                   Estimated time: ~2 seconds
                 </p>
               )}
@@ -1096,7 +1060,6 @@ export const Part3Upload: React.FC = () => {
                 <button
                   onClick={() => {
                     setCourseUrl('');
-                    setAccessToken('');
                     setManualCsv('');
                     setUploadStatus(null);
                     clearBatchFiles();

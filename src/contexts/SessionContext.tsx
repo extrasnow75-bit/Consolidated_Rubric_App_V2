@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode, useRef, useEffect } from 'react';
 import {
   SessionState,
   AppMode,
@@ -10,14 +10,6 @@ import {
   ProgressState,
   GoogleUser,
 } from '../types';
-import { googleDriveService, PickerResult } from '../services/googleDriveService';
-import { setGeminiApiKey as geminiServiceSetApiKey } from '../services/geminiService';
-import {
-  initiateGoogleSignIn,
-  signOutFromGoogle,
-  getStoredAccessToken,
-  onAuthStateChanged,
-} from '../services/firebaseService';
 
 // Create context
 const SessionContext = createContext<{
@@ -43,19 +35,22 @@ const SessionContext = createContext<{
   clearSession: () => void;
   newBatch: () => void;
   // Gemini API Key
-  setUserGeminiApiKey: (key: string | null) => void;
+  /** Stores the key in the OS keychain. Rejects if no keychain is available. */
+  setUserGeminiApiKey: (key: string | null) => Promise<void>;
   // Canvas API Token
-  setUserCanvasApiToken: (token: string | null) => void;
+  /** Stores the token in the OS keychain. Rejects if no keychain is available. */
+  setUserCanvasApiToken: (token: string | null) => Promise<void>;
   // V.2 fields
-  setCourseUrl: (url: string | null) => void;
+  /** Validated and pinned in the main process; resolves with why it was refused. */
+  setCourseUrl: (url: string | null) => Promise<{ ok: boolean; message?: string }>;
   setHasDraftRubric: (value: 'yes' | 'no' | null) => void;
   // Google Auth methods
-  startGoogleAuth: () => Promise<void>;
+  /** Opens the system browser. Pass true to force Google's account chooser. */
+  startGoogleAuth: (useAnotherAccount?: boolean) => Promise<void>;
   signOutGoogle: () => Promise<void>;
   extractGoogleDocText: (docUrl: string) => Promise<string>;
   extractGoogleSheetCsv: (sheetUrl: string) => Promise<string>;
   downloadDriveFile: (fileId: string) => Promise<ArrayBuffer>;
-  openGooglePicker: () => Promise<PickerResult | null>;
 } | undefined>(undefined);
 
 // Provider component
@@ -90,18 +85,15 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       canCancel: false,
     },
     // Gemini API Key
-    geminiApiKey: null,
+    geminiKeyStatus: null,
     // Canvas API Token
-    canvasApiToken: null,
+    canvasTokenStatus: null,
     // V.2 fields
     courseUrl: null,
     hasDraftRubric: null,
     // Google Authentication
     isGoogleAuthenticated: false,
     googleUser: null,
-    googleAccessToken: null,
-    googleRefreshToken: null,
-    googleTokenExpiresAt: null,
     googleAuthError: null,
     isAuthenticating: false,
   });
@@ -227,7 +219,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
           },
         };
       });
-    }, 100);
+    }, 250);
   }, []);
 
   const stopProgress = useCallback(() => {
@@ -245,10 +237,18 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     }));
   }, []);
 
+  /**
+   * Cancel whatever is running, and retire the controller.
+   *
+   * Nulling the ref is the whole fix. Only `startProgress` replaced the controller, so after one
+   * Stop every later call to `getAbortSignal` handed back the *aborted* signal — and the four
+   * features that take a signal without calling `startProgress` first (Replace from file, Request
+   * changes, and two in the screenshot converter) failed instantly with "Request cancelled",
+   * permanently, until the app was restarted.
+   */
   const requestCancel = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
   }, []);
 
   const getAbortSignal = useCallback((): AbortSignal => {
@@ -294,15 +294,12 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
         canCancel: false,
       },
       // Preserve credentials and V.2 setup across session clears
-      geminiApiKey: prev.geminiApiKey,
-      canvasApiToken: prev.canvasApiToken,
+      geminiKeyStatus: prev.geminiKeyStatus,
+      canvasTokenStatus: prev.canvasTokenStatus,
       courseUrl: prev.courseUrl,
       hasDraftRubric: prev.hasDraftRubric,
       isGoogleAuthenticated: prev.isGoogleAuthenticated,
       googleUser: prev.googleUser,
-      googleAccessToken: prev.googleAccessToken,
-      googleRefreshToken: null,
-      googleTokenExpiresAt: prev.googleTokenExpiresAt,
       googleAuthError: null,
       isAuthenticating: false,
     }));
@@ -321,198 +318,204 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     }));
   }, []);
 
-  // Gemini API Key management
-  const setUserGeminiApiKey = useCallback((key: string | null) => {
-    setState((prev) => ({ ...prev, geminiApiKey: key }));
-    if (key) {
-      localStorage.setItem('gemini_api_key', key);
-      geminiServiceSetApiKey(key);
-    } else {
-      localStorage.removeItem('gemini_api_key');
-      geminiServiceSetApiKey('');
-    }
+  /**
+   * Hand the Gemini key to the main process, which encrypts it into the OS keychain.
+   *
+   * Same one-way shape as the Canvas token: the key goes in, and what comes back is a status
+   * object. It used to live in localStorage and be passed to a Gemini client running here; both
+   * the key and the client are in the main process now. Pass null to forget it.
+   */
+  const setUserGeminiApiKey = useCallback(async (key: string | null) => {
+    await window.api.credentials.setGeminiApiKey(key);
+    const status = await window.api.credentials.geminiKeyStatus();
+    setState((prev) => ({ ...prev, geminiKeyStatus: status }));
   }, []);
 
-  // V.2 setters
-  const setCourseUrl = useCallback((url: string | null) => {
-    setState((prev) => ({ ...prev, courseUrl: url }));
-    if (url) localStorage.setItem('canvas_course_url', url);
-    else localStorage.removeItem('canvas_course_url');
+  /**
+   * Save the Canvas course URL.
+   *
+   * Persisted by the main process rather than here, because this value decides two things that
+   * are not the renderer's to decide: the only host the Canvas token will be sent to, and the
+   * only Canvas host the app will open in a browser. Main validates it and refuses anything that
+   * is not an HTTPS course URL on a public host.
+   */
+  const setCourseUrl = useCallback(async (url: string | null) => {
+    const result = await window.api.canvas.setCourseUrl(url);
+    if (result.ok) {
+      setState((prev) => ({ ...prev, courseUrl: url }));
+    }
+    return result;
   }, []);
 
   const setHasDraftRubric = useCallback((value: 'yes' | 'no' | null) => {
     setState((prev) => ({ ...prev, hasDraftRubric: value }));
   }, []);
 
-  // Canvas API Token management
-  const setUserCanvasApiToken = useCallback((token: string | null) => {
-    setState((prev) => ({ ...prev, canvasApiToken: token }));
-    if (token) {
-      localStorage.setItem('canvas_api_token', token);
-    } else {
-      localStorage.removeItem('canvas_api_token');
-    }
+  /**
+   * Hand the Canvas token to the main process, which encrypts it into the OS keychain.
+   *
+   * Note what does not happen here: the token is never put into React state, and it is never
+   * written to localStorage. It goes straight across the IPC boundary, and what comes back is a
+   * status object — a boolean and the last four characters. Pass null to forget it.
+   *
+   * Throws if the OS has no working keychain, so the caller can tell the user that nothing was
+   * saved rather than letting them believe it was.
+   */
+  const setUserCanvasApiToken = useCallback(async (token: string | null) => {
+    await window.api.credentials.setCanvasToken(token);
+    const status = await window.api.credentials.canvasTokenStatus();
+    setState((prev) => ({ ...prev, canvasTokenStatus: status }));
   }, []);
 
-  // ── Google Auth (Firebase popup flow) ──────────────────────────────────────
+  // ── Google sign-in ─────────────────────────────────────────────────────────
+  //
+  // The whole flow lives in the main process: it opens the system browser, listens on a loopback
+  // port for the redirect, exchanges the code with PKCE, and encrypts the refresh token into the
+  // OS keychain. What comes back here is identity — name, email, avatar — and nothing else.
+  //
+  // This replaces a Firebase popup whose access token was kept in localStorage and passed to
+  // every Drive call. Those calls now happen in main, which fetches its own token, so there is no
+  // longer a Google credential anywhere in the renderer.
 
-  const startGoogleAuth = useCallback(async () => {
+  const startGoogleAuth = useCallback(async (useAnotherAccount = false) => {
     setState((prev) => ({ ...prev, isAuthenticating: true, googleAuthError: null }));
     try {
-      const result = await initiateGoogleSignIn();
+      const status = await window.api.google.signIn({ useAnotherAccount });
       setState((prev) => ({
         ...prev,
-        isGoogleAuthenticated: true,
-        googleUser: result.user,
-        googleAccessToken: result.accessToken,
-        googleRefreshToken: null,
-        googleTokenExpiresAt: result.expiresAt,
+        isGoogleAuthenticated: status.signedIn,
+        googleUser: status.signedIn
+          ? {
+              id: status.email ?? '',
+              email: status.email ?? '',
+              name: status.name ?? status.email ?? 'Google User',
+              picture: status.picture,
+            }
+          : null,
         googleAuthError: null,
         isAuthenticating: false,
       }));
-    } catch (err: any) {
-      // User closed the popup — not a real error
-      const isCancelled =
-        err.code === 'auth/popup-closed-by-user' ||
-        err.code === 'auth/cancelled-popup-request';
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Sign-in failed';
+      // Closing the browser tab or declining consent is a decision, not a fault. Reporting it as
+      // an error would put a red message on screen for someone who simply changed their mind.
+      const cancelled = /cancelled|timed out/i.test(message);
       setState((prev) => ({
         ...prev,
         isAuthenticating: false,
-        googleAuthError: isCancelled ? null : (err.message || 'Sign-in failed'),
+        googleAuthError: cancelled ? null : message,
       }));
     }
   }, []);
 
   const signOutGoogle = useCallback(async () => {
     try {
-      await signOutFromGoogle();
-    } catch (err: any) {
-      console.error('Sign out error:', err);
+      await window.api.google.signOut();
     } finally {
       setState((prev) => ({
         ...prev,
         isGoogleAuthenticated: false,
         googleUser: null,
-        googleAccessToken: null,
-        googleRefreshToken: null,
-        googleTokenExpiresAt: null,
         googleAuthError: null,
       }));
     }
   }, []);
 
-  const extractGoogleDocText = useCallback(
-    async (docUrl: string): Promise<string> => {
-      if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
-        throw new Error('Please sign in with Google first');
-      }
-      const fileId = googleDriveService.extractFileIdFromUrl(docUrl);
-      return googleDriveService.getGoogleDocContent(fileId, state.googleAccessToken);
-    },
-    [state.isGoogleAuthenticated, state.googleAccessToken]
-  );
+  // ── Drive reads ────────────────────────────────────────────────────────────
+  //
+  // These no longer check for a token before calling, because there is no token here to check.
+  // Main resolves one when it needs it and returns a clear "sign in again" message if it cannot,
+  // which is also the right answer when a sign-in has quietly expired mid-session.
 
-  const extractGoogleSheetCsv = useCallback(
-    async (sheetUrl: string): Promise<string> => {
-      if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
-        throw new Error('Please sign in with Google first');
-      }
-      const fileId = googleDriveService.extractFileIdFromUrl(sheetUrl);
-      return googleDriveService.getGoogleSheetContent(fileId, state.googleAccessToken);
-    },
-    [state.isGoogleAuthenticated, state.googleAccessToken]
-  );
+  const extractGoogleDocText = useCallback(async (docUrl: string): Promise<string> => {
+    const resolved = await window.api.drive.resolveUrl(docUrl);
+    if (!resolved.ok) throw new Error(resolved.message);
+    return window.api.drive.getDocText(resolved.fileId);
+  }, []);
 
-  const downloadDriveFile = useCallback(
-    async (fileId: string): Promise<ArrayBuffer> => {
-      if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
-        throw new Error('Please sign in with Google first');
-      }
-      return googleDriveService.downloadFileAsArrayBuffer(fileId, state.googleAccessToken);
-    },
-    [state.isGoogleAuthenticated, state.googleAccessToken]
-  );
+  const extractGoogleSheetCsv = useCallback(async (sheetUrl: string): Promise<string> => {
+    const resolved = await window.api.drive.resolveUrl(sheetUrl);
+    if (!resolved.ok) throw new Error(resolved.message);
+    return window.api.drive.getSheetCsv(resolved.fileId);
+  }, []);
 
-  const openGooglePicker = useCallback(
-    async (): Promise<PickerResult | null> => {
-      if (!state.isGoogleAuthenticated || !state.googleAccessToken) {
-        throw new Error('Please sign in with Google first');
-      }
-      return googleDriveService.openPicker(state.googleAccessToken);
-    },
-    [state.isGoogleAuthenticated, state.googleAccessToken]
-  );
+  const downloadDriveFile = useCallback(async (fileId: string): Promise<ArrayBuffer> => {
+    const bytes = await window.api.drive.downloadBytes(fileId);
+    // Uint8Array is what survives the IPC structured clone; mammoth and pdf.js want an
+    // ArrayBuffer. Slice to the view's own bounds so a pooled buffer cannot leak extra bytes.
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  }, []);
 
   // ── Initialization ─────────────────────────────────────────────────────────
 
   useEffect(() => {
-    // Restore saved Gemini API key
-    const savedApiKey = localStorage.getItem('gemini_api_key');
-    if (savedApiKey) {
-      setState((prev) => ({ ...prev, geminiApiKey: savedApiKey }));
-      geminiServiceSetApiKey(savedApiKey);
-    }
+    // Canvas token status and course URL both live in the main process now — the token
+    // encrypted in the OS keychain, the URL in settings.json. Neither is read from localStorage.
+    void (async () => {
+      const empty = { hasValue: false, hint: '' };
+      const [canvas, gemini, savedCourseUrl] = await Promise.all([
+        window.api.credentials.canvasTokenStatus().catch(() => empty),
+        window.api.credentials.geminiKeyStatus().catch(() => empty),
+        window.api.canvas.getCourseUrl().catch(() => null),
+      ]);
+      setState((prev) => ({
+        ...prev,
+        canvasTokenStatus: canvas,
+        geminiKeyStatus: gemini,
+        courseUrl: savedCourseUrl,
+      }));
+    })();
 
-    // Restore saved Canvas API token
-    const savedCanvasToken = localStorage.getItem('canvas_api_token');
-    if (savedCanvasToken) {
-      setState((prev) => ({ ...prev, canvasApiToken: savedCanvasToken }));
-    }
-
-    // Restore saved V.2 course URL
-    const savedCourseUrl = localStorage.getItem('canvas_course_url');
-    if (savedCourseUrl) {
-      setState((prev) => ({ ...prev, courseUrl: savedCourseUrl }));
-    }
-
-    // Listen for Firebase auth state changes.
-    // When the page reloads, Firebase restores the user from IndexedDB.
-    // If a valid Google access token is also in sessionStorage we restore
-    // the full authenticated state silently; otherwise the user needs to
-    // sign in again.
-    const unsubscribe = onAuthStateChanged((firebaseUser) => {
-      if (firebaseUser) {
-        const stored = getStoredAccessToken();
-        if (stored) {
-          const googleUser: GoogleUser = {
-            id: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            name: firebaseUser.displayName || firebaseUser.email || 'Google User',
-            picture: firebaseUser.photoURL || undefined,
-          };
-          setState((prev) => ({
-            ...prev,
-            isGoogleAuthenticated: true,
-            googleUser,
-            googleAccessToken: stored.accessToken,
-            googleTokenExpiresAt: stored.expiresAt,
-          }));
-        } else {
-          // Firebase user exists but Drive access token has expired.
-          // Clear auth so the UI prompts the user to sign in again.
-          setState((prev) => ({
-            ...prev,
-            isGoogleAuthenticated: false,
-            googleUser: null,
-            googleAccessToken: null,
-            googleTokenExpiresAt: null,
-          }));
-        }
-      } else {
+    // Ask main who is signed in. The refresh token is in the keychain, so a sign-in survives
+    // quitting the app entirely — there is no token expiry to nurse in the renderer.
+    void window.api.google
+      .status()
+      .then((status) => {
         setState((prev) => ({
           ...prev,
-          isGoogleAuthenticated: false,
-          googleUser: null,
-          googleAccessToken: null,
-          googleTokenExpiresAt: null,
+          isGoogleAuthenticated: status.signedIn,
+          googleUser: status.signedIn
+            ? {
+                id: status.email ?? '',
+                email: status.email ?? '',
+                name: status.name ?? status.email ?? 'Google User',
+                picture: status.picture,
+              }
+            : null,
         }));
-      }
+      })
+      .catch(() => {
+        // A failed status check must not strand the app: treat it as signed out.
+      });
+
+    // Main tells us when a stored sign-in turns out to be dead — most often the seven-day
+    // refresh-token expiry that Google applies while the consent screen is in Testing. Without
+    // this the panel would keep showing a signed-in user whose every Drive call fails.
+    const unsubscribe = window.api.google.onSignedOut(() => {
+      setState((prev) => ({
+        ...prev,
+        isGoogleAuthenticated: false,
+        googleUser: null,
+        googleAuthError: 'Your Google sign-in expired. Sign in again to use Drive.',
+      }));
     });
 
     return () => unsubscribe();
   }, []);
 
-  const value = {
+  /**
+   * Memoised, and the progress timer slowed to 250ms.
+   *
+   * `startProgress` ticks a timer that produces a new state object each time (timeElapsed
+   * changes), and this object literal was rebuilt on every render — so every `useSession()`
+   * consumer, which is essentially the whole app, re-rendered ten times a second for the
+   * duration of every generation, conversion and upload. Part 3's batch path holds that open
+   * across its ten-second inter-upload waits, so it ran for minutes at a time.
+   *
+   * The dependency list is every value below. It is long, but a missing entry here means a
+   * stale closure in a consumer, which is a far worse failure than an extra render.
+   */
+  const value = useMemo(() => ({
     state,
     setCurrentStep,
     setRubric,
@@ -543,8 +546,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     extractGoogleDocText,
     extractGoogleSheetCsv,
     downloadDriveFile,
-    openGooglePicker,
-  };
+  }), [state]);
 
   return (
     <SessionContext.Provider value={value}>
