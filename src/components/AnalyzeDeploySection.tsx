@@ -3,6 +3,15 @@ import { CheckCircle, XCircle, Loader2, Download, Copy, Trash2, ExternalLink } f
 import { RubricData, CanvasConfig } from '../types';
 import { generateCsvFromRubricObject, generateAllCsvsFromDoc } from '../services/geminiService';
 import JSZip from 'jszip';
+import { diagnoseCanvasError, CanvasDiagnosis } from '../utils/diagnoseCanvasError';
+
+/**
+ * How long to wait before the single retry.
+ *
+ * Long enough for a rate limit to clear or a blip to pass, short enough that a user watching the
+ * timeline does not think it has hung.
+ */
+const RETRY_DELAY_MS = 2000;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -35,6 +44,8 @@ interface Props {
   uploadedFiles?: UploadedDocFile[];
   courseUrl: string;
   onStartOver?: () => void;
+  /** Open Initial Setup, for the failures a credential or the course URL would fix. */
+  onOpenSetup?: () => void;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -50,6 +61,7 @@ const formatMs = (ms: number) => {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export const AnalyzeDeploySection: React.FC<Props> = ({
+  onOpenSetup,
   phase1Rubric,
   scoringMethod = 'ranges',
   uploadedFiles = [],
@@ -161,22 +173,54 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
           const item = pending[i];
           addLog(`Deploying "${item.name}" to Canvas…`, 'info');
 
-          try {
-            const res = await window.api.canvas.pushRubric({
-              csvContent: item.csvContent,
-              courseUrl,
-            });
-            if (res.success) {
-              addLog(`✓ "${item.name}" deployed successfully`, 'success');
-              finalResults.push({ name: item.name, status: 'success', csvContent: item.csvContent });
-            } else {
-              addLog(`✗ "${item.name}" failed: ${res.message}`, 'error');
-              finalResults.push({ name: item.name, status: 'failed', error: res.message, csvContent: item.csvContent });
+          /**
+           * One automatic retry, and only for failures that could plausibly go away.
+           *
+           * A rate limit, a dropped connection or a Canvas 500 is frequently over within
+           * seconds, and asking someone to re-run a ten-rubric batch because of one is a poor
+           * trade against a single extra request. A rejected token or a course ID that does not
+           * exist is never transient: retrying those just makes the same failure arrive later,
+           * so diagnoseCanvasError decides which is which rather than a blanket retry.
+           */
+          let attempt = 0;
+          for (;;) {
+            if (signal.aborted) throw new Error('Cancelled');
+            let message: string | undefined;
+            try {
+              const res = await window.api.canvas.pushRubric({
+                csvContent: item.csvContent,
+                courseUrl,
+              });
+              if (res.success) {
+                addLog(`✓ "${item.name}" deployed successfully`, 'success');
+                finalResults.push({ name: item.name, status: 'success', csvContent: item.csvContent });
+                break;
+              }
+              message = res.message;
+            } catch (err: any) {
+              if (signal.aborted) throw err;
+              message = err?.message;
             }
-          } catch (err: any) {
-            if (signal.aborted) throw err;
-            addLog(`✗ "${item.name}" error: ${err.message}`, 'error');
-            finalResults.push({ name: item.name, status: 'failed', error: err.message, csvContent: item.csvContent });
+
+            const diagnosis = diagnoseCanvasError(message);
+            if (diagnosis.transient && attempt === 0) {
+              attempt += 1;
+              addLog(`"${item.name}" — ${diagnosis.cause} Retrying once…`, 'warning');
+              await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+              continue;
+            }
+
+            addLog(`✗ "${item.name}" failed: ${message}`, 'error');
+            // The cause is logged separately from Canvas's own words so the timeline says what
+            // to do, while still showing exactly what Canvas reported.
+            addLog(`   ${diagnosis.cause} ${diagnosis.fix}`, 'warning');
+            finalResults.push({
+              name: item.name,
+              status: 'failed',
+              error: message,
+              csvContent: item.csvContent,
+            });
+            break;
           }
 
           const deployPct = 40 + Math.round(((i + 1) / pending.length) * 60);
@@ -274,6 +318,19 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
   const successCount = results.filter((r) => r.status === 'success').length;
   const failCount = results.filter((r) => r.status === 'failed').length;
   const isRunning = runStatus === 'running';
+
+  /** Distinct failure causes, each with the rubrics it accounts for, in the order they failed. */
+  const failureGroups = React.useMemo(() => {
+    const groups = new Map<string, { diagnosis: CanvasDiagnosis; names: string[] }>();
+    for (const r of results) {
+      if (r.status !== 'failed') continue;
+      const diagnosis = diagnoseCanvasError(r.error);
+      const existing = groups.get(diagnosis.cause);
+      if (existing) existing.names.push(r.name);
+      else groups.set(diagnosis.cause, { diagnosis, names: [r.name] });
+    }
+    return [...groups.values()];
+  }, [results]);
   const rubricPageUrl = courseUrl.trim().replace(/\/?$/, '') + '/rubrics';
 
   // ─── Summary header (replaces spinner when done) ──────────────────────────
@@ -325,6 +382,43 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
           >
             Verify at Canvas Rubrics page <ExternalLink className="w-3 h-3" />
           </a>
+        )}
+
+        {/*
+          What went wrong, and what to do about it.
+          Grouped by cause: ten rubrics failing for one reason is one problem to explain, not ten.
+        */}
+        {failureGroups.length > 0 && (
+          <div
+            className="mt-3 rounded-xl border-2 border-amber-200 bg-amber-50 p-4 space-y-3"
+            role="region"
+            aria-label="What went wrong"
+          >
+            <p className="font-black text-sm text-amber-900 uppercase tracking-wide">
+              What went wrong
+            </p>
+            {failureGroups.map((group) => (
+              <div key={group.diagnosis.cause} className="space-y-1">
+                <p className="text-sm font-bold text-gray-900">{group.diagnosis.cause}</p>
+                {group.diagnosis.fix && (
+                  <p className="text-sm text-gray-700">{group.diagnosis.fix}</p>
+                )}
+                <p className="text-xs text-gray-600">
+                  {group.names.length === 1
+                    ? group.names[0]
+                    : `${group.names.length} rubrics: ${group.names.join(', ')}`}
+                </p>
+                {group.diagnosis.action.kind === 'open-setup' && onOpenSetup && (
+                  <button
+                    onClick={onOpenSetup}
+                    className="mt-1 px-3 py-1.5 bg-blue-700 text-white rounded-lg text-xs font-bold hover:bg-blue-800 transition-all"
+                  >
+                    {group.diagnosis.action.label}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </div>
     );
@@ -463,7 +557,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
           </p>
           <button
             onClick={onStartOver}
-            className="flex-shrink-0 px-6 py-2.5 bg-green-600 text-white rounded-xl font-black text-sm uppercase tracking-widest hover:bg-green-700 transition-all active:scale-95 shadow"
+            className="flex-shrink-0 px-6 py-2.5 bg-green-700 text-white rounded-xl font-black text-sm uppercase tracking-widest hover:bg-green-800 transition-all active:scale-95 shadow"
           >
             Yes, please
           </button>

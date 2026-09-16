@@ -769,7 +769,7 @@ export const Part2WordToCsv: React.FC = () => {
                 onClick={() =>
                   downloadCsv(singleCsvContent, editableRubricName || 'rubric')
                 }
-                className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-3 bg-green-700 text-white rounded-xl font-bold hover:bg-green-800 transition-all flex items-center justify-center gap-2"
               >
                 <Download className="w-5 h-5" />
                 Download as .csv
@@ -1097,7 +1097,7 @@ export const Part2WordToCsv: React.FC = () => {
                     <div className="flex gap-3 mb-4">
                       <button
                         onClick={handleDownloadAllZip}
-                        className="flex-1 py-3 bg-green-600 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-green-700 transition-all active:scale-95 flex items-center justify-center gap-2"
+                        className="flex-1 py-3 bg-green-700 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-green-800 transition-all active:scale-95 flex items-center justify-center gap-2"
                       >
                         <PackageOpen className="w-5 h-5" />
                         Download All {doneCount} as ZIP
@@ -1176,7 +1176,7 @@ export const Part2WordToCsv: React.FC = () => {
                             onClick={() =>
                               downloadCsv(result.csvContent!, result.rubric.name)
                             }
-                            className="flex-shrink-0 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 transition-all flex items-center gap-1.5"
+                            className="flex-shrink-0 px-3 py-1.5 bg-green-700 text-white rounded-lg text-xs font-bold hover:bg-green-800 transition-all flex items-center gap-1.5"
                           >
                             <Download className="w-3.5 h-3.5" />
                             Download

@@ -8,6 +8,7 @@ import {
   Lightbulb, Camera, ArrowRight, Clipboard, HardDrive, Clock, ChevronUp,
 } from 'lucide-react';
 import { getRecentDocs, saveRecentDoc, RecentDoc } from '../utils/recentDocs';
+import { revealSection, REVEAL_DELAY_MS } from '../utils/revealSection';
 import { AppMode } from '../types';
 import { validateGeminiApiKey } from '../services/geminiService';
 import { AnalyzeDeploySection, UploadedDocFile } from './AnalyzeDeploySection';
@@ -82,11 +83,31 @@ export const Dashboard: React.FC = () => {
 
   // ── Course URL ──
   const [courseUrlInput, setCourseUrlInput] = useState(state.courseUrl || '');
+
+  /**
+   * Prefill with the course used last time, so only the course ID needs changing.
+   *
+   * The initialiser above cannot do this on its own: the saved URL lives in settings.json and
+   * reaches the renderer over IPC, which resolves *after* the first render, so state.courseUrl
+   * is still null when useState reads it. This fills the field when the value actually lands.
+   *
+   * Guarded by a ref rather than by comparing values, because the user may deliberately clear
+   * the field — and refilling what someone has just emptied is worse than not prefilling.
+   */
+  const courseUrlTouched = useRef(false);
+  useEffect(() => {
+    if (courseUrlTouched.current || !state.courseUrl) return;
+    setCourseUrlInput(state.courseUrl);
+  }, [state.courseUrl]);
   const courseUrlValid = isCourseUrlValid(courseUrlInput);
 
   // ── Course Name ──
   const [courseName, setCourseName] = useState<string | null>(null);
   const [courseNameLoading, setCourseNameLoading] = useState(false);
+  const [courseNameError, setCourseNameError] = useState<string | null>(null);
+
+  /** Green means the course was found, not that the string matched a regex. */
+  const courseVerified = courseUrlValid && !!courseName;
 
   // ── Draft Rubric Document ──
   const [hasDraftRubric, setHasDraftRubricLocal] = useState<'' | 'yes' | 'no'>('');
@@ -109,6 +130,7 @@ export const Dashboard: React.FC = () => {
 
   // ── Phase 1 inline mode ──
   const [phase1Mode, setPhase1Mode] = useState<'none' | 'rubric' | 'screenshot'>('none');
+  const phase1Ref = useRef<HTMLDivElement>(null);
 
   // ─── Derived validity ────────────────────────────────────────────────────────
 
@@ -137,6 +159,19 @@ export const Dashboard: React.FC = () => {
 
   // ── Collapsible Initial Setup ──
   const [isSetupOpen, setIsSetupOpen] = useState(!allSetupComplete);
+  const setupRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Open Initial Setup and take the user to it.
+   *
+   * Offered by the deploy failure panel for the causes a credential or the course URL would fix.
+   * Opening the card without moving to it would be its own version of the problem — the panel is
+   * near the bottom of a long page, so the card expands somewhere the user cannot see.
+   */
+  const handleOpenSetup = useCallback(() => {
+    setIsSetupOpen(true);
+    window.setTimeout(() => revealSection(setupRef.current), REVEAL_DELAY_MS);
+  }, []);
 
   // Auto-collapse only when all three setup items are complete (including Google)
   useEffect(() => {
@@ -151,6 +186,7 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     if (!courseUrlValid || !canvasTokenValid) {
       setCourseName(null);
+      setCourseNameError(null);
       return;
     }
     let cancelled = false;
@@ -158,14 +194,25 @@ export const Dashboard: React.FC = () => {
     // Debounced: the effect depends on the live input, so every additional character typed
     // after the URL first became valid fired another authenticated request to the institution's
     // Canvas. The `cancelled` flag protected the state, not the network.
+    setCourseNameError(null);
     const timer = window.setTimeout(() => {
       window.api.canvas
         .getCourseName({ courseUrl: courseUrlInput.trim() })
         .then((result) => {
-          if (!cancelled) setCourseName(result.ok ? result.name ?? null : null);
+          if (cancelled) return;
+          if (result.ok && result.name) {
+            setCourseName(result.name);
+          } else {
+            // Main returns a specific reason — wrong host, no token, 404, unreachable.
+            // Showing it is the difference between "the app is broken" and "fix the URL".
+            setCourseName(null);
+            setCourseNameError(result.message ?? 'Could not load this course.');
+          }
         })
-        .catch(() => {
-          // A failed lookup is cosmetic — it only means the course name is not shown.
+        .catch((e) => {
+          if (!cancelled) {
+            setCourseNameError(e instanceof Error ? e.message : 'Could not load this course.');
+          }
         })
         .finally(() => {
           if (!cancelled) setCourseNameLoading(false);
@@ -235,6 +282,7 @@ export const Dashboard: React.FC = () => {
   };
 
   const handleCourseUrlChange = (val: string) => {
+    courseUrlTouched.current = true;
     setCourseUrlInput(val);
     if (isCourseUrlValid(val)) setCourseUrl(val.trim());
     else setCourseUrl(null);
@@ -397,8 +445,21 @@ export const Dashboard: React.FC = () => {
   const handleAnalyzeDeploy = (source: 'yes' | 'no') => {
     setAnalyzeRubricSource(source);
     setShowAnalyze(true);
-    setTimeout(() => analyzeRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    setTimeout(() => revealSection(analyzeRef.current), REVEAL_DELAY_MS);
   };
+
+  /**
+   * Choosing a Phase 1 option renders the next step below the fold, which reads as a dead
+   * button. Bring it into view and move focus into it once it has mounted.
+   *
+   * Deliberately not in the click handler: the section is not in the DOM until this render
+   * commits, so there would be nothing to scroll to.
+   */
+  useEffect(() => {
+    if (phase1Mode === 'none') return;
+    const timer = window.setTimeout(() => revealSection(phase1Ref.current), REVEAL_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [phase1Mode]);
 
   // ─── Render ──────────────────────────────────────────────────────────────────
 
@@ -408,7 +469,13 @@ export const Dashboard: React.FC = () => {
       <div className="space-y-4">
 
         {/* ── Initial Setup Collapsible ── */}
-        <div className="rounded-2xl overflow-hidden shadow-md">
+        <div
+          ref={setupRef}
+          tabIndex={-1}
+          role="region"
+          aria-label="Initial setup"
+          className="rounded-2xl overflow-hidden shadow-md focus:outline-none"
+        >
 
           {/* Header */}
           <button
@@ -836,11 +903,11 @@ export const Dashboard: React.FC = () => {
 
         {/* ── Target Canvas Course — appears only when "Yes" is selected ── */}
         {coreSetupComplete && hasDraftRubric === 'yes' && (
-          <SetupCard isValid={courseUrlValid}>
+          <SetupCard isValid={courseVerified}>
             <div className="flex items-center gap-2 mb-1">
               <Link className="w-4 h-4 text-blue-600 flex-shrink-0" />
               <h3 className="font-black text-lg text-gray-900">Target Canvas Course</h3>
-              {courseUrlValid && <Check className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
+              {courseVerified && <Check className="w-4 h-4 text-green-600 ml-auto flex-shrink-0" />}
             </div>
             <p className="text-sm text-gray-600 mb-3">Enter the homepage URL of the Canvas course you want to deploy rubrics to.</p>
             <input
@@ -848,10 +915,12 @@ export const Dashboard: React.FC = () => {
               value={courseUrlInput}
               onChange={(e) => handleCourseUrlChange(e.target.value)}
               placeholder="https://canvas.institution.edu/courses/12345"
+              aria-invalid={!!((courseUrlInput && !courseUrlValid) || courseNameError)}
+              aria-describedby={courseNameError ? 'course-status' : undefined}
               className={`w-full px-4 py-3 border-2 rounded-xl text-sm focus:outline-none transition-all ${
-                courseUrlInput && !courseUrlValid
+                (courseUrlInput && !courseUrlValid) || courseNameError
                   ? 'border-red-300 focus:border-red-400'
-                  : courseUrlValid
+                  : courseVerified
                   ? 'border-green-400 focus:border-green-500'
                   : 'border-gray-200 focus:border-blue-400'
               }`}
@@ -861,18 +930,37 @@ export const Dashboard: React.FC = () => {
                 <X className="w-3 h-3" /> URL must include a /courses/&lt;ID&gt; path
               </p>
             )}
-            {courseUrlValid && (
-              <div className="mt-3 flex items-center gap-2 min-h-[1.5rem]">
-                {courseNameLoading ? (
-                  <Loader2 className="w-4 h-4 text-green-500 animate-spin" />
-                ) : courseName ? (
-                  <>
-                    <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
-                    <span className="text-sm font-bold text-green-700">{courseName}</span>
-                  </>
-                ) : null}
-              </div>
-            )}
+            {/*
+              Mounted unconditionally: a live region that appears with its text already inside
+              it is announced unreliably. Collapses to sr-only when there is nothing to say.
+            */}
+            <div
+              id="course-status"
+              role="status"
+              aria-live="polite"
+              className={
+                courseNameLoading || courseName || courseNameError
+                  ? 'mt-3 flex items-center gap-2 min-h-[1.5rem]'
+                  : 'sr-only'
+              }
+            >
+              {courseNameLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 text-gray-400 animate-spin" aria-hidden="true" />
+                  <span className="text-sm text-gray-600">Checking this course…</span>
+                </>
+              ) : courseName ? (
+                <>
+                  <Check className="w-4 h-4 text-green-600 flex-shrink-0" aria-hidden="true" />
+                  <span className="text-sm font-bold text-green-700">
+                    <span className="sr-only">Course found: </span>
+                    {courseName}
+                  </span>
+                </>
+              ) : courseNameError ? (
+                <span className="text-xs text-red-700">{courseNameError}</span>
+              ) : null}
+            </div>
           </SetupCard>
         )}
 
@@ -975,7 +1063,13 @@ export const Dashboard: React.FC = () => {
 
           {/* Inline Phase 1 content */}
           {phase1Mode === 'rubric' && (
-            <div className="mt-4">
+            <div
+              ref={phase1Ref}
+              tabIndex={-1}
+              role="region"
+              aria-label="Assignment description to rubric"
+              className="mt-4 focus:outline-none"
+            >
               <Part1Rubric
                 onAnalyzeDeploy={() => handleAnalyzeDeploy('no')}
                 canAnalyzeDeploy={geminiValid && canvasTokenValid}
@@ -983,8 +1077,17 @@ export const Dashboard: React.FC = () => {
             </div>
           )}
           {phase1Mode === 'screenshot' && (
-            <div className="mt-4">
-              <ScreenshotConverter />
+            <div
+              ref={phase1Ref}
+              tabIndex={-1}
+              role="region"
+              aria-label="Screenshot to rubric"
+              className="mt-4 focus:outline-none"
+            >
+              <ScreenshotConverter
+                onAnalyzeDeploy={() => handleAnalyzeDeploy('no')}
+                canAnalyzeDeploy={geminiValid && canvasTokenValid}
+              />
             </div>
           )}
         </div>
@@ -992,8 +1095,15 @@ export const Dashboard: React.FC = () => {
 
       {/* Analyze & Deploy section (expands inline) */}
       {showAnalyze && (
-        <div ref={analyzeRef}>
+        <div
+          ref={analyzeRef}
+          tabIndex={-1}
+          role="region"
+          aria-label="Analyze and deploy to Canvas"
+          className="focus:outline-none"
+        >
           <AnalyzeDeploySection
+            onOpenSetup={handleOpenSetup}
             phase1Rubric={analyzeRubricSource === 'no' ? (state.rubric ?? undefined) : undefined}
             uploadedFiles={analyzeRubricSource === 'yes' ? uploadedFiles : undefined}
             courseUrl={analyzeRubricSource === 'no' ? (state.courseUrl || courseUrlInput) : courseUrlInput}

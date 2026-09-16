@@ -80,39 +80,85 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
   // Inline deploy card
   const [showDeployCard, setShowDeployCard] = useState(false);
   const [deployUrlInput, setDeployUrlInput] = useState(() => state.courseUrl || '');
+
+  /**
+   * Prefill with the course used last time, so only the course ID needs changing.
+   *
+   * The initialiser above runs before the saved URL has arrived — it comes from settings.json
+   * over IPC, which resolves after the first render — so it always sees null. This fills the
+   * field when the value lands, unless the user has already edited it.
+   */
+  const deployUrlTouched = useRef(false);
+  React.useEffect(() => {
+    if (deployUrlTouched.current || !state.courseUrl) return;
+    setDeployUrlInput(state.courseUrl);
+  }, [state.courseUrl]);
   const [deployCourseName, setDeployCourseName] = useState<string | null>(null);
   const [deployCourseNameLoading, setDeployCourseNameLoading] = useState(false);
+  const [deployNameError, setDeployNameError] = useState<string | null>(null);
 
   const isCourseUrlValid = (url: string) =>
     /^https?:\/\/.+\/courses\/\d+/i.test(url.trim());
 
   const deployUrlValid = isCourseUrlValid(deployUrlInput);
 
-  // Fetch course name when deploy URL becomes valid.
-  // Looked up in the main process, which loads the Canvas token from the keychain itself.
+  /**
+   * Confirm the course exists, and show its name.
+   *
+   * Two things worth knowing about this, both learned the hard way.
+   *
+   * The URL is pinned before the lookup, not after. The lookup sends the Canvas token, and main
+   * will only send it to the host recorded in settings — so on the "No, I need to create one"
+   * path, where the Dashboard's course field never appears, nothing was ever pinned and every
+   * lookup failed with "no course saved" before it reached Canvas. setCourseUrl is what pins,
+   * and it asks for confirmation first when the host is one the app has not used before, so
+   * routing through it keeps that guarantee rather than working around it.
+   *
+   * Failures are shown, not swallowed. Main returns a specific reason for each one — wrong host,
+   * no token, 404, unreachable — and discarding it left a green box with no name and no way to
+   * tell why.
+   */
   React.useEffect(() => {
     if (!deployUrlValid || !state.canvasTokenStatus?.hasValue) {
       setDeployCourseName(null);
+      setDeployNameError(null);
       return;
     }
     let cancelled = false;
     setDeployCourseNameLoading(true);
-    // Debounced for the same reason as Dashboard: one authenticated Canvas call per keystroke.
-    const timer = window.setTimeout(() => {
-    window.api.canvas
-      .getCourseName({ courseUrl: deployUrlInput.trim() })
-      .then((result) => {
-        if (!cancelled) setDeployCourseName(result.ok ? result.name ?? null : null);
-      })
-      .catch(() => {
-        // Cosmetic only: a failed lookup just means no course name is shown.
-      })
-      .finally(() => {
+    setDeployNameError(null);
+    // Debounced for the same reason as Dashboard: otherwise every keystroke is one
+    // authenticated Canvas call, and one confirmation prompt.
+    const timer = window.setTimeout(async () => {
+      try {
+        const pinned = await setCourseUrl(deployUrlInput.trim());
+        if (cancelled) return;
+        if (!pinned.ok) {
+          setDeployNameError(pinned.message ?? 'Could not use this Canvas course.');
+          return;
+        }
+        const result = await window.api.canvas.getCourseName({
+          courseUrl: deployUrlInput.trim(),
+        });
+        if (cancelled) return;
+        if (result.ok && result.name) setDeployCourseName(result.name);
+        else setDeployNameError(result.message ?? 'Could not load this course.');
+      } catch (e) {
+        if (!cancelled) {
+          setDeployNameError(e instanceof Error ? e.message : 'Could not load this course.');
+        }
+      } finally {
         if (!cancelled) setDeployCourseNameLoading(false);
-      });
+      }
     }, 500);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [deployUrlValid, deployUrlInput, state.canvasTokenStatus?.hasValue]);
+  }, [deployUrlValid, deployUrlInput, state.canvasTokenStatus?.hasValue, setCourseUrl]);
+
+  /**
+   * Green means "this course exists and we reached it", not "this string looks like a URL".
+   * A regex cannot tell a real course from a typo, and the old highlight went green for both.
+   */
+  const deployCourseVerified = deployUrlValid && !!deployCourseName;
 
   const handleFileUpload = async (file: File) => {
     setIsLoading(true);
@@ -1078,37 +1124,58 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                     }
                   }}
                   disabled={!!(onAnalyzeDeploy && (!canAnalyzeDeploy || !readyForCanvas))}
-                  className={`w-full py-4 bg-green-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-green-700 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${showDeployCard ? 'opacity-50 pointer-events-none' : ''}`}
+                  aria-describedby={
+                    onAnalyzeDeploy && (!canAnalyzeDeploy || !readyForCanvas)
+                      ? 'deploy-blocked-reason'
+                      : undefined
+                  }
+                  className={`w-full py-4 bg-green-700 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-green-800 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed ${showDeployCard ? 'opacity-50 pointer-events-none' : ''}`}
                 >
                   <ArrowRight className="w-5 h-5" />
                   {onAnalyzeDeploy ? 'Deploy Displayed Rubric to Canvas' : 'Continue to Part 2: Convert to CSV'}
                 </button>
 
+                {/*
+                  A disabled button with no stated reason is indistinguishable from a broken one.
+                  Say which of the two gates is closed; aria-describedby ties it to the button so
+                  a screen reader reads the reason when focus lands there.
+                */}
+                {onAnalyzeDeploy && (!canAnalyzeDeploy || !readyForCanvas) && (
+                  <p id="deploy-blocked-reason" className="text-xs text-gray-600 mt-2 text-center">
+                    {!canAnalyzeDeploy
+                      ? 'Add your Gemini API key and Canvas token in Initial Setup to deploy.'
+                      : 'Tick the box above to confirm the rubric is ready.'}
+                  </p>
+                )}
+
                 {/* Inline Canvas Course URL card */}
                 {showDeployCard && onAnalyzeDeploy && (
                   <div className={`mt-4 bg-white rounded-2xl border-2 p-6 shadow-sm transition-all duration-300 ${
-                    deployUrlValid
+                    deployCourseVerified
                       ? 'border-green-400 ring-2 ring-green-300 ring-offset-1 shadow-green-100'
                       : 'border-gray-200'
                   }`}>
                     <div className="flex items-center gap-2 mb-1">
                       <Link className="w-4 h-4 text-blue-600 flex-shrink-0" />
                       <h3 className="font-black text-lg text-gray-900">Target Canvas Course</h3>
-                      {deployUrlValid && <Check className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
+                      {deployCourseVerified && <Check className="w-4 h-4 text-green-600 ml-auto flex-shrink-0" />}
                     </div>
                     <p className="text-sm text-gray-600 mb-3">Enter the homepage URL of the Canvas course you want to deploy this rubric to.</p>
                     <input
                       type="url"
                       value={deployUrlInput}
                       onChange={(e) => {
+                        deployUrlTouched.current = true;
                         setDeployUrlInput(e.target.value);
                         setDeployCourseName(null);
                       }}
                       placeholder="https://canvas.institution.edu/courses/12345"
+                      aria-invalid={!!((deployUrlInput && !deployUrlValid) || deployNameError)}
+                      aria-describedby={deployNameError ? 'deploy-course-status' : undefined}
                       className={`w-full px-4 py-3 border-2 rounded-xl text-sm focus:outline-none transition-all ${
-                        deployUrlInput && !deployUrlValid
+                        (deployUrlInput && !deployUrlValid) || deployNameError
                           ? 'border-red-300 focus:border-red-400'
-                          : deployUrlValid
+                          : deployCourseVerified
                           ? 'border-green-400 focus:border-green-500'
                           : 'border-gray-200 focus:border-blue-400'
                       }`}
@@ -1118,18 +1185,38 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                         <X className="w-3 h-3" /> URL must include a /courses/&lt;ID&gt; path
                       </p>
                     )}
-                    {deployUrlValid && (
-                      <div className="mt-3 flex items-center gap-2 min-h-[1.5rem]">
-                        {deployCourseNameLoading ? (
-                          <Loader2 className="w-4 h-4 text-green-500 animate-spin" />
-                        ) : deployCourseName ? (
-                          <>
-                            <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
-                            <span className="text-sm font-bold text-green-700">{deployCourseName}</span>
-                          </>
-                        ) : null}
-                      </div>
-                    )}
+                    {/*
+                      Mounted unconditionally rather than rendered on demand: a live region that
+                      appears with its text already inside it is announced unreliably. It
+                      collapses to sr-only when there is nothing to say.
+                    */}
+                    <div
+                      id="deploy-course-status"
+                      role="status"
+                      aria-live="polite"
+                      className={
+                        deployCourseNameLoading || deployCourseName || deployNameError
+                          ? 'mt-3 flex items-center gap-2 min-h-[1.5rem]'
+                          : 'sr-only'
+                      }
+                    >
+                      {deployCourseNameLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 text-gray-400 animate-spin" aria-hidden="true" />
+                          <span className="text-sm text-gray-600">Checking this course…</span>
+                        </>
+                      ) : deployCourseName ? (
+                        <>
+                          <Check className="w-4 h-4 text-green-600 flex-shrink-0" aria-hidden="true" />
+                          <span className="text-sm font-bold text-green-700">
+                            <span className="sr-only">Course found: </span>
+                            {deployCourseName}
+                          </span>
+                        </>
+                      ) : deployNameError ? (
+                        <span className="text-xs text-red-700">{deployNameError}</span>
+                      ) : null}
+                    </div>
                     <div className="flex gap-3 mt-5">
                       <button
                         onClick={() => setShowDeployCard(false)}
@@ -1138,13 +1225,22 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                         Cancel
                       </button>
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           if (!deployUrlValid) return;
-                          setCourseUrl(deployUrlInput.trim());
+                          // Awaited, and checked. setCourseUrl is an IPC round trip that writes
+                          // settings.json, and main will only send the Canvas token to the host
+                          // recorded there. Firing this without waiting started the deployment
+                          // before the write landed, so every rubric failed with "No Canvas
+                          // course is saved yet" while the URL on screen was perfectly correct.
+                          const pinned = await setCourseUrl(deployUrlInput.trim());
+                          if (!pinned.ok) {
+                            setDeployNameError(pinned.message ?? 'Could not use this Canvas course.');
+                            return;
+                          }
                           handleContinue();
                         }}
                         disabled={!deployUrlValid}
-                        className="flex-[2] py-3 px-6 bg-green-600 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-lg flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex-[2] py-3 px-6 bg-green-700 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-green-800 transition-all shadow-lg flex items-center justify-center gap-2 text-sm disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed"
                       >
                         <ArrowRight className="w-4 h-4" />
                         Deploy Now
