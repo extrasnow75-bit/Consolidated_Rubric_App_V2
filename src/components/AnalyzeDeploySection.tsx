@@ -4,6 +4,7 @@ import { RubricData, CanvasConfig } from '../types';
 import { generateCsvFromRubricObject, generateAllCsvsFromDoc } from '../services/geminiService';
 import JSZip from 'jszip';
 import { diagnoseCanvasError, CanvasDiagnosis } from '../utils/diagnoseCanvasError';
+import { CsvRepairPanel } from './CsvRepairPanel';
 
 /**
  * How long to wait before the single retry.
@@ -75,6 +76,14 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [results, setResults] = useState<RubricResult[]>([]);
   const [csvPromptAnswer, setCsvPromptAnswer] = useState<'yes' | 'no' | null>(null);
+  /**
+   * Rubrics that failed and then deployed from an AI repair.
+   *
+   * Held separately because a repaired rubric's result flips to 'success', which removes it from
+   * the failure panel along with the confirmation that it was repaired. Without this the only
+   * trace would be a line in a scrolling console.
+   */
+  const [repairedNames, setRepairedNames] = useState<string[]>([]);
 
   const abortRef = useRef<AbortController>(new AbortController());
   const startTimeRef = useRef<number>(Date.now());
@@ -304,8 +313,17 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
   };
 
   const handleCsvNo = () => {
+    // Only dismisses the prompt. The CSVs stay in state on purpose: a failed rubric's CSV is what
+    // an AI repair works from, and declining a download should not take the repair offer away.
     setCsvPromptAnswer('no');
-    setResults((prev) => prev.map((r) => ({ ...r, csvContent: undefined })));
+  };
+
+  /** A rubric that failed, was repaired, and went to Canvas on the second attempt. */
+  const handleRepairDeployed = (rubricName: string) => {
+    setRepairedNames((prev) => (prev.includes(rubricName) ? prev : [...prev, rubricName]));
+    setResults((prev) =>
+      prev.map((r) => (r.name === rubricName ? { ...r, status: 'success', error: undefined } : r)),
+    );
   };
 
   const handleCopyLogs = () => {
@@ -321,13 +339,13 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
 
   /** Distinct failure causes, each with the rubrics it accounts for, in the order they failed. */
   const failureGroups = React.useMemo(() => {
-    const groups = new Map<string, { diagnosis: CanvasDiagnosis; names: string[] }>();
+    const groups = new Map<string, { diagnosis: CanvasDiagnosis; items: RubricResult[] }>();
     for (const r of results) {
       if (r.status !== 'failed') continue;
       const diagnosis = diagnoseCanvasError(r.error);
       const existing = groups.get(diagnosis.cause);
-      if (existing) existing.names.push(r.name);
-      else groups.set(diagnosis.cause, { diagnosis, names: [r.name] });
+      if (existing) existing.items.push(r);
+      else groups.set(diagnosis.cause, { diagnosis, items: [r] });
     }
     return [...groups.values()];
   }, [results]);
@@ -373,6 +391,14 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
             </div>
           )}
         </div>
+        {repairedNames.length > 0 && (
+          <p
+            className="text-sm font-bold text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2"
+            role="status"
+          >
+            Deployed from an AI repair: {repairedNames.join(', ')}. Check the point values in Canvas.
+          </p>
+        )}
         {successCount > 0 && (
           <a
             href={rubricPageUrl}
@@ -404,9 +430,9 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
                   <p className="text-sm text-gray-700">{group.diagnosis.fix}</p>
                 )}
                 <p className="text-xs text-gray-600">
-                  {group.names.length === 1
-                    ? group.names[0]
-                    : `${group.names.length} rubrics: ${group.names.join(', ')}`}
+                  {group.items.length === 1
+                    ? group.items[0].name
+                    : `${group.items.length} rubrics: ${group.items.map((r) => r.name).join(', ')}`}
                 </p>
                 {group.diagnosis.action.kind === 'open-setup' && onOpenSetup && (
                   <button
@@ -416,6 +442,29 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
                     {group.diagnosis.action.label}
                   </button>
                 )}
+                {/*
+                  Only offered where Canvas objected to the rubric's own contents. On a dead token
+                  or a wrong course ID there is nothing in the file to fix, and offering anyway
+                  would send someone to study a CSV that was never the problem.
+
+                  Per rubric rather than per group: each one failed with its own file and its own
+                  message, and both are what the repair works from.
+                */}
+                {group.diagnosis.repairable &&
+                  group.items.map(
+                    (item) =>
+                      item.csvContent && (
+                        <CsvRepairPanel
+                          key={item.name}
+                          rubricName={item.name}
+                          csvContent={item.csvContent}
+                          canvasMessage={item.error ?? ''}
+                          courseUrl={courseUrl}
+                          onDeployed={handleRepairDeployed}
+                          onLog={addLog}
+                        />
+                      ),
+                  )}
               </div>
             ))}
           </div>

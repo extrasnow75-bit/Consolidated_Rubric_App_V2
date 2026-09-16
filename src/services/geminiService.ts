@@ -40,6 +40,52 @@ export interface BatchRubricResult {
   csv: string;
 }
 
+/**
+ * A CSV repair the main process has already checked.
+ *
+ * `ok: false` is the ordinary outcome for a proposal that failed a gate — the AI produced
+ * something that still would not load, or that quietly lost a criterion — and `reason` is written
+ * to be shown to the user as it stands.
+ */
+export type CsvRepairResult =
+  | {
+      ok: true;
+      repairedCsv: string;
+      /** The model's description of its own work. Shown as a claim, never as the record. */
+      notes: string;
+      diff: CsvRepairDiff;
+    }
+  | { ok: false; reason: string };
+
+export interface CsvCellChange {
+  column: string;
+  before: string;
+  after: string;
+  /** A changed number is what a student is graded on, so the UI treats these differently. */
+  isPointValue: boolean;
+}
+
+export interface CsvCriterionDiff {
+  criterion: string;
+  kind: 'changed' | 'added' | 'removed';
+  changes: CsvCellChange[];
+}
+
+export interface CsvPointChange {
+  criterion: string;
+  column: string;
+  before: string;
+  after: string;
+}
+
+export interface CsvRepairDiff {
+  headerAdded: boolean;
+  headerChanges: CsvCellChange[];
+  criteria: CsvCriterionDiff[];
+  pointChanges: CsvPointChange[];
+  changedCells: number;
+}
+
 let jobCounter = 0;
 
 /**
@@ -154,6 +200,21 @@ export const analyzeCsvForCanvas = (
 ): Promise<CsvAnalysisResult> =>
   withCancellation(signal, (jobId) =>
     window.api.gemini.analyzeCsvForCanvas({ csvContent, jobId }),
+  );
+
+/**
+ * Ask for a repair of a CSV Canvas rejected, passing Canvas's own words along.
+ *
+ * The rejection message is half the input: it is what turns "something about this rubric is wrong"
+ * into "the points column on one criterion is blank".
+ */
+export const repairRubricCsv = (
+  csvContent: string,
+  canvasMessage: string,
+  signal?: AbortSignal,
+): Promise<CsvRepairResult> =>
+  withCancellation(signal, (jobId) =>
+    window.api.gemini.repairRubricCsv({ csvContent, canvasMessage, jobId }),
   );
 
 export const generateCsvForRubric = (

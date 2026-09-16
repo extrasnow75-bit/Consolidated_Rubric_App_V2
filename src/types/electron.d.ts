@@ -11,6 +11,7 @@
 import type { RubricData, RubricMeta, GenerationSettings, Attachment } from '../types'
 import type {
   CsvAnalysisResult,
+  CsvRepairResult,
   RubricDiscovery,
   BatchRubricResult,
 } from '../services/geminiService'
@@ -153,6 +154,12 @@ declare global {
           csvContent: string
           jobId?: string
         }): Promise<CsvAnalysisResult>
+        /** Main checks the proposal before returning it; an unchecked repair never arrives here. */
+        repairRubricCsv(a: {
+          csvContent: string
+          canvasMessage: string
+          jobId?: string
+        }): Promise<CsvRepairResult>
         generateCsvForRubric(a: {
           rubricName: string
           totalPoints: string
