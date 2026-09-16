@@ -1065,7 +1065,10 @@ export const Dashboard: React.FC = () => {
               aria-label="Screenshot to rubric"
               className="mt-4 focus:outline-none"
             >
-              <ScreenshotConverter />
+              <ScreenshotConverter
+                onAnalyzeDeploy={() => handleAnalyzeDeploy('no')}
+                canAnalyzeDeploy={geminiValid && canvasTokenValid}
+              />
             </div>
           )}
         </div>

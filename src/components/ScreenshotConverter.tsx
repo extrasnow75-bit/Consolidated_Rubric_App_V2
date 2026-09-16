@@ -6,14 +6,36 @@ import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../type
 import { generateRubricFromScreenshot, applyRubricChanges, extractRubricFromDocument } from '../services/geminiService';
 import mammoth from 'mammoth';
 import { pdfjsLib } from '../utils/pdfWorker';
-import { Upload, Download, Loader2, Trash2, Image as ImageIcon, HardDrive, FolderOpen, Clipboard, Clock, ChevronDown, ChevronUp, X, RotateCw, CheckCircle2, CheckCircle, FileText } from 'lucide-react';
+import { Upload, Download, Loader2, Trash2, Image as ImageIcon, HardDrive, FolderOpen, Clipboard, Clock, ChevronDown, ChevronUp, X, RotateCw, CheckCircle, FileText } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import { getRecentImages, saveRecentImage, RecentImage } from '../utils/recentImages';
 
-export const ScreenshotConverter: React.FC = () => {
+interface ScreenshotConverterProps {
+  /**
+   * Hand the finished rubric to the real deploy pipeline.
+   *
+   * This screen used to run its own "deployment": a chain of setTimeout calls that logged
+   * progress lines and finished with "Rubric deployed successfully" without ever contacting
+   * Canvas. Canvas does not accept rubric documents — only CSV in its own column layout — so the
+   * conversion Part 2 performs is not a step that can be skipped, which is presumably why it was
+   * left as a mockup.
+   *
+   * Passing the work to AnalyzeDeploySection, exactly as Part 1 does, gets the shortcut that
+   * button promised using the pipeline that actually works.
+   */
+  onAnalyzeDeploy?: () => void;
+  /** False when the Gemini key or Canvas token is missing; conversion needs both. */
+  canAnalyzeDeploy?: boolean;
+}
+
+export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
+  onAnalyzeDeploy,
+  canAnalyzeDeploy,
+}) => {
   const {
     state,
     setRubric,
+    setCourseUrl,
     setIsLoading,
     setError,
     startProgress,
@@ -52,8 +74,7 @@ export const ScreenshotConverter: React.FC = () => {
   const [uploadDocTab, setUploadDocTab] = useState<'phase1' | 'local' | 'google-drive'>('phase1');
   const [canvasUrl, setCanvasUrl] = useState('');
   const [isDeploying, setIsDeploying] = useState(false);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [deploymentLogs, setDeploymentLogs] = useState<string[]>([]);
+  const [deployError, setDeployError] = useState<string | null>(null);
 
   // Request Changes
   const [showRequestChangesCard, setShowRequestChangesCard] = useState(false);
@@ -82,13 +103,6 @@ export const ScreenshotConverter: React.FC = () => {
 
   // ── Deployment timer ───────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (!isDeploying) return;
-    const timer = setInterval(() => {
-      setElapsedSeconds((prev) => prev + 1);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [isDeploying]);
 
   // ── Image handler ──────────────────────────────────────────────────────────
 
@@ -309,51 +323,27 @@ export const ScreenshotConverter: React.FC = () => {
 
   // ── Deploy to Canvas ───────────────────────────────────────────────────────────
 
+  /**
+   * Record the course, then hand off to the real deploy pipeline.
+   *
+   * setCourseUrl is awaited because it is an IPC round trip that writes settings.json, and main
+   * sends the Canvas token only to the host recorded there. Starting the deploy without waiting
+   * is what made Part 1 fail with "No Canvas course is saved yet" while showing a correct URL.
+   */
   const handleDeployToCanvas = async () => {
+    if (!canvasUrl.trim() || !onAnalyzeDeploy) return;
     setIsDeploying(true);
-    setElapsedSeconds(0);
-    setDeploymentLogs([]);
-
-    // Simulate deployment timeline
-    const logs: string[] = [];
-
-    // Step 1: Validating rubric
-    logs.push('Validating rubric data...');
-    setDeploymentLogs([...logs]);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    // Step 2: Connecting to Canvas
-    logs.push('Connecting to Canvas course...');
-    setDeploymentLogs([...logs]);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    // Step 3: Processing rubric
-    logs.push('Processing rubric criteria...');
-    setDeploymentLogs([...logs]);
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    // Step 4: Uploading to Canvas
-    logs.push('Uploading rubric to Canvas...');
-    setDeploymentLogs([...logs]);
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    // Step 5: Finalizing
-    logs.push('Finalizing deployment...');
-    setDeploymentLogs([...logs]);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    // Success
-    logs.push('✓ Rubric deployed successfully!');
-    setDeploymentLogs([...logs]);
-
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    setIsDeploying(false);
-  };
-
-  const handleCancelDeployment = () => {
-    setIsDeploying(false);
-    setElapsedSeconds(0);
-    setDeploymentLogs([]);
+    setDeployError(null);
+    try {
+      const pinned = await setCourseUrl(canvasUrl.trim());
+      if (!pinned.ok) {
+        setDeployError(pinned.message ?? 'Could not use this Canvas course.');
+        return;
+      }
+      onAnalyzeDeploy();
+    } finally {
+      setIsDeploying(false);
+    }
   };
 
   // ── Save to Google Drive ───────────────────────────────────────────────────
@@ -1003,74 +993,34 @@ export const ScreenshotConverter: React.FC = () => {
 
                   <button
                     onClick={handleDeployToCanvas}
-                    disabled={!canvasUrl.trim() || isDeploying}
-                    className={`w-full px-4 py-3 rounded-xl font-bold transition-all ${
-                      canvasUrl.trim() && !isDeploying
-                        ? 'bg-blue-600 text-white hover:bg-blue-700'
-                        : 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                    }`}
+                    disabled={!canvasUrl.trim() || isDeploying || !canAnalyzeDeploy}
+                    aria-describedby="screenshot-deploy-hint"
+                    className="w-full px-4 py-3 rounded-xl font-bold transition-all bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
                   >
                     {isDeploying ? (
                       <span className="flex items-center justify-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Deploying...
+                        <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                        Starting…
                       </span>
                     ) : (
                       'Analyze Draft Rubric(s) and Deploy to Canvas'
                     )}
                   </button>
-                  <p className="text-xs text-gray-600 text-center mt-2">Button becomes active when Canvas Course URL has been entered.</p>
+
+                  {/* Say which gate is closed — a disabled button with no reason reads as broken. */}
+                  <p id="screenshot-deploy-hint" className="text-xs text-gray-600 text-center mt-2">
+                    {!canAnalyzeDeploy
+                      ? 'Add your Gemini API key and Canvas token in Initial Setup to deploy.'
+                      : 'Button becomes active when the Canvas course URL has been entered.'}
+                  </p>
+
+                  <div role="status" aria-live="polite" className={deployError ? 'mt-2' : 'sr-only'}>
+                    {deployError && (
+                      <p className="text-xs text-red-700 text-center">{deployError}</p>
+                    )}
+                  </div>
                 </div>
 
-                {/* Deployment Progress Dialog */}
-                {isDeploying && (
-                  <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-lg">
-                    <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <h3 className="text-lg font-black text-gray-900">Analyzing & Deploying...</h3>
-                        <p className="text-sm text-gray-600 mt-1">Please wait while we process your rubric(s)</p>
-                      </div>
-                      <button
-                        onClick={handleCancelDeployment}
-                        className="text-gray-600 hover:text-gray-900 transition-colors"
-                       aria-label="Remove">
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
-
-                    {/* Elapsed Time */}
-                    <div className="flex items-center gap-2 mb-4 text-sm text-gray-700">
-                      <Clock className="w-4 h-4 text-blue-600" />
-                      <span>Elapsed: <span className="font-bold">{elapsedSeconds}s</span></span>
-                      <span className="text-gray-600">• Time estimate will appear shortly</span>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden mb-6">
-                      <div
-                        className="h-full bg-blue-600 transition-all duration-500"
-                        style={{ width: `${Math.min((deploymentLogs.length / 5) * 100, 90)}%` }}
-                      />
-                    </div>
-
-                    {/* Deployment Timeline */}
-                    <div className="mb-4">
-                      <p className="text-sm font-bold text-gray-900 mb-3">Deployment Timeline</p>
-                      <div className="space-y-2 max-h-48 overflow-y-auto bg-gray-50 rounded-lg p-4 border border-gray-200">
-                        {deploymentLogs.map((log, index) => (
-                          <div key={index} className="flex items-start gap-2">
-                            {log.includes('✓') ? (
-                              <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
-                            ) : (
-                              <div className="w-4 h-4 rounded-full bg-blue-300 flex-shrink-0 mt-0.5" />
-                            )}
-                            <span className="text-xs text-gray-700 leading-relaxed">{log}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </>
