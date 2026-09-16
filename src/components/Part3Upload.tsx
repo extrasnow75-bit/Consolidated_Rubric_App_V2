@@ -30,6 +30,7 @@ export const Part3Upload: React.FC = () => {
     startGoogleAuth,
     setCurrentStep,
     downloadDriveFile,
+    setCourseUrl: pinCourseUrl,
   } = useSession();
   const { pickFile } = useDrivePicker();
 
@@ -170,6 +171,18 @@ export const Part3Upload: React.FC = () => {
       ? courseUrl.replace(/\/$/, '')
       : `https://${courseUrl.replace(/\/$/, '')}`;
     const config: CanvasConfig = { courseHomeUrl };
+
+    // Record the course before uploading. Main sends the Canvas token only to the host saved in
+    // settings, and this screen keeps its URL in local state, so nothing here had ever saved
+    // one: every upload failed with "No Canvas course is saved yet" unless the user happened to
+    // have filled the Dashboard's course field earlier in the session. Going through the context
+    // setter also keeps the confirmation prompt for a host the app has not used before.
+    const pinned = await pinCourseUrl(courseHomeUrl);
+    if (!pinned.ok) {
+      setError(pinned.message ?? 'Could not use this Canvas course.');
+      setIsUploading(false);
+      return;
+    }
 
     try {
       if (uploadMode === 'from-phase2' && phase2Items.length >= 1) {

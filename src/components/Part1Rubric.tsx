@@ -1225,9 +1225,18 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                         Cancel
                       </button>
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           if (!deployUrlValid) return;
-                          setCourseUrl(deployUrlInput.trim());
+                          // Awaited, and checked. setCourseUrl is an IPC round trip that writes
+                          // settings.json, and main will only send the Canvas token to the host
+                          // recorded there. Firing this without waiting started the deployment
+                          // before the write landed, so every rubric failed with "No Canvas
+                          // course is saved yet" while the URL on screen was perfectly correct.
+                          const pinned = await setCourseUrl(deployUrlInput.trim());
+                          if (!pinned.ok) {
+                            setDeployNameError(pinned.message ?? 'Could not use this Canvas course.');
+                            return;
+                          }
                           handleContinue();
                         }}
                         disabled={!deployUrlValid}
