@@ -80,6 +80,19 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
   // Inline deploy card
   const [showDeployCard, setShowDeployCard] = useState(false);
   const [deployUrlInput, setDeployUrlInput] = useState(() => state.courseUrl || '');
+
+  /**
+   * Prefill with the course used last time, so only the course ID needs changing.
+   *
+   * The initialiser above runs before the saved URL has arrived — it comes from settings.json
+   * over IPC, which resolves after the first render — so it always sees null. This fills the
+   * field when the value lands, unless the user has already edited it.
+   */
+  const deployUrlTouched = useRef(false);
+  React.useEffect(() => {
+    if (deployUrlTouched.current || !state.courseUrl) return;
+    setDeployUrlInput(state.courseUrl);
+  }, [state.courseUrl]);
   const [deployCourseName, setDeployCourseName] = useState<string | null>(null);
   const [deployCourseNameLoading, setDeployCourseNameLoading] = useState(false);
 
@@ -1078,11 +1091,29 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                     }
                   }}
                   disabled={!!(onAnalyzeDeploy && (!canAnalyzeDeploy || !readyForCanvas))}
-                  className={`w-full py-4 bg-green-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-green-700 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${showDeployCard ? 'opacity-50 pointer-events-none' : ''}`}
+                  aria-describedby={
+                    onAnalyzeDeploy && (!canAnalyzeDeploy || !readyForCanvas)
+                      ? 'deploy-blocked-reason'
+                      : undefined
+                  }
+                  className={`w-full py-4 bg-green-700 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-green-800 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed ${showDeployCard ? 'opacity-50 pointer-events-none' : ''}`}
                 >
                   <ArrowRight className="w-5 h-5" />
                   {onAnalyzeDeploy ? 'Deploy Displayed Rubric to Canvas' : 'Continue to Part 2: Convert to CSV'}
                 </button>
+
+                {/*
+                  A disabled button with no stated reason is indistinguishable from a broken one.
+                  Say which of the two gates is closed; aria-describedby ties it to the button so
+                  a screen reader reads the reason when focus lands there.
+                */}
+                {onAnalyzeDeploy && (!canAnalyzeDeploy || !readyForCanvas) && (
+                  <p id="deploy-blocked-reason" className="text-xs text-gray-600 mt-2 text-center">
+                    {!canAnalyzeDeploy
+                      ? 'Add your Gemini API key and Canvas token in Initial Setup to deploy.'
+                      : 'Tick the box above to confirm the rubric is ready.'}
+                  </p>
+                )}
 
                 {/* Inline Canvas Course URL card */}
                 {showDeployCard && onAnalyzeDeploy && (
@@ -1101,6 +1132,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                       type="url"
                       value={deployUrlInput}
                       onChange={(e) => {
+                        deployUrlTouched.current = true;
                         setDeployUrlInput(e.target.value);
                         setDeployCourseName(null);
                       }}
@@ -1144,7 +1176,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                           handleContinue();
                         }}
                         disabled={!deployUrlValid}
-                        className="flex-[2] py-3 px-6 bg-green-600 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-lg flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex-[2] py-3 px-6 bg-green-700 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-green-800 transition-all shadow-lg flex items-center justify-center gap-2 text-sm disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed"
                       >
                         <ArrowRight className="w-4 h-4" />
                         Deploy Now

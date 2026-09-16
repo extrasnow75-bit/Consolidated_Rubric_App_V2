@@ -8,6 +8,7 @@ import {
   Lightbulb, Camera, ArrowRight, Clipboard, HardDrive, Clock, ChevronUp,
 } from 'lucide-react';
 import { getRecentDocs, saveRecentDoc, RecentDoc } from '../utils/recentDocs';
+import { revealSection, REVEAL_DELAY_MS } from '../utils/revealSection';
 import { AppMode } from '../types';
 import { validateGeminiApiKey } from '../services/geminiService';
 import { AnalyzeDeploySection, UploadedDocFile } from './AnalyzeDeploySection';
@@ -82,6 +83,22 @@ export const Dashboard: React.FC = () => {
 
   // ── Course URL ──
   const [courseUrlInput, setCourseUrlInput] = useState(state.courseUrl || '');
+
+  /**
+   * Prefill with the course used last time, so only the course ID needs changing.
+   *
+   * The initialiser above cannot do this on its own: the saved URL lives in settings.json and
+   * reaches the renderer over IPC, which resolves *after* the first render, so state.courseUrl
+   * is still null when useState reads it. This fills the field when the value actually lands.
+   *
+   * Guarded by a ref rather than by comparing values, because the user may deliberately clear
+   * the field — and refilling what someone has just emptied is worse than not prefilling.
+   */
+  const courseUrlTouched = useRef(false);
+  useEffect(() => {
+    if (courseUrlTouched.current || !state.courseUrl) return;
+    setCourseUrlInput(state.courseUrl);
+  }, [state.courseUrl]);
   const courseUrlValid = isCourseUrlValid(courseUrlInput);
 
   // ── Course Name ──
@@ -109,6 +126,7 @@ export const Dashboard: React.FC = () => {
 
   // ── Phase 1 inline mode ──
   const [phase1Mode, setPhase1Mode] = useState<'none' | 'rubric' | 'screenshot'>('none');
+  const phase1Ref = useRef<HTMLDivElement>(null);
 
   // ─── Derived validity ────────────────────────────────────────────────────────
 
@@ -235,6 +253,7 @@ export const Dashboard: React.FC = () => {
   };
 
   const handleCourseUrlChange = (val: string) => {
+    courseUrlTouched.current = true;
     setCourseUrlInput(val);
     if (isCourseUrlValid(val)) setCourseUrl(val.trim());
     else setCourseUrl(null);
@@ -397,8 +416,21 @@ export const Dashboard: React.FC = () => {
   const handleAnalyzeDeploy = (source: 'yes' | 'no') => {
     setAnalyzeRubricSource(source);
     setShowAnalyze(true);
-    setTimeout(() => analyzeRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    setTimeout(() => revealSection(analyzeRef.current), REVEAL_DELAY_MS);
   };
+
+  /**
+   * Choosing a Phase 1 option renders the next step below the fold, which reads as a dead
+   * button. Bring it into view and move focus into it once it has mounted.
+   *
+   * Deliberately not in the click handler: the section is not in the DOM until this render
+   * commits, so there would be nothing to scroll to.
+   */
+  useEffect(() => {
+    if (phase1Mode === 'none') return;
+    const timer = window.setTimeout(() => revealSection(phase1Ref.current), REVEAL_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [phase1Mode]);
 
   // ─── Render ──────────────────────────────────────────────────────────────────
 
@@ -975,7 +1007,13 @@ export const Dashboard: React.FC = () => {
 
           {/* Inline Phase 1 content */}
           {phase1Mode === 'rubric' && (
-            <div className="mt-4">
+            <div
+              ref={phase1Ref}
+              tabIndex={-1}
+              role="region"
+              aria-label="Assignment description to rubric"
+              className="mt-4 focus:outline-none"
+            >
               <Part1Rubric
                 onAnalyzeDeploy={() => handleAnalyzeDeploy('no')}
                 canAnalyzeDeploy={geminiValid && canvasTokenValid}
@@ -983,7 +1021,13 @@ export const Dashboard: React.FC = () => {
             </div>
           )}
           {phase1Mode === 'screenshot' && (
-            <div className="mt-4">
+            <div
+              ref={phase1Ref}
+              tabIndex={-1}
+              role="region"
+              aria-label="Screenshot to rubric"
+              className="mt-4 focus:outline-none"
+            >
               <ScreenshotConverter />
             </div>
           )}
@@ -992,7 +1036,13 @@ export const Dashboard: React.FC = () => {
 
       {/* Analyze & Deploy section (expands inline) */}
       {showAnalyze && (
-        <div ref={analyzeRef}>
+        <div
+          ref={analyzeRef}
+          tabIndex={-1}
+          role="region"
+          aria-label="Analyze and deploy to Canvas"
+          className="focus:outline-none"
+        >
           <AnalyzeDeploySection
             phase1Rubric={analyzeRubricSource === 'no' ? (state.rubric ?? undefined) : undefined}
             uploadedFiles={analyzeRubricSource === 'yes' ? uploadedFiles : undefined}

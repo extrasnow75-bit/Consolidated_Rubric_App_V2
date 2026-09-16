@@ -463,7 +463,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
           </p>
           <button
             onClick={onStartOver}
-            className="flex-shrink-0 px-6 py-2.5 bg-green-600 text-white rounded-xl font-black text-sm uppercase tracking-widest hover:bg-green-700 transition-all active:scale-95 shadow"
+            className="flex-shrink-0 px-6 py-2.5 bg-green-700 text-white rounded-xl font-black text-sm uppercase tracking-widest hover:bg-green-800 transition-all active:scale-95 shadow"
           >
             Yes, please
           </button>
