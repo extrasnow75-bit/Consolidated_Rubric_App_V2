@@ -4,6 +4,7 @@ import { useDrivePicker } from '../contexts/DrivePickerContext';
 import { AppMode, BatchItemStatus, CanvasConfig } from '../types';
 import { Eye, EyeOff, Loader2, Upload, CheckCircle, AlertCircle, X, Zap, FolderOpen, ChevronLeft } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
+import { useCopyAction } from '../hooks/useCopyAction';
 import JSZip from 'jszip';
 
 interface BatchFile {
@@ -50,6 +51,17 @@ export const Part3Upload: React.FC = () => {
     Record<string, { status: 'pending' | 'uploading' | 'success' | 'error'; message?: string }>
   >({});
   const [deploymentLogs, setDeploymentLogs] = useState<string[]>([]);
+  const { state: copyState, copy } = useCopyAction();
+
+  /** Same header as the Part 1 / screenshot timeline, so a pasted log reads the same either way. */
+  const handleCopyLogs = async () => {
+    const header = [
+      `Canvas Rubric Creator v${await window.api.app.version()} — deployment log`,
+      `Copied ${new Date().toLocaleString()}`,
+      '',
+    ].join('\n');
+    await copy(header + deploymentLogs.join('\n'));
+  };
   const [pickingFromDrive, setPickingFromDrive] = useState(false);
   const [drivePickedCsv, setDrivePickedCsv] = useState<string | null>(null);
   const [drivePickedFileName, setDrivePickedFileName] = useState('');
@@ -852,11 +864,21 @@ export const Part3Upload: React.FC = () => {
                 <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider">Deployment Timeline</h3>
                 <div className="flex gap-3">
                   <button
-                    onClick={() => navigator.clipboard.writeText(deploymentLogs.join('\n'))}
+                    onClick={() => void handleCopyLogs()}
                     disabled={deploymentLogs.length === 0}
-                    className="text-xs text-gray-300 hover:text-gray-300 font-bold disabled:opacity-40"
+                    className={`text-xs font-bold disabled:opacity-40 transition-colors ${
+                      copyState === 'failed'
+                        ? 'text-amber-300'
+                        : copyState === 'copied'
+                          ? 'text-green-300'
+                          : 'text-gray-300 hover:text-white'
+                    }`}
                   >
-                    Copy Logs
+                    {copyState === 'copied'
+                      ? 'Copied'
+                      : copyState === 'failed'
+                        ? 'Could not copy'
+                        : 'Copy Logs'}
                   </button>
                   <button
                     onClick={() => setDeploymentLogs([])}

@@ -42,6 +42,13 @@ contextBridge.exposeInMainWorld('api', {
     openReleases: (): Promise<void> => ipcRenderer.invoke('app:openReleases'),
     /** Quits. Reached only from the explicit "close the app" button, behind a confirm step. */
     quit: (): Promise<void> => ipcRenderer.invoke('app:quit'),
+    /**
+     * Put text on the system clipboard. Resolves false if it could not be done.
+     *
+     * Through main because the renderer's own clipboard API is conditional on focus and a secure
+     * context, and fails silently when those do not hold.
+     */
+    copyText: (text: string): Promise<boolean> => ipcRenderer.invoke('clipboard:writeText', text),
     /** "Don't show this again" on the notice shown before the first local save. */
     getHideLocalSaveNotice: (): Promise<boolean> =>
       ipcRenderer.invoke('app:getHideLocalSaveNotice'),

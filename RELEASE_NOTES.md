@@ -54,6 +54,19 @@ It scrolls now. While in there:
   nothing when clicked. Use **Open in Google Docs** or **Save to this computer** on the rubric
   itself.
 
+### Copy Logs now tells you whether it copied
+
+**Copy Logs**, in the header of the Deployment Timeline, puts the whole log on your clipboard so
+you can paste it into a message or a ticket. It was there before but said nothing when clicked —
+and if the copy was refused, which could happen quietly, it also said nothing. It now says
+**Copied**, or **Could not copy** if something went wrong, and the copy itself goes through a
+route that cannot be silently refused.
+
+The copied text now starts with the app version, the date and time, the Canvas course, and how
+many rubrics succeeded and failed — so once it has been pasted somewhere else it still says what
+it is. Your Canvas token is not in it and cannot be: the part of the app that writes the log is
+never given the token.
+
 ### One button colour
 
 Buttons that mean yes, continue, deploy or generate were blue in some parts of the app and green
