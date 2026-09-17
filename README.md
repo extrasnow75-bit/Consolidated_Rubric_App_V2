@@ -10,7 +10,7 @@ the same architecture.
 ## Installing
 
 Download the installer for your machine from the
-[latest release](https://github.com/extrasnow75-bit/Consolidated_Rubric_App_V2/releases/latest).
+[latest release](https://github.com/extrasnow75-bit/Rubric-Creator-Desktop-App/releases/latest).
 The release page has the install steps, including how to get past the warning Windows and macOS
 show for in-house apps.
 

@@ -16,7 +16,7 @@ Canvas Rubric Creator does three things, and you can start at whichever one matc
 * **Rebuild a rubric from a screenshot** of one that already exists in Canvas.
 * **Convert a rubric document into Canvas's CSV format and deploy it** straight into a course's Rubrics list.
 
-**What changed in the latest version** is listed on the [release page](https://github.com/extrasnow75-bit/Consolidated_Rubric_App_V2/releases/latest), so this article does not carry version history.
+**What changed in the latest version** is listed on the [release page](https://github.com/extrasnow75-bit/Rubric-Creator-Desktop-App/releases/latest), so this article does not carry version history.
 
 What the tool produces is a **draft**. The AI writes the criteria, the rating language and the point values, and every one of those is a judgement call about how students will be graded. **The rubric is to be reviewed by the IDC and the FD before it goes into a live course.**
 
@@ -26,7 +26,7 @@ The app **adds** rubrics to a course. It never edits, replaces or deletes a rubr
 
 The Rubric App used to be a website. **This one is a desktop app that you install on your computer.** It does not require any coding tools or know-how to use.
 
-**Download:** [Canvas Rubric Creator releases page](https://github.com/extrasnow75-bit/Consolidated_Rubric_App_V2/releases/latest)
+**Download:** [Canvas Rubric Creator releases page](https://github.com/extrasnow75-bit/Rubric-Creator-Desktop-App/releases/latest)
 
 The release page offers three files, and its own **Download** section at the top names them and links them directly. Take the one for your computer:
 
@@ -201,13 +201,13 @@ If you would like to request a new feature or need to report a bug, use the [App
 
 ## Getting it running
 
-**Repo:** [github.com/extrasnow75-bit/Consolidated\_Rubric\_App\_V2](https://github.com/extrasnow75-bit/Consolidated_Rubric_App_V2)
+**Repo:** [github.com/extrasnow75-bit/Rubric-Creator-Desktop-App](https://github.com/extrasnow75-bit/Rubric-Creator-Desktop-App)
 
 You need [Node.js](https://nodejs.org) (the LTS version) and git. Then:
 
 ```
-git clone https://github.com/extrasnow75-bit/Consolidated_Rubric_App_V2.git
-cd Consolidated_Rubric_App_V2
+git clone https://github.com/extrasnow75-bit/Rubric-Creator-Desktop-App.git
+cd Rubric-Creator-Desktop-App
 npm install
 npm run dev
 ```
