@@ -28,15 +28,19 @@ The Rubric App used to be a website. **This one is a desktop app that you instal
 
 **Download:** [Canvas Rubric Creator releases page](https://github.com/extrasnow75-bit/Consolidated_Rubric_App_V2/releases/latest)
 
-The release page offers three files. Download the one for your computer:
+The release page offers three files, and its own **Download** section at the top names them and links them directly. Take the one for your computer:
 
 * **Windows:** `Canvas-Rubric-Creator-WINDOWS-<version>.exe`
-* **Mac with Apple Silicon (M1 or later):** `Canvas-Rubric-Creator-MAC-APPLE-SILICON-<version>.dmg`
-* **Mac with an Intel processor:** `Canvas-Rubric-Creator-MAC-INTEL-<version>.dmg`
+* **Mac — newer (2020 and later, Apple Silicon):** `Canvas-Rubric-Creator-MAC-APPLE-SILICON-<version>.dmg`
+* **Mac — older (2019 and earlier, Intel):** `Canvas-Rubric-Creator-MAC-INTEL-<version>.dmg`
 
-Not sure which Mac you have? Click the Apple menu, then **About This Mac** — the **Chip** line says Apple M1/M2/M3/M4 for Apple Silicon, or Intel.
+**If your Mac is only a few years old, take the newer one.** Every Mac sold since late 2020 uses Apple Silicon, so that is the right file for most people.
 
-**On Windows:** double-click the `.exe` to install. **You will see a security warning** — *"Windows protected your PC"*. Click **More info**, then **Run anyway**. The app is distributed directly rather than through the Microsoft Store, so Windows does not recognize the publisher. This is expected; you will see it again each time you install a new version.
+To be sure: click the Apple menu, then **About This Mac**. A line reading **Chip — Apple M1**, M2, M3 or M4 means the newer file. A line reading **Processor** with Intel in it means the older one. An Intel Mac has no "Chip" line at all, so which line you see is itself the answer.
+
+The **Assets** section further down the release page holds the same three files. Ignore the two **"Source code"** links beside them — GitHub adds those to every release automatically, and they are not the app.
+
+**On Windows:** double-click the `.exe` to install. Windows will show a blue screen saying **"Windows protected your PC."** Click **More info**, then **Run anyway**. It appears because the app was built in-house rather than distributed through the Microsoft Store, not because anything is wrong with it. You will see it again each time you install a new version.
 
 **On a Mac:** open the `.dmg` and drag **Canvas Rubric Creator** into the Applications folder shown beside it. The first time you open it, Apple hasn't verified this app, so your Mac will initially refuse to open it — usually saying the app *"is damaged and can't be opened"* or is from an unidentified developer. The app is fine; macOS says this about anything not distributed through the App Store. Open **Terminal** (Applications → Utilities), paste this line, and press Return:
 
@@ -171,7 +175,7 @@ The app checks for a newer version when it starts and shows a bar at the top if 
 
 Updates are never installed automatically. Download the new version and install it over the top of the old one — your Gemini key, Canvas token and Google sign-in are all kept.
 
-**On Windows: do not uninstall the old version first, and accept the folder the installer offers.** The installer finds the existing copy and replaces it. If you browse to a different folder instead, you end up with two versions installed side by side and no way to tell which one you are opening. Close the app before you run the installer.
+**On Windows: do not uninstall the old version first, and accept the folder the installer offers.** The installer finds the existing copy and replaces it. If you browse to a different folder instead, you end up with two versions installed side by side and no way to tell which one you are opening. **Close Canvas Rubric Creator before you run the installer**, or Windows reports that files are in use and the install fails.
 
 **On a Mac:** drag the new app into Applications and choose **Replace** when asked, then run the Terminal line under **The Tool** again — it is needed once per version.
 
