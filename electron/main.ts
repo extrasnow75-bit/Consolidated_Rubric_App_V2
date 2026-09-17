@@ -152,6 +152,14 @@ ipcMain.handle('app:checkUpdateNow', () => checkNow())
 // a general "open any link in the browser" capability.
 ipcMain.handle('app:openReleases', () => shell.openExternal(RELEASES_PAGE))
 
+// Ends the app from the "close the app" button in the completion dialog. Takes no argument and
+// cannot be aimed anywhere — the only thing the renderer can do with it is end the session it is
+// already in. app.quit() rather than closing the window, so "close the app" means the same thing
+// on macOS, where closing the last window normally leaves the app running.
+ipcMain.handle('app:quit', () => {
+  app.quit()
+})
+
 ipcMain.handle('app:getHideLocalSaveNotice', () => readSettings().hideLocalSaveNotice === true)
 ipcMain.handle('app:setHideLocalSaveNotice', (_e, hide: boolean) => {
   updateSettings({ hideLocalSaveNotice: hide === true })

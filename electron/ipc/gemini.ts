@@ -17,7 +17,7 @@
  * here, no part of the visible app needs a socket.
  */
 import { GoogleGenAI, Chat, Type } from '@google/genai'
-import mammoth from 'mammoth'
+import { extractDocxText } from './docxText'
 import { getGeminiApiKey } from './credentials'
 import {
   GenerationSettings,
@@ -185,18 +185,6 @@ async function retryWithBackoff<T>(
 
 // ─── Local .docx extraction ──────────────────────────────────────────
 
-async function extractDocxText(attachment: Attachment): Promise<string> {
-  // Buffer rather than atob: this is Node, and mammoth wants a real ArrayBuffer sized to the
-  // data. `.buffer` alone can hand back a larger pooled allocation, so slice to the view.
-  const buf = Buffer.from(attachment.data, 'base64');
-  const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
-  const result = await mammoth.extractRawText({ arrayBuffer });
-  if (!result.value || result.value.trim().length === 0) {
-    throw new Error('Could not extract text from the Word document. The file may be empty or protected.');
-  }
-  return result.value;
-}
-
 function isDocx(att: Attachment): boolean {
   return (
     att.mimeType === DOCX_MIME ||
@@ -256,7 +244,7 @@ You must produce CSV files that match the standard Canvas Rubric Import template
    - Col D: Criteria Enable Range ('TRUE' or 'FALSE').
    - Col E, F, G: Rating triplets (repeating).
 3. **Data Integrity:** Ratings MUST be ordered from HIGHEST points to LOWEST points.
-4. **Point Range Format:** When "Criteria Enable Range" is true, the "Rating Points" column must contain ONLY the maximum single point value for each rating (e.g., "10", "8", "4", "0"). Do NOT use range strings like "10-8" or "10-8.1" — Canvas computes range boundaries automatically from adjacent rating values.
+4. **Point Range Format:** When "Criteria Enable Range" is true, the "Rating Points" column must contain ONLY the maximum single point value for each rating (e.g., "10", "8", "4", "0"). Do NOT use range strings like "10-8" or "10-8.1" — Canvas computes range boundaries automatically from adjacent rating values. Source rubrics write a band several ways and every one of them means the same thing: take the HIGHEST number in the cell. "4 to >3 pts" (the wording Canvas itself uses, where ">3" just restates the rating below) is 4. "4-3.5 points" is 4. "40–50 pts" is 50. "2.4-0 points" is 2.4. Never carry the "to", the ">" or the dash into Rating Points.
 5. **Formatting:** Wrap cells in double quotes if they contain commas. Output ONLY the CSV inside a markdown code block labeled "csv".
 
 **Part 2 Behavior (Extraction):**
@@ -898,6 +886,11 @@ RULES:
 3. "Criteria Enable Range" is TRUE or FALSE.
 4. "Rating Points" holds a single maximum number per rating — "10", "8", "0". Never a range
    string such as "10-8"; Canvas derives range boundaries from the adjacent rating values.
+   Whatever notation the band arrived in, keep its HIGHEST number and nothing else: "4 to >3 pts"
+   becomes 4, "4-3.5 points" becomes 4, "40-50 pts" becomes 50, "2.4-0 points" becomes 2.4.
+   A cell holding only an open bound — ">90", "<70" — has no maximum in it; use the criterion's
+   full point value for a top band and the next rating's value for a bottom one, and say in notes
+   that you supplied it.
 5. Ratings run HIGHEST points to LOWEST, left to right.
 6. Wrap any field containing a comma or a quotation mark in double quotes, doubling internal quotes.
 7. Change as little as possible. Do not reword criteria or ratings that are not part of the problem,
@@ -964,7 +957,7 @@ export async function generateCsvForRubric(
 
     const scoringDetail =
       scoringMethod === 'ranges'
-        ? 'Set "Criteria Enable Range" to true. For Rating Points, use only the maximum single point value per rating level (e.g., "10", "8", "4", "0"). Do NOT use range strings like "10-8" — Canvas computes range boundaries automatically from adjacent rating values.'
+        ? 'Set "Criteria Enable Range" to true. For Rating Points, use only the maximum single point value per rating level (e.g., "10", "8", "4", "0"). Do NOT use range strings like "10-8" — Canvas computes range boundaries automatically from adjacent rating values. Source rubrics write a band several ways and every one of them means the same thing: take the HIGHEST number in the cell. "4 to >3 pts" (the wording Canvas itself uses, where ">3" just restates the rating below) is 4. "4-3.5 points" is 4. "40–50 pts" is 50. "2.4-0 points" is 2.4. Never carry the "to", the ">" or the dash into Rating Points.'
         : 'Set "Criteria Enable Range" to false. Use fixed single point values (e.g., "10", "8").';
 
     const prompt = `Extract the rubric named "${rubricName}" from this document and convert it to a Canvas-compatible CSV.
@@ -1185,7 +1178,7 @@ DATA RULES:
 2. "Rubric Name" column: populate ONLY on the first data row of each CSV; leave blank on all subsequent rows.
 3. Ratings must be ordered HIGHEST to LOWEST points.
 4. Detect the scoring method from the source document for each rubric:
-   - If the rubric uses point ranges (e.g., "40–50 pts", "90-100"), set "Criteria Enable Range" to true and use only the maximum single point value per rating in the Rating Points column (e.g., "10", "8", "4", "0"). Do NOT use range strings like "10-8" — Canvas computes range boundaries automatically from adjacent rating values.
+   - If the rubric uses point ranges (e.g., "40–50 pts", "90-100"), set "Criteria Enable Range" to true and use only the maximum single point value per rating in the Rating Points column (e.g., "10", "8", "4", "0"). Do NOT use range strings like "10-8" — Canvas computes range boundaries automatically from adjacent rating values. Source rubrics write a band several ways and every one of them means the same thing: take the HIGHEST number in the cell. "4 to >3 pts" (the wording Canvas itself uses, where ">3" just restates the rating below) is 4. "4-3.5 points" is 4. "40–50 pts" is 50. "2.4-0 points" is 2.4. Never carry the "to", the ">" or the dash into Rating Points.
    - If the rubric uses single fixed values (e.g., "10 pts", "8"), set "Criteria Enable Range" to false and use plain numbers only (e.g., "10", "8").
 5. Wrap any field containing a comma in double quotes.
 6. No markdown fences, no prose — only raw CSV content in each csv field.

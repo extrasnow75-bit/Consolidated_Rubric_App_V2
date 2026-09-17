@@ -33,6 +33,7 @@ declare global {
           | { state: 'check-failed'; current: string }
         >
         openReleases(): Promise<void>
+        quit(): Promise<void>
         getHideLocalSaveNotice(): Promise<boolean>
         setHideLocalSaveNotice(hide: boolean): Promise<void>
         getZoom(): Promise<{ level: number; min: number; max: number }>

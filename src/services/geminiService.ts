@@ -18,6 +18,7 @@ import {
   Attachment,
   RubricMeta,
 } from '../types';
+import { ipcErrorMessage } from '../utils/ipcErrorMessage';
 
 // These mirror the declarations in electron/ipc/gemini.ts. Kept in step by hand: the two
 // processes compile separately, so there is no shared source to import from.
@@ -110,6 +111,11 @@ async function withCancellation<T>(
 
   try {
     return await run(jobId);
+  } catch (err) {
+    // Every Gemini call funnels through here, so this is the one place worth unwrapping Electron's
+    // "Error invoking remote method '...'" framing — see ipcErrorMessage. Without it the first
+    // thing a user sees when a document will not convert is an IPC channel name.
+    throw new Error(ipcErrorMessage(err));
   } finally {
     signal?.removeEventListener('abort', onAbort);
   }

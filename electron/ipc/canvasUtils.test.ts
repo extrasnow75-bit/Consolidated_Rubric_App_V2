@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseCSV, parseCourseUrl, buildRubricPayload } from './canvasUtils'
+import { parseCSV, parseCourseUrl, buildRubricPayload, parseRatingPoints } from './canvasUtils'
 
 describe('parseCSV', () => {
   it('splits a simple grid', () => {
@@ -109,6 +109,54 @@ describe('parseCourseUrl', () => {
   })
 })
 
+describe('parseRatingPoints', () => {
+  it('reads a plain value, with or without the unit', () => {
+    expect(parseRatingPoints('4')).toBe(4)
+    expect(parseRatingPoints('3.5')).toBe(3.5)
+    expect(parseRatingPoints('  10 pts  ')).toBe(10)
+    expect(parseRatingPoints('15 points')).toBe(15)
+  })
+
+  it("reads Canvas's own range notation as the top of the band", () => {
+    // Straight out of a rubric copied from Canvas: "4 to >3 pts" is one rating worth 4, and the
+    // ">3" is Canvas restating the next rating down. Canvas stores only the 4.
+    expect(parseRatingPoints('4 to >3 pts')).toBe(4)
+    expect(parseRatingPoints('1 to >0 pts')).toBe(1)
+    expect(parseRatingPoints('0.5 to >0 pts')).toBe(0.5)
+    expect(parseRatingPoints('15 to >10 pts')).toBe(15)
+  })
+
+  it('reads a hand-written band in either direction', () => {
+    expect(parseRatingPoints('4-3.5 points')).toBe(4) // descending, as most rubrics write it
+    expect(parseRatingPoints('2.4-0 points')).toBe(2.4)
+    expect(parseRatingPoints('40–50 pts')).toBe(50) // ascending, en dash
+    expect(parseRatingPoints('90-100')).toBe(100)
+  })
+
+  it('keeps a rating that is genuinely worth nothing', () => {
+    // Distinct from unreadable. Nearly every rubric has a bottom rating worth 0.
+    expect(parseRatingPoints('0')).toBe(0)
+    expect(parseRatingPoints('0 pts')).toBe(0)
+  })
+
+  it('refuses an open-ended band, which has no maximum to take', () => {
+    // The number is there, but it is the wrong end of the band — ">90" tops out at whatever the
+    // criterion is worth, which this cell does not say. Guessing 90 would understate it.
+    expect(parseRatingPoints('>90')).toBeNull()
+    expect(parseRatingPoints('<70')).toBeNull()
+    expect(parseRatingPoints('≥ 3')).toBeNull()
+  })
+
+  it('refuses a cell with no number in it', () => {
+    expect(parseRatingPoints('')).toBeNull()
+    expect(parseRatingPoints('   ')).toBeNull()
+    expect(parseRatingPoints('N/A')).toBeNull()
+    expect(parseRatingPoints('varies')).toBeNull()
+    expect(parseRatingPoints(undefined)).toBeNull()
+    expect(parseRatingPoints(null)).toBeNull()
+  })
+})
+
 describe('buildRubricPayload', () => {
   const HEADER =
     'Rubric Name,Criteria Name,Criteria Description,Rating Name,Rating Description,Points'
@@ -143,8 +191,10 @@ describe('buildRubricPayload', () => {
   })
 
   it('locates columns by header name, not position', () => {
-    const shuffled = 'Points,Rating Name,Criteria Name,Rubric Name,Rating Description'
-    const result = buildRubricPayload(`${shuffled}\n5,Good,Clarity,My Rubric,Nice`, '1')
+    // The rating triple stays contiguous — that part is positional by definition, since the
+    // columns repeat under identical names — but everything around it moves.
+    const shuffled = 'Criteria Description,Criteria Name,Rubric Name,Rating Name,Rating Description,Points'
+    const result = buildRubricPayload(`${shuffled}\n,Clarity,My Rubric,Good,Nice,5`, '1')
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.payload.rubric.title).toBe('My Rubric')
@@ -163,14 +213,60 @@ describe('buildRubricPayload', () => {
     )
   })
 
-  it('treats non-numeric points as zero rather than NaN', () => {
-    // NaN would serialise to null and Canvas would reject the whole rubric.
+  it('refuses points it cannot read instead of sending a silent zero', () => {
+    // This used to be `parseFloat(x) || 0`, so "not-a-number" deployed as a rating worth nothing
+    // and Canvas accepted it without a word. A visible refusal beats a quietly wrong grade.
     const result = buildRubricPayload(`${HEADER}\nR,C,,Good,Nice,not-a-number`, '1')
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.message).toContain('Rating Points')
+    expect(result.message).toContain('Good')
+  })
+
+  it('takes a whole rubric copied out of Canvas', () => {
+    // The shape of the eCampus demo rubrics: every rating written as "X to >Y pts", range enabled.
+    const header = `${HEADER},Rating Name,Rating Description,Points,Rating Name,Rating Description,Points`
+    const row = 'Discussion Board,Overall quality,,Met,Refers to the readings,4 to >3 pts,Partially Met,Some gaps,3 to >1 pts,Not Met,No reference,1 to >0 pts'
+    const result = buildRubricPayload(`${header}\n${row}`, '1')
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    const ratings = (result.payload.rubric.criteria['1'] as { ratings: Record<string, { points: number }> })
-      .ratings
-    expect(ratings['1'].points).toBe(0)
+
+    const ratings = (
+      result.payload.rubric.criteria['1'] as { ratings: Record<string, { points: number }> }
+    ).ratings
+    expect([ratings['1'].points, ratings['2'].points, ratings['3'].points]).toEqual([4, 3, 1])
+  })
+
+  it('takes a hand-written descending band', () => {
+    // The shape of the pull-request rubric: "4-3.5 points", "3.4-3 points", and so on.
+    const header = `${HEADER},Rating Name,Rating Description,Points`
+    const row = 'PR Review,Setup and context,,Exemplary,Tight scope,4-3.5 points,Proficient,Understandable,3.4-3 points'
+    const result = buildRubricPayload(`${header}\n${row}`, '1')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const ratings = (
+      result.payload.rubric.criteria['1'] as { ratings: Record<string, { points: number }> }
+    ).ratings
+    expect([ratings['1'].points, ratings['2'].points]).toEqual([4, 3.4])
+  })
+
+  it('names every rating it could not read, not just the first', () => {
+    const header = `${HEADER},Rating Name,Rating Description,Points`
+    const row = 'R,Clarity,,Excellent,Top marks,>90,Poor,Needs work,N/A'
+    const result = buildRubricPayload(`${header}\n${row}`, '1')
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.message).toContain('Excellent')
+    expect(result.message).toContain('Poor')
+    expect(result.message).toContain('>90')
+  })
+
+  it('says so when a rating name has no points beside it at all', () => {
+    const result = buildRubricPayload(`${HEADER}\nR,Clarity,,Good,Nice,`, '1')
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.message).toContain('nothing')
   })
 
   it('skips rows with no criteria name', () => {

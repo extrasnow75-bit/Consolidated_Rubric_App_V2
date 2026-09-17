@@ -118,6 +118,50 @@ export type PayloadResult =
   | { ok: false; message: string }
 
 /**
+ * Read the number out of a Rating Points cell.
+ *
+ * Canvas wants one number per rating. Rubrics in the wild write that number several ways, and the
+ * two that turn up most often here both come from Canvas itself or from someone copying it:
+ *
+ *   "4"              a plain value
+ *   "10 pts"         the same, with the unit people paste along with it
+ *   "4 to >3 pts"    Canvas's own display notation for a range rubric
+ *   "4-3.5", "40–50" a hand-written band, either direction
+ *
+ * All four carry a maximum, and the maximum is what Canvas stores: for a range rubric each
+ * rating's points value is the top of its band, and the bottom is inferred from the next rating
+ * down. So "4 to >3 pts" is simply 4 — and a rubric exported from Canvas round-trips back into it
+ * unchanged.
+ *
+ * What it refuses is a cell with no maximum in it at all: ">90" and "<70" name one edge of an
+ * open band, "N/A" and "varies" name nothing. These used to become 0.
+ *
+ * That silent zero is the reason this function exists. `parseFloat(x) || 0` reads ">90" as NaN and
+ * hands back 0, so a criterion worth ninety points deployed to Canvas worth none — with no error,
+ * because Canvas is perfectly willing to accept a zero. Nobody finds that until a student's grade
+ * is wrong. A rejection the user can see and act on is strictly better than a number that is
+ * quietly incorrect, so this returns null and the caller refuses the whole CSV.
+ *
+ * Returns null when there is no usable number, which is deliberately distinct from 0 — a rating
+ * genuinely worth 0 points is ordinary and must survive.
+ */
+export function parseRatingPoints(raw: string | undefined | null): number | null {
+  const text = (raw ?? '').trim()
+  if (!text) return null
+
+  // An open-ended band has no top to take. Checked before the digits, because "<70" does contain
+  // a number and taking it would silently cap the band at the wrong end.
+  if (/^[<>≤≥]/.test(text)) return null
+
+  // Rubric points are never negative, so a hyphen or dash is always a range separator here and
+  // never a minus sign.
+  const numbers = text.match(/\d+(?:\.\d+)?/g)
+  if (!numbers) return null
+
+  return Math.max(...numbers.map(Number))
+}
+
+/**
  * Turn a rubric CSV into the JSON body Canvas's rubrics endpoint expects.
  *
  * Columns are located by header name rather than position, because the CSVs come from several
@@ -161,6 +205,7 @@ export function buildRubricPayload(csvContent: string, courseId: string): Payloa
 
   const rubricTitle = dataRows[0][idxRubricName] || 'Imported Rubric'
   const criteria: Record<string, unknown> = {}
+  const unreadablePoints: string[] = []
 
   dataRows.forEach((row, rowIndex) => {
     const criterionKey = String(rowIndex + 1)
@@ -174,14 +219,34 @@ export function buildRubricPayload(csvContent: string, courseId: string): Payloa
       const rDesc = row[j + 1] || ''
       const rPointsRaw = row[j + 2]
 
-      if (rTitle !== undefined && rTitle.trim() !== '' && rPointsRaw !== undefined) {
-        ratings[String(ratingCounter)] = {
-          description: rTitle.trim(),
-          long_description: rDesc.trim(),
-          points: parseFloat(rPointsRaw) || 0,
-        }
-        ratingCounter++
+      // An empty name ends the ratings for this row: the header runs to a fixed number of rating
+      // columns and most rubrics use fewer.
+      if (rTitle === undefined || rTitle.trim() === '') continue
+
+      // No points cell at all, meaning the triplet ran off the end of the row. That happens
+      // whenever a non-rating column has been appended after the rating columns — the loop reads
+      // everything from the first rating column onwards in threes and cannot tell — so it is a
+      // shape this has always skipped rather than a value anyone got wrong.
+      if (rPointsRaw === undefined) continue
+
+      const points = parseRatingPoints(rPointsRaw)
+      if (points === null) {
+        // A named rating with no readable points. Collected rather than thrown so the message can
+        // list every one of them at once — fixing these one deploy at a time would be miserable.
+        unreadablePoints.push(
+          `“${criterionName}” → “${rTitle.trim()}” has ${
+            (rPointsRaw ?? '').trim() ? `“${(rPointsRaw ?? '').trim()}”` : 'nothing'
+          }`,
+        )
+        continue
       }
+
+      ratings[String(ratingCounter)] = {
+        description: rTitle.trim(),
+        long_description: rDesc.trim(),
+        points,
+      }
+      ratingCounter++
     }
 
     const enableRange =
@@ -194,6 +259,26 @@ export function buildRubricPayload(csvContent: string, courseId: string): Payloa
       ...(enableRange ? { criterion_use_range: true } : {}),
     }
   })
+
+  // Reported before anything is sent. Canvas would take a zero without complaint, so this is the
+  // only place the mistake can still be caught.
+  //
+  // The wording names the Rating Points column on purpose: diagnoseCanvasError reads it to decide
+  // whether to offer the AI repair, and this is exactly the kind of fault the repair is for.
+  if (unreadablePoints.length > 0) {
+    const shown = unreadablePoints.slice(0, 4)
+    const rest = unreadablePoints.length - shown.length
+    return {
+      ok: false,
+      message:
+        'Every rating needs a single number in its Rating Points column, and ' +
+        `${unreadablePoints.length === 1 ? 'one does' : `${unreadablePoints.length} do`} not: ` +
+        shown.join('; ') +
+        (rest > 0 ? `; and ${rest} more` : '') +
+        '. A range like “4 to >3 pts” should be entered as its highest value — 4 — with Criteria ' +
+        'Enable Range set to true; Canvas works out the bottom of each band from the rating below it.',
+    }
+  }
 
   return {
     ok: true,
