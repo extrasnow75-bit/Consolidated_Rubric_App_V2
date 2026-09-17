@@ -11,6 +11,12 @@
 # A manual run from the Actions tab builds and uploads the installers as workflow artifacts
 # without publishing a release — useful for testing the pipeline itself.
 #
+# A manual run WITH "Existing tag to republish" filled in (e.g. v0.9.1) rebuilds that release's
+# page and installers from the branch you run it on. This is the way to correct a release page
+# after publishing: the page is generated from the workflow and RELEASE_NOTES.md as they were in
+# the tagged commit, so a fix merged afterwards cannot reach an existing release any other way
+# short of deleting the tag and the release and starting again.
+#
 # The Google client secret is not in the repo. It is injected here from the repository secret
 # MAIN_VITE_GOOGLE_CLIENT_SECRET; electron-vite reads MAIN_VITE_* at build time and compiles it
 # into the main-process bundle, never the renderer.
@@ -21,6 +27,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish_tag:
+        description: 'Existing tag to republish (e.g. v0.9.1). Leave empty to build without publishing.'
+        required: false
+        default: ''
 
 jobs:
   build:
@@ -82,11 +93,17 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    # Only publish for a tag push; a manual run stops after building, so the pipeline can be
-    # exercised without creating a release.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Publish for a tag push, or for a manual run that named a tag to republish. A manual run
+    # with the box left empty stops after building, so the pipeline can still be exercised
+    # without touching a release.
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.publish_tag != ''
     permissions:
       contents: write
+    env:
+      # The tag being published. On a tag push that is the tag itself; on a manual run it is
+      # whatever was typed in, and the notes and workflow come from the branch being run —
+      # which is the point of that route.
+      TAG: ${{ inputs.publish_tag || github.ref_name }}
 
     steps:
       # Only for RELEASE_NOTES.md; the installers come from the build job's artifacts.
@@ -107,8 +124,8 @@ jobs:
         # under a new heading. Stop here instead; the installers are already built and the tag
         # can be re-pushed once the file is right.
         run: |
-          if ! grep -q "What's new in $GITHUB_REF_NAME" RELEASE_NOTES.md; then
-            echo "::error file=RELEASE_NOTES.md::RELEASE_NOTES.md must start with \"## What's new in $GITHUB_REF_NAME\" and list the changes since the previous release."
+          if ! grep -q "What's new in $TAG" RELEASE_NOTES.md; then
+            echo "::error file=RELEASE_NOTES.md::RELEASE_NOTES.md must start with \"## What's new in $TAG\" and list the changes since the previous release."
             exit 1
           fi
 
@@ -118,7 +135,7 @@ jobs:
         # the filename itself should say which machine it is for. Each glob is expanded once,
         # before any renaming, so this cannot reprocess its own output.
         run: |
-          ver="${GITHUB_REF_NAME#v}"
+          ver="${TAG#v}"
           cd artifacts
           for f in *.exe; do
             mv -- "$f" "Canvas-Rubric-Creator-WINDOWS-$ver.exe"
@@ -214,7 +231,7 @@ jobs:
           # `|` as the delimiter for the repo, which contains slashes. The download URL is
           # assembled rather than looked up: GitHub serves release assets at a predictable path,
           # and the rename step above fixes the filename, so the two agree by construction.
-          sed -i "s/__VER__/${GITHUB_REF_NAME#v}/g; s|__REPO__|${GITHUB_REPOSITORY}|g" notes.md
+          sed -i "s/__VER__/${TAG#v}/g; s|__REPO__|${GITHUB_REPOSITORY}|g" notes.md
           cat notes.md
 
       - name: Publish release
@@ -225,7 +242,7 @@ jobs:
           # one. Otherwise GitHub would present a release candidate as the current release and
           # point everybody at it.
           prerelease=""
-          case "$GITHUB_REF_NAME" in
+          case "$TAG" in
             *-*) prerelease="--prerelease" ;;
           esac
 
@@ -239,17 +256,17 @@ jobs:
           #
           # The release is created empty and the installers attached afterwards, so that both
           # routes upload through the same ordered loop below.
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $GITHUB_REF_NAME already exists — updating it."
-            gh release edit "$GITHUB_REF_NAME" \
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — updating it."
+            gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Canvas Rubric Creator $GITHUB_REF_NAME" \
+              --title "Canvas Rubric Creator $TAG" \
               --notes-file notes.md \
               ${prerelease:+--prerelease}
           else
-            gh release create "$GITHUB_REF_NAME" \
+            gh release create "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Canvas Rubric Creator $GITHUB_REF_NAME" \
+              --title "Canvas Rubric Creator $TAG" \
               --notes-file notes.md \
               $prerelease
           fi
@@ -269,7 +286,7 @@ jobs:
             artifacts/*INTEL*.dmg
           do
             echo "Attaching $f"
-            gh release upload "$GITHUB_REF_NAME" \
+            gh release upload "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --clobber \
               "$f"
