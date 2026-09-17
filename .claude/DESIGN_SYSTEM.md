@@ -74,9 +74,32 @@ Inactive tabs use `text-gray-600 hover:text-gray-900`
 - Placeholder: `text-gray-500` (disabled state is acceptable here)
 
 ### Buttons
-- Primary: `bg-blue-600 text-white hover:bg-blue-700`
-- Secondary: `bg-gray-100 text-gray-900 hover:bg-gray-200`
-- Disabled: `bg-gray-300 text-gray-400`
+
+- **Primary**: `bg-brand text-white hover:bg-brand-dark` — `#0033a0`, hover `#002d8f`
+- **Secondary**: `bg-gray-100 text-gray-900 hover:bg-gray-200`
+- **Tertiary**: `bg-white border border-gray-300 text-gray-700 hover:bg-gray-50`
+- **Disabled**: `bg-gray-200 text-gray-500` (see the contrast note — `text-gray-400` is 2.54:1)
+
+**Exactly one primary per action group.** A row of buttons has one blue; everything beside it is
+secondary or tertiary. Two blues in a row means neither is the answer.
+
+**Primary is the only colour an action takes.** There is no green "go" button, no separate colour
+for deploy, download or confirm. If a button means yes, continue, execute, generate, deploy or
+save, it is `bg-brand` — whatever the verb on it says.
+
+> This used to read `bg-blue-600 text-white hover:bg-blue-700`, and the app had grown three action
+> colours: `bg-blue-600` through Parts 1–3, `bg-[#0033a0]` on the Dashboard and in the Drive
+> browser, and `bg-green-700` on eight buttons that happened to mean "go" — Deploy Now, Deploy
+> Displayed Rubric, Use this version and deploy, Yes please, and the downloads in Part 2. Nothing
+> distinguished the green ones; they were the same kind of action as the blue ones next to them.
+>
+> `#0033a0` is the resolved value because it is already this app's title bar and header colour,
+> and because Canvas Extractor Tools uses it as its single action colour with no `blue-600`
+> anywhere. The two apps are used by the same people on the same day, so a button that is nearly
+> the same in both is worse than one that is identical.
+
+Green, amber and red stay **status** colours — a dot that says done, a bar that says failed, the
+tint behind a success message. Never the fill of a button the user is meant to press.
 
 ### Icons
 

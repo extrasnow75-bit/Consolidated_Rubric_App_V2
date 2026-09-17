@@ -437,7 +437,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
                 {group.diagnosis.action.kind === 'open-setup' && onOpenSetup && (
                   <button
                     onClick={onOpenSetup}
-                    className="mt-1 px-3 py-1.5 bg-blue-700 text-white rounded-lg text-xs font-bold hover:bg-blue-800 transition-all"
+                    className="mt-1 px-3 py-1.5 bg-brand text-white rounded-lg text-xs font-bold hover:bg-brand-dark transition-all"
                   >
                     {group.diagnosis.action.label}
                   </button>
@@ -606,7 +606,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
           </p>
           <button
             onClick={onStartOver}
-            className="flex-shrink-0 px-6 py-2.5 bg-green-700 text-white rounded-xl font-black text-sm uppercase tracking-widest hover:bg-green-800 transition-all active:scale-95 shadow"
+            className="flex-shrink-0 px-6 py-2.5 bg-brand text-white rounded-xl font-black text-sm uppercase tracking-widest hover:bg-brand-dark transition-all active:scale-95 shadow"
           >
             Yes, please
           </button>

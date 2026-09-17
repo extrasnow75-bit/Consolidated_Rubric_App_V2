@@ -703,7 +703,7 @@ export const Part3Upload: React.FC = () => {
                     <button
                       onClick={handleGoogleDrivePick}
                       disabled={pickingFromDrive || !state.isGoogleAuthenticated}
-                      className="w-full py-3 px-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 transition-all flex items-center justify-center gap-2"
+                      className="w-full py-3 px-4 bg-brand text-white rounded-xl font-bold hover:bg-brand-dark disabled:bg-gray-200 disabled:text-gray-400 transition-all flex items-center justify-center gap-2"
                     >
                       {pickingFromDrive ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -959,7 +959,7 @@ export const Part3Upload: React.FC = () => {
                       No token saved yet. Add one under{' '}
                       <button
                         onClick={() => setCurrentStep(AppMode.DASHBOARD)}
-                        className="font-bold text-[#0033a0] underline hover:text-blue-800"
+                        className="font-bold text-brand underline hover:text-blue-800"
                       >
                         Initial Setup
                       </button>{' '}
@@ -971,7 +971,7 @@ export const Part3Upload: React.FC = () => {
                 <button
                   onClick={handleValidate}
                   disabled={validating || !courseUrl.trim() || !hasToken}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-all text-sm disabled:opacity-50 disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
+                  className="w-full px-4 py-2 bg-brand text-white rounded-lg font-bold hover:bg-brand-dark transition-all text-sm disabled:opacity-50 disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
                 >
                   {validating ? (
                     <><Loader2 className="w-4 h-4 animate-spin" /> Checking…</>
@@ -1030,7 +1030,7 @@ export const Part3Upload: React.FC = () => {
                   (uploadMode === 'google-drive' && !csvToUse.trim()) ||
                   (uploadMode === 'batch' && batchFiles.length === 0)
                 }
-                className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"
+                className="w-full py-4 bg-brand text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-brand-dark transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"
               >
                 {isUploading && <Loader2 className="w-5 h-5 animate-spin" />}
                 {isUploading

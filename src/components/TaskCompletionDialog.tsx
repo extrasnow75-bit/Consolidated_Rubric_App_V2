@@ -152,7 +152,7 @@ const TaskCompletionDialog: React.FC<TaskCompletionDialogProps> = ({
         {/* Primary Action Button */}
         <button
           onClick={content.primaryAction.onClick}
-          className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-blue-700 transition-all mb-3 flex items-center justify-center gap-2 active:scale-95"
+          className="w-full py-4 bg-brand text-white rounded-2xl font-black uppercase tracking-widest hover:bg-brand-dark transition-all mb-3 flex items-center justify-center gap-2 active:scale-95"
         >
           {content.primaryAction.icon && (
             <content.primaryAction.icon className="w-5 h-5" />

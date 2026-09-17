@@ -268,7 +268,7 @@ export const CsvRepairPanel: React.FC<Props> = ({
         <button
           onClick={handleDeploy}
           disabled={busy}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-green-700 text-white rounded-lg text-xs font-bold hover:bg-green-800 transition-all active:scale-95 disabled:bg-gray-400 disabled:cursor-not-allowed"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:bg-brand-dark transition-all active:scale-95 disabled:bg-gray-400 disabled:cursor-not-allowed"
         >
           {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
           {busy ? 'Deploying…' : 'Use this version and deploy'}

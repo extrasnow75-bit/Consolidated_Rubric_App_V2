@@ -139,6 +139,25 @@ describe('parseRatingPoints', () => {
     expect(parseRatingPoints('0 pts')).toBe(0)
   })
 
+  it('reads every form Canvas Extractor Tools writes', () => {
+    // A contract between the two apps, not a guess. Extractor's ratingPointsLabel
+    // (electron/ipc/rubricExport.ts) emits exactly two shapes:
+    //
+    //     `${upper} to >${lower} points`   when the criterion uses ranges
+    //     `${upper} points`                when it does not
+    //
+    // and in both the number Canvas stores for that rating is `upper`. A rubric pulled out of
+    // Canvas by Extractor, pasted into a document, and pushed back by this app must land on the
+    // same points it started with, so these cases are the round trip.
+    expect(parseRatingPoints('4 to >3 points')).toBe(4)
+    expect(parseRatingPoints('3 to >2.5 points')).toBe(3)
+    expect(parseRatingPoints('0.5 to >0 points')).toBe(0.5)
+    expect(parseRatingPoints('10 points')).toBe(10)
+    expect(parseRatingPoints('0 points')).toBe(0)
+    // Older exports, and the eCampus template itself, say "pts" instead.
+    expect(parseRatingPoints('4 to >3 pts')).toBe(4)
+  })
+
   it('refuses an open-ended band, which has no maximum to take', () => {
     // The number is there, but it is the wrong end of the band — ">90" tops out at whatever the
     // criterion is worth, which this cell does not say. Guessing 90 would understate it.
