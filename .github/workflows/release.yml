@@ -255,7 +255,7 @@ jobs:
           # missing, and otherwise set the notes and attach the installers to what is there.
           #
           # The release is created empty and the installers attached afterwards, so that both
-          # routes upload through the same ordered loop below.
+          # routes attach them the same way.
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $TAG already exists — updating it."
             gh release edit "$TAG" \
@@ -271,23 +271,21 @@ jobs:
               $prerelease
           fi
 
-          # Windows first, then the two Macs.
+          # The Assets list cannot be reordered, so do not spend another release trying.
           #
-          # Nearly everyone using this is on Windows, and the Assets list is where people who
-          # scroll past the download links end up. GitHub lists assets in the order they were
-          # attached, so uploading one at a time in this order is what puts the .exe on top —
-          # `artifacts/*` expands alphabetically, which put both Macs above it.
+          # Nearly everyone here is on Windows and it would be good to have the .exe on top.
+          # GitHub sorts release assets alphabetically by filename, which puts both Macs above
+          # it. This was tested directly on v0.9.1: the .exe was uploaded first and given the
+          # lowest asset id, and GitHub still listed it third. Only a rename would change the
+          # order, and a sort key like "1-" in a filename costs more confusion among the course
+          # staff downloading these than the ordering is worth.
+          #
+          # What actually leads people to the right file is the Download section at the top of
+          # the notes, which lists Windows first and links each file directly.
           #
           # --clobber so re-running the workflow on the same tag replaces the assets rather than
           # failing on a name that is already taken.
-          for f in \
-            artifacts/*WINDOWS*.exe \
-            artifacts/*APPLE-SILICON*.dmg \
-            artifacts/*INTEL*.dmg
-          do
-            echo "Attaching $f"
-            gh release upload "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --clobber \
-              "$f"
-          done
+          gh release upload "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber \
+            artifacts/*
