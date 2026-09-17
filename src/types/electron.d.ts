@@ -34,6 +34,8 @@ declare global {
         >
         openReleases(): Promise<void>
         quit(): Promise<void>
+        /** Resolves false if the text could not be placed on the clipboard. */
+        copyText(text: string): Promise<boolean>
         getHideLocalSaveNotice(): Promise<boolean>
         setHideLocalSaveNotice(hide: boolean): Promise<void>
         getZoom(): Promise<{ level: number; min: number; max: number }>

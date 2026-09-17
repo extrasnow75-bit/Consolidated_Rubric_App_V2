@@ -107,7 +107,6 @@ export const Part2WordToCsv: React.FC = () => {
     'ranges' | 'fixed'
   >('ranges');
   const [singleCsvContent, setSingleCsvContent] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   // ── Multi-rubric parallel generation ────────────────────────────────
   const [rubricResults, setRubricResults] = useState<RubricResult[]>([]);
@@ -527,13 +526,9 @@ export const Part2WordToCsv: React.FC = () => {
 
   // ── Other handlers ────────────────────────────────────────────────────
 
-  const handleCopyToClipboard = () => {
-    if (singleCsvContent) {
-      navigator.clipboard.writeText(singleCsvContent);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
+  // A "copy the CSV" handler lived here, left over from the web app: nothing called it and its
+  // `copied` flag was never rendered, so the tick it set could not have been seen. Removed rather
+  // than repaired — Download as .csv and Save to Drive already cover getting the file out.
 
   const handleContinuePart3 = () => {
     if (!singleCsvContent) {

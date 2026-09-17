@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CheckCircle, XCircle, Loader2, Download, Copy, Trash2, ExternalLink } from 'lucide-react';
+import { CheckCircle, XCircle, Loader2, Download, Copy, Check, Trash2, ExternalLink } from 'lucide-react';
 import { RubricData, CanvasConfig } from '../types';
 import { generateCsvFromRubricObject, generateAllCsvsFromDoc } from '../services/geminiService';
 import JSZip from 'jszip';
 import { diagnoseCanvasError, CanvasDiagnosis } from '../utils/diagnoseCanvasError';
 import { CsvRepairPanel } from './CsvRepairPanel';
+import { useCopyAction } from '../hooks/useCopyAction';
 
 /**
  * How long to wait before the single retry.
@@ -73,6 +74,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
   const [progress, setProgress] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [estimatedMs, setEstimatedMs] = useState(0);
+  const { state: copyState, copy } = useCopyAction();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [results, setResults] = useState<RubricResult[]>([]);
   const [csvPromptAnswer, setCsvPromptAnswer] = useState<'yes' | 'no' | null>(null);
@@ -340,9 +342,25 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
     );
   };
 
-  const handleCopyLogs = () => {
-    const text = logs.map((l) => `[${l.timestamp}] ${l.message}`).join('\n');
-    navigator.clipboard.writeText(text);
+  /**
+   * The log, with enough at the top to identify it once it has been pasted somewhere else.
+   *
+   * This gets sent to whoever can help — in a message, a ticket, an email — and arrives stripped
+   * of everything the screen was showing around it. A bare list of timestamps with no date, no
+   * version and no course leaves the reader asking three questions before they can start.
+   *
+   * The Canvas token cannot appear here. The renderer is never given it, so it has nothing to
+   * leak; the course URL is not a secret and is the single most useful line for diagnosis.
+   */
+  const handleCopyLogs = async () => {
+    const header = [
+      `Canvas Rubric Creator v${await window.api.app.version()} — deployment log`,
+      `Copied ${new Date().toLocaleString()}`,
+      courseUrl ? `Course: ${courseUrl}` : 'Course: (none set)',
+      `${results.length} rubric(s): ${successCount} deployed, ${failCount} failed`,
+      '',
+    ].join('\n');
+    await copy(header + logs.map((l) => `[${l.timestamp}] ${l.message}`).join('\n'));
   };
 
   const handleClearLogs = () => setLogs([]);
@@ -572,15 +590,30 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
           </span>
           <div className="flex items-center gap-3">
             <button
-              onClick={handleCopyLogs}
-              className="text-xs text-gray-600 hover:text-gray-200 font-bold flex items-center gap-1 transition-colors"
+              onClick={() => void handleCopyLogs()}
+              disabled={logs.length === 0}
+              className={`text-xs font-bold flex items-center gap-1 transition-colors disabled:opacity-40 ${
+                copyState === 'failed'
+                  ? 'text-amber-300'
+                  : copyState === 'copied'
+                    ? 'text-green-300'
+                    : 'text-gray-300 hover:text-white'
+              }`}
             >
-              <Copy className="w-3 h-3" />
-              Copy Logs
+              {copyState === 'copied' ? (
+                <Check className="w-3 h-3" />
+              ) : (
+                <Copy className="w-3 h-3" />
+              )}
+              {copyState === 'copied'
+                ? 'Copied'
+                : copyState === 'failed'
+                  ? 'Could not copy'
+                  : 'Copy Logs'}
             </button>
             <button
               onClick={handleClearLogs}
-              className="text-xs text-gray-600 hover:text-gray-200 font-bold flex items-center gap-1 transition-colors"
+              className="text-xs text-gray-300 hover:text-white font-bold flex items-center gap-1 transition-colors"
             >
               <Trash2 className="w-3 h-3" />
               Clear

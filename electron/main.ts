@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron'
 import { join } from 'path'
 import { writeFile } from 'fs/promises'
 import { isAllowedExternalUrl, setAllowedCanvasHost } from './ipc/externalLinks'
@@ -158,6 +158,22 @@ ipcMain.handle('app:openReleases', () => shell.openExternal(RELEASES_PAGE))
 // on macOS, where closing the last window normally leaves the app running.
 ipcMain.handle('app:quit', () => {
   app.quit()
+})
+
+// Copying the deployment log, through Electron rather than through navigator.clipboard.
+//
+// The renderer's clipboard API needs a secure context and a focused document, and when it is
+// refused it rejects a promise that nobody was awaiting — the button does nothing and says
+// nothing. That is a poor trade for the one control whose entire job is to let someone send us
+// the error they are looking at. Electron's clipboard has no such conditions, and this returns a
+// value so the button can report what happened.
+//
+// Text only, and nothing here can name a file or a destination: the renderer hands over a string
+// and that is the whole of the capability.
+ipcMain.handle('clipboard:writeText', (_e, text: string) => {
+  if (typeof text !== 'string') return false
+  clipboard.writeText(text)
+  return true
 })
 
 ipcMain.handle('app:getHideLocalSaveNotice', () => readSettings().hideLocalSaveNotice === true)
