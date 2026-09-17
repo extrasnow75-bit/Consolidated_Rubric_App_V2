@@ -146,12 +146,16 @@ jobs:
 
           **Windows:** [Canvas-Rubric-Creator-WINDOWS-__VER__.exe](https://github.com/__REPO__/releases/download/v__VER__/Canvas-Rubric-Creator-WINDOWS-__VER__.exe)
 
-          **Mac with Apple Silicon (M1 or later):** [Canvas-Rubric-Creator-MAC-APPLE-SILICON-__VER__.dmg](https://github.com/__REPO__/releases/download/v__VER__/Canvas-Rubric-Creator-MAC-APPLE-SILICON-__VER__.dmg)
+          **Mac — newer (2020 and later, Apple Silicon):** [Canvas-Rubric-Creator-MAC-APPLE-SILICON-__VER__.dmg](https://github.com/__REPO__/releases/download/v__VER__/Canvas-Rubric-Creator-MAC-APPLE-SILICON-__VER__.dmg)
 
-          **Mac with an Intel processor:** [Canvas-Rubric-Creator-MAC-INTEL-__VER__.dmg](https://github.com/__REPO__/releases/download/v__VER__/Canvas-Rubric-Creator-MAC-INTEL-__VER__.dmg)
+          **Mac — older (2019 and earlier, Intel):** [Canvas-Rubric-Creator-MAC-INTEL-__VER__.dmg](https://github.com/__REPO__/releases/download/v__VER__/Canvas-Rubric-Creator-MAC-INTEL-__VER__.dmg)
 
-          Not sure which Mac you have? Click the Apple menu, then **About This Mac** — the Chip
-          line says Apple M1/M2/M3/M4 for Apple Silicon, or Intel.
+          **If your Mac is only a few years old, take the newer one.** Every Mac sold since late
+          2020 uses Apple Silicon, so that is the right file for most people.
+
+          To be sure: click the Apple menu, then **About This Mac**. A line reading **Chip —
+          Apple M1**, M2, M3 or M4 means the newer file. A line reading **Processor** with Intel
+          in it means the older one.
 
           The Assets section further down holds the same files. Ignore the two "Source code"
           links beside them — GitHub adds those to every release automatically. They are not
