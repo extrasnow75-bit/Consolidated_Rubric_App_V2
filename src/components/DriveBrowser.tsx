@@ -202,7 +202,7 @@ export const DriveBrowser: React.FC<DriveBrowserProps> = ({
         aria-label={heading}
       >
         {/* Header */}
-        <div className="bg-[#0033a0] text-white px-6 py-4 flex items-center justify-between flex-shrink-0">
+        <div className="bg-brand text-white px-6 py-4 flex items-center justify-between flex-shrink-0">
           <h2 className="text-lg font-bold">{heading}</h2>
           <button
             onClick={onCancel}
@@ -224,7 +224,7 @@ export const DriveBrowser: React.FC<DriveBrowserProps> = ({
                   onClick={() => switchScope(tab.id)}
                   className={`flex items-center gap-2 px-4 py-2 text-sm font-bold border-b-2 transition-colors ${
                     active
-                      ? 'border-[#0033a0] text-[#0033a0]'
+                      ? 'border-brand text-brand'
                       : 'border-transparent text-gray-600 hover:text-gray-900'
                   }`}
                 >
@@ -265,7 +265,7 @@ export const DriveBrowser: React.FC<DriveBrowserProps> = ({
             <div className="flex items-center gap-1 flex-wrap pb-3 text-sm">
               <button
                 onClick={() => { setTrail([]); setSelected(null); }}
-                className="text-[#0033a0] font-bold hover:underline"
+                className="text-brand font-bold hover:underline"
               >
                 {SCOPE_TABS.find((t) => t.id === scope)?.label}
               </button>
@@ -277,7 +277,7 @@ export const DriveBrowser: React.FC<DriveBrowserProps> = ({
                     className={
                       i === trail.length - 1
                         ? 'text-gray-900 font-bold'
-                        : 'text-[#0033a0] font-bold hover:underline'
+                        : 'text-brand font-bold hover:underline'
                     }
                   >
                     {crumb.name}
@@ -346,14 +346,14 @@ export const DriveBrowser: React.FC<DriveBrowserProps> = ({
                         }
                       }}
                       aria-pressed={selectable ? isSelected : undefined}
-                      className={`flex-1 min-w-0 text-left px-6 py-3 flex items-center gap-3 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0033a0] ${
+                      className={`flex-1 min-w-0 text-left px-6 py-3 flex items-center gap-3 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand ${
                         isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'
                       }`}
                     >
                       {/* A marker independent of the background tint: bg-blue-50 against
                           hover:bg-gray-50 is two near-identical pale greys, so selection was
                           conveyed by colour alone. */}
-                      <span className="w-4 flex-shrink-0 text-[#0033a0]" aria-hidden="true">
+                      <span className="w-4 flex-shrink-0 text-brand" aria-hidden="true">
                         {isSelected ? <Check className="w-4 h-4" /> : null}
                       </span>
                       <FileIcon file={file} />
@@ -372,7 +372,7 @@ export const DriveBrowser: React.FC<DriveBrowserProps> = ({
                       <button
                         onClick={() => openRow(file)}
                         aria-label={`Open folder ${file.name}`}
-                        className="px-4 text-xs font-bold text-[#0033a0] hover:underline hover:bg-gray-50 flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0033a0]"
+                        className="px-4 text-xs font-bold text-brand hover:underline hover:bg-gray-50 flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand"
                       >
                         Open
                       </button>
@@ -420,7 +420,7 @@ export const DriveBrowser: React.FC<DriveBrowserProps> = ({
                   });
                 }
               }}
-              className="px-5 py-2 rounded-xl font-bold text-sm bg-blue-600 text-white hover:bg-blue-700 transition-all disabled:bg-gray-300 disabled:text-gray-400"
+              className="px-5 py-2 rounded-xl font-bold text-sm bg-brand text-white hover:bg-brand-dark transition-all disabled:bg-gray-300 disabled:text-gray-400"
             >
               {mode === 'folder'
                 ? selected

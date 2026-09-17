@@ -30,6 +30,7 @@ import {
   ChevronLeft,
   FolderOpen,
 } from 'lucide-react';
+import { SegmentedChoice } from './SegmentedChoice';
 import ErrorDisplay from './ErrorDisplay';
 
 
@@ -769,7 +770,7 @@ export const Part2WordToCsv: React.FC = () => {
                 onClick={() =>
                   downloadCsv(singleCsvContent, editableRubricName || 'rubric')
                 }
-                className="flex-1 px-4 py-3 bg-green-700 text-white rounded-xl font-bold hover:bg-green-800 transition-all flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-3 bg-brand text-white rounded-xl font-bold hover:bg-brand-dark transition-all flex items-center justify-center gap-2"
               >
                 <Download className="w-5 h-5" />
                 Download as .csv
@@ -788,7 +789,7 @@ export const Part2WordToCsv: React.FC = () => {
               </button>
               <button
                 onClick={handleContinuePart3}
-                className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all"
+                className="flex-1 px-4 py-3 bg-brand text-white rounded-xl font-bold hover:bg-brand-dark transition-all"
               >
                 Carry CSV to Phase 3
               </button>
@@ -874,34 +875,20 @@ export const Part2WordToCsv: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="text-sm font-bold text-gray-700 block mb-2">Scoring Method</label>
-                      <div className="flex gap-4">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            value="ranges"
-                            checked={editableScoringMethod === 'ranges'}
-                            onChange={() => setEditableScoringMethod('ranges')}
-                            className="w-4 h-4 accent-blue-600"
-                          />
-                          <span className="text-sm text-gray-700">Point Ranges</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            value="fixed"
-                            checked={editableScoringMethod === 'fixed'}
-                            onChange={() => setEditableScoringMethod('fixed')}
-                            className="w-4 h-4 accent-blue-600"
-                          />
-                          <span className="text-sm text-gray-700">Fixed Points</span>
-                        </label>
-                      </div>
+                      <SegmentedChoice
+                        label="Scoring method"
+                        value={editableScoringMethod}
+                        onChange={setEditableScoringMethod}
+                        options={[
+                          { value: 'ranges', label: 'Ranges', hint: '10 to >8' },
+                          { value: 'fixed', label: 'Fixed', hint: '10, 8, 6' },
+                        ]}
+                      />
                     </div>
                     <button
                       onClick={handleGenerateFromPhase1}
                       disabled={!editableRubricName.trim()}
-                      className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 transition-all flex items-center justify-center gap-2"
+                      className="w-full py-3 bg-brand text-white rounded-xl font-bold hover:bg-brand-dark disabled:bg-gray-300 transition-all flex items-center justify-center gap-2"
                     >
                       <Zap className="w-4 h-4" />
                       Generate Canvas CSV from Phase 1 Rubric
@@ -978,7 +965,7 @@ export const Part2WordToCsv: React.FC = () => {
                     <button
                       onClick={handleGoogleDrivePick}
                       disabled={pickingFromGoogleDrive || !state.isGoogleAuthenticated}
-                      className="w-full py-3 px-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 transition-all flex items-center justify-center gap-2"
+                      className="w-full py-3 px-4 bg-brand text-white rounded-xl font-bold hover:bg-brand-dark disabled:bg-gray-200 disabled:text-gray-400 transition-all flex items-center justify-center gap-2"
                     >
                       {pickingFromGoogleDrive ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -1097,7 +1084,7 @@ export const Part2WordToCsv: React.FC = () => {
                     <div className="flex gap-3 mb-4">
                       <button
                         onClick={handleDownloadAllZip}
-                        className="flex-1 py-3 bg-green-700 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-green-800 transition-all active:scale-95 flex items-center justify-center gap-2"
+                        className="flex-1 py-3 bg-brand text-white rounded-2xl font-black uppercase tracking-widest hover:bg-brand-dark transition-all active:scale-95 flex items-center justify-center gap-2"
                       >
                         <PackageOpen className="w-5 h-5" />
                         Download All {doneCount} as ZIP
@@ -1176,7 +1163,7 @@ export const Part2WordToCsv: React.FC = () => {
                             onClick={() =>
                               downloadCsv(result.csvContent!, result.rubric.name)
                             }
-                            className="flex-shrink-0 px-3 py-1.5 bg-green-700 text-white rounded-lg text-xs font-bold hover:bg-green-800 transition-all flex items-center gap-1.5"
+                            className="flex-shrink-0 px-3 py-1.5 bg-brand text-white rounded-lg text-xs font-bold hover:bg-brand-dark transition-all flex items-center gap-1.5"
                           >
                             <Download className="w-3.5 h-3.5" />
                             Download
@@ -1217,7 +1204,7 @@ export const Part2WordToCsv: React.FC = () => {
                     {/* Progress bar */}
                     <div className="w-full bg-blue-200 rounded-full h-1.5">
                       <div
-                        className="bg-blue-600 h-1.5 rounded-full transition-all duration-700"
+                        className="bg-brand h-1.5 rounded-full transition-all duration-700"
                         style={{ width: `${progressPct}%` }}
                       />
                     </div>
@@ -1264,7 +1251,7 @@ export const Part2WordToCsv: React.FC = () => {
                 {doneCount > 0 && !isGeneratingAll && errorCount === 0 && doneCount === totalCount && (
                   <button
                     onClick={() => setCurrentStep(AppMode.PART_3)}
-                    className="w-full py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center gap-2"
+                    className="w-full py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 bg-brand text-white hover:bg-brand-dark flex items-center justify-center gap-2"
                   >
                     Carry CSV to Phase 3 →
                   </button>
@@ -1286,7 +1273,7 @@ export const Part2WordToCsv: React.FC = () => {
                           ? 'bg-red-500 text-white hover:bg-red-600'
                           : allDone
                           ? 'bg-gray-100 text-gray-600 hover:bg-gray-200 shadow-none'
-                          : 'bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400'
+                          : 'bg-brand text-white hover:bg-brand-dark disabled:bg-gray-200 disabled:text-gray-400'
                       }`}
                     >
                       {isGeneratingAll ? (

@@ -480,7 +480,7 @@ export const Dashboard: React.FC = () => {
           {/* Header */}
           <button
             onClick={() => setIsSetupOpen((v) => !v)}
-            className="w-full bg-[#0033a0] hover:bg-[#002d8f] text-white px-6 py-4 flex items-center gap-3 transition-colors cursor-pointer text-left"
+            className="w-full bg-brand hover:bg-brand-dark text-white px-6 py-4 flex items-center gap-3 transition-colors cursor-pointer text-left"
           >
             <Settings2 className="w-5 h-5 flex-shrink-0" />
             <span className="font-black text-base">Initial Setup</span>
@@ -555,7 +555,7 @@ export const Dashboard: React.FC = () => {
                     <button
                       onClick={handleSaveApiKey}
                       disabled={!apiKeyInput.trim() || isValidatingKey}
-                      className="w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-black hover:bg-blue-700 transition-all text-sm disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
+                      className="w-full px-4 py-3 bg-brand text-white rounded-xl font-black hover:bg-brand-dark transition-all text-sm disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
                     >
                       {isValidatingKey ? <><Loader2 className="w-4 h-4 animate-spin" /> Validating...</> : <><Check className="w-4 h-4" /> Save Key</>}
                     </button>
@@ -615,7 +615,7 @@ export const Dashboard: React.FC = () => {
                     <button
                       onClick={handleSaveCanvasToken}
                       disabled={!canvasTokenInput.trim()}
-                      className="w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-black hover:bg-blue-700 transition-all text-sm disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
+                      className="w-full px-4 py-3 bg-brand text-white rounded-xl font-black hover:bg-brand-dark transition-all text-sm disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
                     >
                       <Check className="w-4 h-4" /> Save Token
                     </button>
@@ -693,7 +693,7 @@ export const Dashboard: React.FC = () => {
               <select
                 value={hasDraftRubric}
                 onChange={(e) => handleDraftRubricChange(e.target.value as '' | 'yes' | 'no')}
-                className="w-full appearance-none px-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:border-[#0033a0] focus:outline-none transition-all bg-white font-medium text-gray-700 cursor-pointer"
+                className="w-full appearance-none px-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:border-brand focus:outline-none transition-all bg-white font-medium text-gray-700 cursor-pointer"
               >
                 <option value="">Select...</option>
                 <option value="yes">Yes - I have a draft rubric document</option>
@@ -712,7 +712,7 @@ export const Dashboard: React.FC = () => {
                     onClick={() => setDocUploadTab('local')}
                     className={`flex items-center gap-1.5 px-4 py-2.5 font-bold text-sm transition-all border-b-2 -mb-px ${
                       docUploadTab === 'local'
-                        ? 'border-[#0033a0] text-[#0033a0]'
+                        ? 'border-brand text-brand'
                         : 'border-transparent text-gray-600 hover:text-gray-700 hover:border-gray-300'
                     }`}
                   >
@@ -722,7 +722,7 @@ export const Dashboard: React.FC = () => {
                     onClick={() => setDocUploadTab('google')}
                     className={`flex items-center gap-1.5 px-4 py-2.5 font-bold text-sm transition-all border-b-2 -mb-px ${
                       docUploadTab === 'google'
-                        ? 'border-[#0033a0] text-[#0033a0]'
+                        ? 'border-brand text-brand'
                         : 'border-transparent text-gray-600 hover:text-gray-700 hover:border-gray-300'
                     }`}
                   >
@@ -774,7 +774,7 @@ export const Dashboard: React.FC = () => {
                     <button
                       onClick={handleGooglePicker}
                       disabled={!googleSignedIn}
-                      className="w-full py-3 px-4 bg-[#0033a0] text-white rounded-xl font-bold hover:bg-[#002d8f] disabled:bg-gray-200 disabled:text-gray-400 transition-all flex items-center justify-center gap-2"
+                      className="w-full py-3 px-4 bg-brand text-white rounded-xl font-bold hover:bg-brand-dark disabled:bg-gray-200 disabled:text-gray-400 transition-all flex items-center justify-center gap-2"
                     >
                       <FolderOpen className="w-4 h-4" />
                       Browse Google Drive
@@ -848,7 +848,7 @@ export const Dashboard: React.FC = () => {
                         onChange={(e) => { setDriveUrl(e.target.value); setDriveUrlError(null); }}
                         onKeyDown={(e) => { if (e.key === 'Enter') handleFetchFromDriveUrl(); }}
                         placeholder="docs.google.com/document/d/... or drive.google.com/file/d/..."
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:border-[#0033a0] focus:outline-none transition-all"
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:border-brand focus:outline-none transition-all"
                       />
                       {driveUrlError && (
                         <p className="text-xs text-red-600 mt-1">{driveUrlError}</p>
@@ -974,7 +974,7 @@ export const Dashboard: React.FC = () => {
             disabled={!allRequiredValid}
             className={`w-full py-4 rounded-2xl font-black text-base uppercase tracking-widest transition-all active:scale-95 ${
               allRequiredValid
-                ? 'bg-[#0033a0] text-white hover:bg-blue-900 shadow-xl cursor-pointer'
+                ? 'bg-brand text-white hover:bg-brand-dark shadow-xl cursor-pointer'
                 : 'bg-gray-200 text-gray-600 cursor-not-allowed shadow-none'
             }`}
           >

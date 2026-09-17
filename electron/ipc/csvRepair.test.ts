@@ -176,4 +176,55 @@ describe('criterionNames', () => {
       ',Evidence,Supports it,TRUE,Exemplary,Sourced,10'
     expect(criterionNames(headerless)).toEqual(['Thesis', 'Evidence'])
   })
+
+  it('matches same-named criteria in order rather than all to the first', () => {
+    // Two sections can both have a criterion called "Participation". The map behind this kept
+    // one row per name, so the second row diffed against the first: the panel listed point
+    // changes nobody made and hid the one that was real. That defeats the panel's only claim —
+    // that it reports what the AI did, not what it says it did.
+    const before = [
+      HEADER,
+      'Seminar,Participation,Section A,TRUE,Exemplary,Frequent,10,Developing,Rare,5',
+      ',Participation,Section B,TRUE,Exemplary,Frequent,8,Developing,Rare,4',
+    ].join('\n')
+    // Only the second row changes, and only its first point value: 8 becomes 6.
+    const after = before.replace(
+      ',Participation,Section B,TRUE,Exemplary,Frequent,8,',
+      ',Participation,Section B,TRUE,Exemplary,Frequent,6,',
+    )
+
+    const diff = computeRepairDiff(before, after)
+    expect(diff.pointChanges).toEqual([
+      { criterion: 'Participation', column: 'Rating 1 Points', before: '8', after: '6' },
+    ])
+    expect(diff.criteria.filter((c) => c.kind === 'removed')).toEqual([])
+    expect(diff.criteria.filter((c) => c.kind === 'added')).toEqual([])
+  })
+
+  it('reports a dropped duplicate as a loss, not as no change', () => {
+    const before = [
+      HEADER,
+      'Seminar,Participation,Section A,TRUE,Exemplary,Frequent,10,Developing,Rare,5',
+      ',Participation,Section B,TRUE,Exemplary,Frequent,8,Developing,Rare,4',
+    ].join('\n')
+    const after = [
+      HEADER,
+      'Seminar,Participation,Section A,TRUE,Exemplary,Frequent,10,Developing,Rare,5',
+    ].join('\n')
+
+    const check = checkRepair(before, after)
+    expect(check.ok).toBe(false)
+  })
+
+  it('does not mistake a criterion that mentions rating for the header row', () => {
+    // looksLikeHeader tested for a bare "rating", so a header-less CSV whose first criterion
+    // read "Rating of peer contributions" lost that criterion from criterionNames — taking it
+    // out from under the no-loss gate, the one check that stops the AI silently dropping work.
+    const headerless = [
+      'Seminar,Rating of peer contributions,How peers were rated,TRUE,Exemplary,Fair,10,Developing,Unfair,5',
+      ',Evidence,Supports the argument,TRUE,Exemplary,Well sourced,10,Developing,Thin,5',
+    ].join('\n')
+
+    expect(criterionNames(headerless)).toContain('Rating of peer contributions')
+  })
 })

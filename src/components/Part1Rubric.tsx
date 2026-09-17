@@ -3,6 +3,7 @@ import { useSession } from '../contexts/SessionContext';
 import { useDrivePicker } from '../contexts/DrivePickerContext';
 import { AppMode, PointStyle, ProcessingType, GenerationSettings } from '../types';
 import { generateRubricFromDescription, extractRubricFromDocument, applyRubricChanges } from '../services/geminiService';
+import { SegmentedChoice } from './SegmentedChoice';
 import { Loader2, Download, FileText, CheckCircle, ArrowRight, RotateCw, Home, X, Clock, ChevronDown, ChevronUp, Link, Check } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import mammoth from 'mammoth';
@@ -623,7 +624,9 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
       <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6 max-w-2xl w-full">
         <h3 className="text-sm font-black text-gray-900 mb-1">About Phase 1</h3>
         <p className="text-sm text-gray-700">
-          Upload/paste an assignment description or a screenshot from another rubric. Then the app will generate editable draft rubrics in MS Word or Google Docs form. In Phase 2, the app can upload the rubrics to Canvas for you.
+          Paste or upload an assignment description, or a screenshot of a rubric you already have.
+          The app drafts a rubric you can edit, then opens it as a Google Doc or saves it to this
+          computer. Part 2 turns it into a Canvas CSV, and Part 3 sends it to your course.
         </p>
       </div>
 
@@ -635,45 +638,30 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
               Specify the type of rubric you'd like and then paste or upload an assignment description.
             </p>
 
-            {/* Processing Type - Above Tabs */}
-            <div className="mb-6 p-5 bg-gray-50 border border-gray-200 rounded-2xl">
-              <label className="text-xs font-black text-gray-700 uppercase tracking-widest block mb-3">
-                Processing Type
-              </label>
-              <div className="flex gap-6">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="processingType"
-                    value={ProcessingType.SINGLE}
-                    checked={settings.processingType === ProcessingType.SINGLE}
-                    onChange={() => setSettings({ ...settings, processingType: ProcessingType.SINGLE })}
-                    className="w-4 h-4 accent-blue-600"
-                  />
-                  <span className="text-sm font-medium text-gray-700">Single Rubric</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="processingType"
-                    value={ProcessingType.MULTIPLE}
-                    checked={settings.processingType === ProcessingType.MULTIPLE}
-                    onChange={() => setSettings({ ...settings, processingType: ProcessingType.MULTIPLE })}
-                    className="w-4 h-4 accent-blue-600"
-                  />
-                  <span className="text-sm font-medium text-gray-700">Multiple Rubrics</span>
-                </label>
-              </div>
-            </div>
+            {/*
+              One panel, not two. These are three settings for the same request, and splitting
+              them across two grey boxes with two different label styles — "PROCESSING TYPE" in
+              black uppercase, "Total Points" in sentence case right beneath it — was most of why
+              this screen read as assembled rather than designed.
+            */}
+            <div className="mb-6 p-5 bg-gray-50 border border-gray-200 rounded-2xl space-y-5">
+              <SegmentedChoice
+                label="How many rubrics?"
+                value={settings.processingType}
+                onChange={(processingType) => setSettings({ ...settings, processingType })}
+                options={[
+                  { value: ProcessingType.SINGLE, label: 'One rubric' },
+                  { value: ProcessingType.MULTIPLE, label: 'Several rubrics' },
+                ]}
+              />
 
-            {/* Settings - Above Tabs */}
-            <div className="mb-6 p-5 bg-gray-50 border border-gray-200 rounded-2xl">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-bold text-gray-700 block mb-2">
-                    Total Points
+                  <label htmlFor="total-points" className="text-sm font-bold text-gray-900 block mb-2">
+                    Total points
                   </label>
                   <input
+                    id="total-points"
                     type="number"
                     value={settings.totalPoints}
                     onChange={(e) =>
@@ -682,38 +670,18 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                         totalPoints: parseInt(e.target.value) || 100,
                       })
                     }
-                    className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl font-medium text-gray-900 focus:border-brand focus:outline-none transition-all"
                   />
                 </div>
-                <div>
-                  <label className="text-sm font-bold text-gray-700 block mb-2">
-                    Point Style
-                  </label>
-                  <div className="flex gap-4 pt-2">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="pointStyle"
-                        value={PointStyle.RANGE}
-                        checked={settings.pointStyle === PointStyle.RANGE}
-                        onChange={() => setSettings({ ...settings, pointStyle: PointStyle.RANGE })}
-                        className="w-4 h-4 accent-blue-600"
-                      />
-                      <span className="text-sm font-medium text-gray-700">Ranges</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="pointStyle"
-                        value={PointStyle.SINGLE}
-                        checked={settings.pointStyle === PointStyle.SINGLE}
-                        onChange={() => setSettings({ ...settings, pointStyle: PointStyle.SINGLE })}
-                        className="w-4 h-4 accent-blue-600"
-                      />
-                      <span className="text-sm font-medium text-gray-700">Single Values</span>
-                    </label>
-                  </div>
-                </div>
+                <SegmentedChoice
+                  label="Point style"
+                  value={settings.pointStyle}
+                  onChange={(pointStyle) => setSettings({ ...settings, pointStyle })}
+                  options={[
+                    { value: PointStyle.RANGE, label: 'Ranges', hint: '10 to >8' },
+                    { value: PointStyle.SINGLE, label: 'Single', hint: '10, 8, 6' },
+                  ]}
+                />
               </div>
             </div>
 
@@ -782,7 +750,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
 
             {/* Text Extraction Label */}
             <p className="text-xs font-bold text-gray-700 uppercase tracking-wider mt-6 mb-2">
-              Text Extraction
+              Or type it here
             </p>
 
             {/* Text Area */}
@@ -802,7 +770,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                 <button
                   onClick={handleGenerateRubric}
                   disabled={isGenerating || !assignmentDescription.trim()}
-                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all disabled:bg-gray-300 active:scale-95 mt-6 flex items-center justify-center gap-2"
+                  className="w-full py-4 bg-brand text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-brand-dark transition-all disabled:bg-gray-300 active:scale-95 mt-6 flex items-center justify-center gap-2"
                 >
                   {isGenerating && <Loader2 className="w-5 h-5 animate-spin" />}
                   {isGenerating ? 'Generating Rubric...' : 'Generate Rubric'}
@@ -857,7 +825,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                 <button
                   onClick={handlePickerOpen}
                   disabled={isPickerLoading || fetchingGoogleDoc || !state.isGoogleAuthenticated}
-                  className="w-full py-3 px-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-400 transition-all text-sm flex items-center justify-center gap-2 mb-6"
+                  className="w-full py-3 px-4 bg-brand text-white rounded-xl font-bold hover:bg-brand-dark disabled:bg-gray-300 disabled:text-gray-400 transition-all text-sm flex items-center justify-center gap-2 mb-6"
                 >
                   {(isPickerLoading || fetchingGoogleDoc) ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -961,7 +929,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                 <button
                   onClick={handleGenerateRubric}
                   disabled={isGenerating || !assignmentDescription.trim()}
-                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all disabled:bg-gray-300 active:scale-95 mt-6 flex items-center justify-center gap-2"
+                  className="w-full py-4 bg-brand text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-brand-dark transition-all disabled:bg-gray-300 active:scale-95 mt-6 flex items-center justify-center gap-2"
                 >
                   {isGenerating && <Loader2 className="w-5 h-5 animate-spin" />}
                   {isGenerating ? 'Generating Rubric...' : 'Generate Rubric'}
@@ -1056,7 +1024,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                         ? undefined
                         : 'Sign in to Google under Initial Setup to use this'
                     }
-                    className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-400 transition-all text-sm flex items-center justify-center gap-2"
+                    className="flex-1 px-4 py-3 bg-brand text-white rounded-xl font-bold hover:bg-brand-dark disabled:bg-gray-300 disabled:text-gray-400 transition-all text-sm flex items-center justify-center gap-2"
                   >
                     {savingToDrive ? <Loader2 className="w-4 h-4 animate-spin" /> : (
                       <svg className="w-4 h-4 flex-shrink-0" viewBox="0 -960 960 960" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -1129,7 +1097,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                       ? 'deploy-blocked-reason'
                       : undefined
                   }
-                  className={`w-full py-4 bg-green-700 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-green-800 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed ${showDeployCard ? 'opacity-50 pointer-events-none' : ''}`}
+                  className={`w-full py-4 bg-brand text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-brand-dark transition-all active:scale-95 flex items-center justify-center gap-2 disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed ${showDeployCard ? 'opacity-50 pointer-events-none' : ''}`}
                 >
                   <ArrowRight className="w-5 h-5" />
                   {onAnalyzeDeploy ? 'Deploy Displayed Rubric to Canvas' : 'Continue to Part 2: Convert to CSV'}
@@ -1240,7 +1208,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                           handleContinue();
                         }}
                         disabled={!deployUrlValid}
-                        className="flex-[2] py-3 px-6 bg-green-700 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-green-800 transition-all shadow-lg flex items-center justify-center gap-2 text-sm disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed"
+                        className="flex-[2] py-3 px-6 bg-brand text-white rounded-2xl font-black uppercase tracking-widest hover:bg-brand-dark transition-all shadow-lg flex items-center justify-center gap-2 text-sm disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed"
                       >
                         <ArrowRight className="w-4 h-4" />
                         Deploy Now
@@ -1319,7 +1287,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
           <button
             onClick={handleProcessReplacement}
             disabled={isProcessingReplacement || !replaceFileText}
-            className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"
+            className="w-full py-4 bg-brand text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-brand-dark transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"
           >
             {isProcessingReplacement && <Loader2 className="w-5 h-5 animate-spin" />}
             {isProcessingReplacement ? 'Processing Rubric...' : 'Use This Rubric'}
@@ -1360,7 +1328,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
           <button
             onClick={handleApplyChanges}
             disabled={isApplyingChanges || !requestChangesText.trim()}
-            className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"
+            className="w-full py-4 bg-brand text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-brand-dark transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"
           >
             {isApplyingChanges && <Loader2 className="w-5 h-5 animate-spin" />}
             {isApplyingChanges ? 'Applying Changes...' : 'Apply Changes'}

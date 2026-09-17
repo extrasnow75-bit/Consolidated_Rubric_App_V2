@@ -510,7 +510,7 @@ export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
                     onClick={() => { setActiveTab('local'); setError(null); }}
                     className={`px-4 py-3 font-bold border-b-2 transition-all ${
                       activeTab === 'local'
-                        ? 'border-[#0033a0] text-[#0033a0]'
+                        ? 'border-brand text-brand'
                         : 'border-transparent text-gray-600 hover:text-gray-900'
                     }`}
                   >
@@ -520,7 +520,7 @@ export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
                     onClick={() => { setActiveTab('google-drive'); setError(null); }}
                     className={`px-4 py-3 font-bold border-b-2 transition-all ${
                       activeTab === 'google-drive'
-                        ? 'border-[#0033a0] text-[#0033a0]'
+                        ? 'border-brand text-brand'
                         : 'border-transparent text-gray-600 hover:text-gray-900'
                     }`}
                   >
@@ -630,7 +630,7 @@ export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
                     <button
                       onClick={handleGooglePickerImage}
                       disabled={isPickerLoading || !googleSignedIn}
-                      className="w-full py-3 px-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-400 transition-all text-sm flex items-center justify-center gap-2 mb-6"
+                      className="w-full py-3 px-4 bg-brand text-white rounded-xl font-bold hover:bg-brand-dark disabled:bg-gray-300 disabled:text-gray-400 transition-all text-sm flex items-center justify-center gap-2 mb-6"
                     >
                       {isPickerLoading ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -726,7 +726,7 @@ export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
                 <button
                   onClick={handleProcessImage}
                   disabled={isProcessing}
-                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2 mb-3"
+                  className="w-full py-4 bg-brand text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-brand-dark transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2 mb-3"
                 >
                   {isProcessing && <Loader2 className="w-5 h-5 animate-spin" />}
                   {isProcessing ? 'Processing...' : 'Convert to Rubric'}
@@ -869,7 +869,7 @@ export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
               <button
                 onClick={() => setShowUploadSection(!showUploadSection)}
                 disabled={!readyForCanvas}
-                className={`w-full py-4 bg-green-700 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-green-800 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed ${showUploadSection ? 'opacity-50 pointer-events-none' : ''}`}
+                className={`w-full py-4 bg-brand text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-brand-dark transition-all active:scale-95 flex items-center justify-center gap-2 disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed ${showUploadSection ? 'opacity-50 pointer-events-none' : ''}`}
               >
                 <Upload className="w-5 h-5" />
                 Deploy Displayed Rubric to Canvas
@@ -905,7 +905,7 @@ export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
                         onClick={() => setUploadDocTab('phase1')}
                         className={`px-4 py-2 font-bold transition-all ${
                           uploadDocTab === 'phase1'
-                            ? 'border-b-2 border-[#0033a0] text-[#0033a0]'
+                            ? 'border-b-2 border-brand text-brand'
                             : 'text-gray-600 hover:text-gray-900'
                         }`}
                       >
@@ -916,7 +916,7 @@ export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
                       onClick={() => setUploadDocTab('local')}
                       className={`px-4 py-2 font-bold transition-all ${
                         uploadDocTab === 'local'
-                          ? 'border-b-2 border-[#0033a0] text-[#0033a0]'
+                          ? 'border-b-2 border-brand text-brand'
                           : 'text-gray-600 hover:text-gray-900'
                       }`}
                     >
@@ -926,7 +926,7 @@ export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
                       onClick={() => setUploadDocTab('google-drive')}
                       className={`px-4 py-2 font-bold transition-all ${
                         uploadDocTab === 'google-drive'
-                          ? 'border-b-2 border-[#0033a0] text-[#0033a0]'
+                          ? 'border-b-2 border-brand text-brand'
                           : 'text-gray-600 hover:text-gray-900'
                       }`}
                     >
@@ -995,7 +995,7 @@ export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
                     onClick={handleDeployToCanvas}
                     disabled={!canvasUrl.trim() || isDeploying || !canAnalyzeDeploy}
                     aria-describedby="screenshot-deploy-hint"
-                    className="w-full px-4 py-3 rounded-xl font-bold transition-all bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
+                    className="w-full px-4 py-3 rounded-xl font-bold transition-all bg-brand text-white hover:bg-brand-dark disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
                   >
                     {isDeploying ? (
                       <span className="flex items-center justify-center gap-2">
@@ -1088,7 +1088,7 @@ export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
           <button
             onClick={handleProcessReplacement}
             disabled={isProcessingReplacement || !replaceFileText}
-            className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"
+            className="w-full py-4 bg-brand text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-brand-dark transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"
           >
             {isProcessingReplacement && <Loader2 className="w-5 h-5 animate-spin" />}
             {isProcessingReplacement ? 'Processing Rubric...' : 'Use This Rubric'}
@@ -1128,7 +1128,7 @@ export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
           <button
             onClick={handleApplyChanges}
             disabled={isApplyingChanges || !requestChangesText.trim()}
-            className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"
+            className="w-full py-4 bg-brand text-white rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-brand-dark transition-all disabled:bg-gray-300 active:scale-95 flex items-center justify-center gap-2"
           >
             {isApplyingChanges && <Loader2 className="w-5 h-5 animate-spin" />}
             {isApplyingChanges ? 'Applying Changes...' : 'Apply Changes'}

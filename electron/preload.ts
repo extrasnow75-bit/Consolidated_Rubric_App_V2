@@ -40,6 +40,8 @@ contextBridge.exposeInMainWorld('api', {
       | { state: 'check-failed'; current: string }
     > => ipcRenderer.invoke('app:checkUpdateNow'),
     openReleases: (): Promise<void> => ipcRenderer.invoke('app:openReleases'),
+    /** Quits. Reached only from the explicit "close the app" button, behind a confirm step. */
+    quit: (): Promise<void> => ipcRenderer.invoke('app:quit'),
     /** "Don't show this again" on the notice shown before the first local save. */
     getHideLocalSaveNotice: (): Promise<boolean> =>
       ipcRenderer.invoke('app:getHideLocalSaveNotice'),

@@ -156,10 +156,10 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
                 <button
                   onClick={runUpdateCheck}
                   aria-disabled={checking}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0033a0] focus-visible:ring-offset-2 ${
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${
                     checking
                       ? 'bg-gray-200 text-gray-700 cursor-wait'
-                      : 'bg-[#0033a0] text-white hover:bg-[#002a85]'
+                      : 'bg-brand text-white hover:bg-brand-dark'
                   }`}
                 >
                   <RefreshCw
@@ -171,7 +171,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
 
                 <button
                   onClick={() => void window.api.app.openReleases()}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-bold text-gray-700 hover:bg-gray-100 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0033a0]"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-bold text-gray-700 hover:bg-gray-100 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                 >
                   <ExternalLinkIcon />
                   View all versions on GitHub

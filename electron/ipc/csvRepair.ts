@@ -105,10 +105,18 @@ interface CsvView {
  */
 function looksLikeHeader(row: string[]): boolean {
   const joined = row.join(' ').toLowerCase()
+  // Every test is a multi-word column label. A bare 'rating' was here and matched any row whose
+  // text happened to contain the word — "Rating of peer contributions" as a criterion name, or a
+  // description reading "rating is based on…". In a header-less CSV, which is precisely the
+  // breakage this feature repairs, that swallowed the first criterion: it vanished from
+  // criterionNames, so the no-loss gate stopped protecting it, and a repair that correctly added
+  // the header reported ten invented header edits instead of headerAdded.
   return (
     joined.includes('criteria name') ||
     joined.includes('rubric name') ||
-    joined.includes('rating')
+    joined.includes('rating name') ||
+    joined.includes('rating description') ||
+    joined.includes('rating points')
   )
 }
 
@@ -204,28 +212,39 @@ export function computeRepairDiff(originalCsv: string, repairedCsv: string): Csv
     }
   }
 
-  const beforeByName = new Map<string, string[]>()
+  // A queue per name, not a single row.
+  //
+  // This kept only the first row for each criterion name and dropped the rest, so a rubric with
+  // two criteria called the same thing — "Participation" under two sections, say — diffed its
+  // second row against its first. The approval list then showed point changes that nobody had
+  // made while hiding the one that was really there, which is the worst thing this panel can do:
+  // its entire claim is that it reports what the AI actually did rather than what it says it did.
+  //
+  // Occurrences are consumed in order, so the nth row of a name matches the nth.
+  const beforeByName = new Map<string, string[][]>()
   for (const row of before.rows) {
     const k = key(norm(row[before.nameIdx]))
-    if (k && !beforeByName.has(k)) beforeByName.set(k, row)
+    if (!k) continue
+    const queue = beforeByName.get(k)
+    if (queue) queue.push(row)
+    else beforeByName.set(k, [row])
   }
 
   const criteria: CsvCriterionDiff[] = []
   const pointChanges: CsvPointChange[] = []
-  const matched = new Set<string>()
   let changedCells = headerChanges.length + (headerAdded ? 1 : 0)
 
   for (const row of after.rows) {
     const name = norm(row[after.nameIdx])
     const k = key(name)
-    const prior = k ? beforeByName.get(k) : undefined
+    // shift(), so a second row of the same name takes the second prior row rather than the first.
+    const prior = k ? beforeByName.get(k)?.shift() : undefined
 
     if (!prior) {
       criteria.push({ criterion: name || '(unnamed criterion)', kind: 'added', changes: [] })
       changedCells += 1
       continue
     }
-    matched.add(k)
 
     const changes: CsvCellChange[] = []
     const width = Math.max(prior.length, row.length)
@@ -245,10 +264,14 @@ export function computeRepairDiff(originalCsv: string, repairedCsv: string): Csv
     }
   }
 
-  for (const [k, row] of beforeByName) {
-    if (matched.has(k)) continue
-    criteria.push({ criterion: norm(row[before.nameIdx]), kind: 'removed', changes: [] })
-    changedCells += 1
+  // Anything still queued was never claimed by a row in the repair, so it is gone. Reported once
+  // per surviving occurrence, which is what makes a rubric that lost one of two same-named
+  // criteria show up as a loss rather than as no change at all.
+  for (const queue of beforeByName.values()) {
+    for (const row of queue) {
+      criteria.push({ criterion: norm(row[before.nameIdx]), kind: 'removed', changes: [] })
+      changedCells += 1
+    }
   }
 
   return { headerAdded, headerChanges, criteria, pointChanges, changedCells }

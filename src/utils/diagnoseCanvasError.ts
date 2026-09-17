@@ -71,6 +71,23 @@ export function diagnoseCanvasError(rawMessage: string | undefined | null): Canv
   // ── Our own messages, from electron/ipc/canvas.ts ──────────────────────────
   // These name a cause already; what they lack is the screen that fixes it.
 
+  // Checked before anything else, because this message is the only one that quotes the user's own
+  // rubric back at them — and the branches below match on loose substrings of Canvas's wording.
+  // A criterion named "Meets EDUC 502 outcomes" hits the 5xx test (/\b5\d{2}\b/) further down, so
+  // a local validation failure was reporting as "Canvas had a server error", advising a retry that
+  // could only fail identically, and turning off the repair offer this message exists to trigger.
+  //
+  // "Rating Points column" is our own phrasing from buildRubricPayload, verbatim and unique.
+  if (has(message, 'Rating Points column')) {
+    return {
+      cause: 'Some ratings do not have a point value Canvas can use.',
+      fix: 'Let the AI repair the file, or fix the point values listed above and upload it again.',
+      transient: false,
+      repairable: true,
+      action: { kind: 'none' },
+    };
+  }
+
   if (has(message, 'No Canvas course is saved')) {
     return {
       cause: 'The app had not recorded which Canvas course to deploy to.',

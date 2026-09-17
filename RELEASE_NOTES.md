@@ -1,34 +1,80 @@
-## What's new in v0.9.1
+## What's new in v0.9.2
 
-**This is a preview build for user testing.** It is numbered below 1.0 on purpose: the workflow is
-complete and the app is safe to use on real courses, but it has not been through a round of
-feedback yet. Please tell us what is confusing, broken, or missing.
+**This is a preview build for user testing**, like v0.9.1 before it. It fixes three faults found
+the first time the app met a real rubric document — one of which had been quietly wrong since the
+desktop version began. **Please replace v0.9.1 with this build.**
 
-### When Canvas rejects a rubric, the app can now suggest a fix
+### Word documents now convert
 
-Canvas sometimes refuses a rubric because of something in the file itself — a blank point value, a
-points column holding "10-8" where it wants "10", a missing header row. Until now the app told you
-to download the CSV, find the problem, and upload the corrected file in Part 3.
+Part 2 could not read a `.docx` file at all. It failed with *"Could not find file in options"*,
+which reads like the file was missing and was nothing of the sort — the app was handing the
+document to its Word reader the way a website would rather than the way a desktop program has to.
 
-Now, on that kind of failure, there is a **Suggest a fix** button. The app sends the rubric and
-Canvas's own complaint to the AI and shows you a corrected version.
+This affected every route a Word document could take: from your computer, from Google Drive, and
+as an attachment in the chat. If you tried to convert a Word document in v0.9.0 or v0.9.1, this is
+why it did not work. It was never anything about your file.
 
-What you get before anything is sent to Canvas:
+### Point values Canvas could not read no longer become zero
 
-- **A list of every cell that changed**, criterion by criterion — what it was, what it would become.
-- **Point values called out separately, at the top.** These change what a student is graded on, and
-  where a point value was missing the AI has *guessed* it — it has no way to know the criterion was
-  worth 8 rather than 10. Check each one.
-- **Three choices: use it and deploy, download it instead, or discard it.** Nothing is applied on
-  its own, and nothing goes to Canvas until you click.
+The more serious one. If a rating's point value was anything the app could not read as a
+number — `>90`, `N/A`, or an empty cell — it silently became **0** and deployed that way. Canvas
+accepts a zero without complaint, so there was no error and no warning. A criterion worth ninety
+points would sit in your course worth nothing, and the first sign of it would be a student's grade.
 
-The app checks the AI's work before you ever see it. A suggestion that still would not load into
-Canvas is thrown away, and so is one that quietly leaves a criterion out — a shorter rubric uploads
-without complaint and grades wrongly, which is worse than the original failure. When that happens
-the app says the AI could not fix it rather than showing you a suggestion it does not trust.
+The app now refuses the file and tells you exactly which ratings it could not read, and it offers
+the AI repair for them.
 
-The button only appears when the rubric file is the problem. An expired Canvas token or a wrong
-course number is not something the file can fix, and the app no longer offers to try.
+It also reads the ways rubrics actually write point ranges, so these all work now:
+
+| In your document | What Canvas gets |
+|---|---|
+| `4 to >3 pts` — Canvas's own wording, and what Canvas Extractor Tools writes | `4` |
+| `4-3.5 points` | `4` |
+| `40–50 pts` | `50` |
+| `10 pts` | `10` |
+
+**Rubrics pulled out of Canvas by Canvas Extractor Tools go back in unchanged.** That round trip is
+now covered by a test, so the two apps cannot quietly drift apart.
+
+What it will not guess at: `>90` and `<70` on their own, because they give one edge of a band and
+no top; and `1,000`, because that comma means a thousand in some places and a decimal point in
+others. You get a clear message and the repair offer instead of a number that might be wrong.
+
+### The "what next?" box can be scrolled
+
+On a smaller screen — or at 125% display scaling, or after one press of Ctrl + — the box that
+appears after a rubric is generated was taller than the window, and its title and close button sat
+above the top edge where nothing could reach them.
+
+It scrolls now. While in there:
+
+- **A "close the app" button**, which the box never had. It asks once before closing, because
+  until you have saved your rubric it only exists in the app.
+- **"Download as .docx & Stop" is gone.** It named a format this app stopped producing, and it did
+  nothing when clicked. Use **Open in Google Docs** or **Save to this computer** on the rubric
+  itself.
+
+### One button colour
+
+Buttons that mean yes, continue, deploy or generate were blue in some parts of the app and green
+in others. They are all Boise State blue now, the same blue as Canvas Extractor Tools, so the two
+apps look like what they are. Green and amber are left to mean done and needs-attention.
+
+The settings at the top of Part 1 were also using your operating system's own radio buttons, which
+is why that screen looked like a web page inside a desktop app. They match the rest of the app now.
+
+### Also here, added in v0.9.1: the AI can suggest a fix when Canvas refuses a rubric
+
+When Canvas rejects a rubric because of something in the file — a blank point value, a points
+column holding "10-8" where it wants "10", a missing header row — a **Suggest a fix** button
+appears. The app sends the rubric and Canvas's own complaint to the AI and shows you a corrected
+version, with every changed cell listed and point values called out separately at the top.
+
+Nothing is applied on its own and nothing reaches Canvas until you click. A suggestion that still
+would not load, or that quietly drops a criterion, is thrown away before you ever see it.
+
+That offer now appears in one more place: when the app itself refuses the file over an unreadable
+point value, which is the new check described above.
 
 ### Installing for the first time?
 

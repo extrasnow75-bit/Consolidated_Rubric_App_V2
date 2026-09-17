@@ -167,7 +167,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         banner text centred rather than nudged off-centre on both.
       */}
       <div
-        className={`titlebar-drag bg-[#0033a0] text-white py-6 px-8 sm:px-12 flex items-center justify-center shadow-lg z-50 relative ${
+        className={`titlebar-drag bg-brand text-white py-6 px-8 sm:px-12 flex items-center justify-center shadow-lg z-50 relative ${
           isMac ? 'pl-24' : 'pr-40'
         }`}
       >

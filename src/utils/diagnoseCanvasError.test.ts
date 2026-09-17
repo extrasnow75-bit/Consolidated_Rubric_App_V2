@@ -160,4 +160,22 @@ describe('diagnoseCanvasError', () => {
       expect(d.transient).toBe(false);
     });
   });
+  it('does not mistake a course number in a criterion name for a Canvas 5xx', () => {
+    // The message quotes the user's rubric back at them, and the 5xx rule matches any bare
+    // three-digit number starting with 5. A criterion named "Meets EDUC 502 outcomes" was
+    // therefore diagnosed as a Canvas server error: wrong cause, a retry that could only fail
+    // the same way, and repairable turned off — suppressing the one button that would fix it.
+    const d = diagnoseCanvasError(
+      'Every rating needs a single number in its Rating Points column, and one does not: ' +
+        '"Meets EDUC 502 outcomes" -> "Exemplary" has "N/A".',
+    );
+    expect(d.repairable).toBe(true);
+    expect(d.transient).toBe(false);
+    expect(d.cause).not.toContain('server error');
+  });
+
+  it('still reports a genuine Canvas 5xx as one', () => {
+    expect(diagnoseCanvasError('502 Bad Gateway').transient).toBe(true);
+    expect(diagnoseCanvasError('Internal Server Error').repairable).toBe(false);
+  });
 });

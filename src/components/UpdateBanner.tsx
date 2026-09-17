@@ -34,7 +34,7 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({
     <div className="flex items-center gap-1.5 flex-shrink-0">
       <button
         onClick={() => void window.api.app.openReleases()}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-[#0033a0] hover:bg-[#002a85] px-2.5 py-1 text-xs font-bold text-white transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0033a0] focus-visible:ring-offset-2"
+        className="inline-flex items-center gap-1.5 rounded-lg bg-brand hover:bg-brand-dark px-2.5 py-1 text-xs font-bold text-white transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
       >
         <Download className="w-3.5 h-3.5" aria-hidden="true" />
         Download
@@ -42,7 +42,7 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({
       <button
         onClick={onDismiss}
         aria-label="Dismiss update notice"
-        className="rounded-lg p-1 text-blue-900 hover:bg-blue-100 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0033a0] focus-visible:ring-offset-1"
+        className="rounded-lg p-1 text-blue-900 hover:bg-blue-100 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1"
       >
         <X className="w-3.5 h-3.5" aria-hidden="true" />
       </button>
