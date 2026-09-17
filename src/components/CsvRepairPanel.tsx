@@ -30,7 +30,14 @@ interface Props {
   canvasMessage: string;
   courseUrl: string;
   /** Called after the repaired CSV deploys, so the run summary can be brought up to date. */
-  onDeployed: (rubricName: string) => void;
+  /**
+   * Called once the repaired CSV is in Canvas, with that CSV.
+   *
+   * The repaired text is passed back rather than just the name because the caller is still
+   * holding the rejected version: without this, "download the CSVs" afterwards hands the user
+   * the broken file for a rubric it has just told them succeeded.
+   */
+  onDeployed: (rubricName: string, repairedCsv: string) => void;
   onLog: (message: string, type: 'info' | 'success' | 'error' | 'warning') => void;
 }
 
@@ -100,7 +107,7 @@ export const CsvRepairPanel: React.FC<Props> = ({
       const res = await window.api.canvas.pushRubric({ csvContent: repairedCsv, courseUrl });
       if (res.success) {
         onLog(`✓ "${rubricName}" deployed after repair`, 'success');
-        onDeployed(rubricName);
+        onDeployed(rubricName, stage.repairedCsv);
         return;
       }
       setStage({ name: 'failed', repairedCsv, notes, diff, message: res.message });
@@ -128,7 +135,7 @@ export const CsvRepairPanel: React.FC<Props> = ({
       <div className="mt-2">
         <button
           onClick={handleSuggest}
-          className="inline-flex items-center gap-2 px-3 py-1.5 bg-purple-700 text-white rounded-lg text-xs font-bold hover:bg-purple-800 transition-all active:scale-95"
+          className="inline-flex items-center gap-2 px-3 py-1.5 bg-brand text-white rounded-lg text-xs font-bold hover:bg-brand-dark transition-all active:scale-95"
         >
           <Sparkles className="w-3.5 h-3.5" />
           Suggest a fix for “{rubricName}”
@@ -179,6 +186,9 @@ export const CsvRepairPanel: React.FC<Props> = ({
       tabIndex={-1}
       role="group"
       aria-label={`Suggested fix for ${rubricName}`}
+      /* Purple marks AI-proposed content nobody has approved yet — see DESIGN_SYSTEM.md. It is
+         a border and never a button: the control that starts this is an ordinary action and
+         takes the ordinary action colour. */
       className="mt-2 rounded-xl border-2 border-purple-300 bg-white p-4 space-y-3"
     >
       <p className="text-sm font-black text-gray-900">Suggested fix for “{rubricName}”</p>

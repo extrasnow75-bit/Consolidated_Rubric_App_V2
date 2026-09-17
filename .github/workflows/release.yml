@@ -104,6 +104,9 @@ jobs:
       # whatever was typed in, and the notes and workflow come from the branch being run —
       # which is the point of that route.
       TAG: ${{ inputs.publish_tag || github.ref_name }}
+      # Non-empty only on the republish route, so the guard below can tell the two apart without
+      # interpolating the input into the script.
+      REPUBLISHING: ${{ inputs.publish_tag }}
 
     steps:
       # Only for RELEASE_NOTES.md; the installers come from the build job's artifacts.
@@ -245,6 +248,29 @@ jobs:
           case "$TAG" in
             *-*) prerelease="--prerelease" ;;
           esac
+
+          # The republish box says "Existing tag", and this is what holds it to that.
+          #
+          # Without it, a typo publishes a real release for a tag that never existed: `gh release
+          # create` creates the tag as well, at the head of the default branch, carrying installers
+          # built from whichever branch the run started on. That is a public release nobody meant
+          # to make, and it is the kind of mistake this route exists to invite, since its whole
+          # purpose is to let someone re-run a release by typing its name into a box.
+          #
+          # A tag push cannot reach this, because the tag it was triggered by necessarily exists.
+          # Asked of GitHub rather than of the checkout: actions/checkout fetches no tags at
+          # depth 1, so a local `git rev-parse` would report every tag missing, including the
+          # real ones.
+          # $REPUBLISHING, not ${{ inputs.publish_tag }}. A `${{ }}` expansion is pasted into the
+          # script before the shell ever sees it, so a tag name containing shell metacharacters
+          # would run as code here — in a job holding MAIN_VITE_GOOGLE_CLIENT_SECRET. Through the
+          # environment the value stays data. Every other use of the tag in this file already
+          # goes through $TAG for the same reason.
+          if [ -n "$REPUBLISHING" ] && \
+             ! gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::No tag named $TAG exists. Republishing only works on a tag that is already pushed."
+            exit 1
+          fi
 
           # Create the release, or fill in one that already exists.
           #

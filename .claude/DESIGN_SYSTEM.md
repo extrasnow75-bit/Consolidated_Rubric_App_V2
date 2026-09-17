@@ -98,6 +98,11 @@ save, it is `bg-brand` — whatever the verb on it says.
 > anywhere. The two apps are used by the same people on the same day, so a button that is nearly
 > the same in both is worse than one that is identical.
 
+**Purple is the one reserved colour**, and it is never a button fill. It borders AI-proposed
+content that no person has approved yet — the CSV repair panel is the only use today. The point is
+that a proposal must not be mistakable for a verified result; the control that *requests* the
+proposal is an ordinary action and takes `bg-brand` like any other.
+
 Green, amber and red stay **status** colours — a dot that says done, a bar that says failed, the
 tint behind a success message. Never the fill of a button the user is meant to press.
 

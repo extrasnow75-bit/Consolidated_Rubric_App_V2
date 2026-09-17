@@ -158,6 +158,29 @@ describe('parseRatingPoints', () => {
     expect(parseRatingPoints('4 to >3 pts')).toBe(4)
   })
 
+  it('reads a decimal written without its leading zero', () => {
+    // ".5 pts" gave 5 and ".25" gave 25 when this scanned for digit runs and took the largest —
+    // a tenfold and a hundredfold error respectively, landing silently on a student's rubric.
+    expect(parseRatingPoints('.5 pts')).toBe(0.5)
+    expect(parseRatingPoints('.25')).toBe(0.25)
+    expect(parseRatingPoints('.5 to >0 points')).toBe(0.5)
+  })
+
+  it('refuses a cell whose comma could mean either of two numbers', () => {
+    // "1,000" is a thousand to most of the world and one to the rest of it. The digit-scanning
+    // version answered 1. There is no safe guess, so there is no guess.
+    expect(parseRatingPoints('1,000 points')).toBeNull()
+    expect(parseRatingPoints('3,5')).toBeNull()
+  })
+
+  it('refuses a cell that merely contains a number', () => {
+    // A closed grammar, not "find the numbers". Anything unrecognised is refused visibly rather
+    // than reduced to whichever digits happened to be in it.
+    expect(parseRatingPoints('Level 3: 5 pts')).toBeNull()
+    expect(parseRatingPoints('see rubric, 4')).toBeNull()
+    expect(parseRatingPoints('4 or 5')).toBeNull()
+  })
+
   it('refuses an open-ended band, which has no maximum to take', () => {
     // The number is there, but it is the wrong end of the band — ">90" tops out at whatever the
     // criterion is worth, which this cell does not say. Guessing 90 would understate it.

@@ -145,20 +145,70 @@ export type PayloadResult =
  * Returns null when there is no usable number, which is deliberately distinct from 0 — a rating
  * genuinely worth 0 points is ordinary and must survive.
  */
+// The shapes a Rating Points cell is allowed to take. Anything else is refused.
+//
+// Written as a closed grammar rather than "find the numbers and take the biggest", which is what
+// this did first and which was wrong in both directions: ".5 pts" gave 5 instead of 0.5, ".25"
+// gave 25, and "1,000 points" gave 1. Each of those is a silently wrong number on a student's
+// rubric — the exact failure this function exists to stop, reintroduced by the fix for it.
+//
+// A number, allowing a bare leading dot. No sign: rubric points are never negative, which is what
+// lets a hyphen always mean "range" below.
+const NUMBER = String.raw`\d*\.?\d+`
+// "pts", "pt.", "points" — optional, and never part of the value.
+const UNIT = String.raw`(?:\s*(?:pts?|points?)\.?)?`
+
+/** A single value: "4", "3.5", ".5 pts", "15 points". */
+const FIXED = new RegExp(String.raw`^(${NUMBER})${UNIT}$`, 'i')
+/** Canvas's own range wording: "4 to >3 pts". The first number is the band's top. */
+const CANVAS_RANGE = new RegExp(String.raw`^(${NUMBER})\s*to\s*>\s*(${NUMBER})${UNIT}$`, 'i')
+/** A written band, either direction: "4-3.5 points", "40–50 pts". Hyphen, en dash or em dash. */
+const DASH_RANGE = new RegExp(String.raw`^(${NUMBER})\s*[-\u2013\u2014]\s*(${NUMBER})${UNIT}$`, 'i')
+
+/**
+ * Read the number out of a Rating Points cell.
+ *
+ * Canvas wants one number per rating. Rubrics in the wild write that number several ways, and the
+ * ones that turn up here come either from Canvas itself or from someone copying it:
+ *
+ *   "4"              a plain value
+ *   "10 pts"         the same, with the unit people paste along with it
+ *   "4 to >3 pts"    Canvas's own display notation for a range rubric, and the exact shape
+ *                    Canvas Extractor Tools writes (see its rubricExport.ts ratingPointsLabel)
+ *   "4-3.5", "40–50" a hand-written band, either direction
+ *
+ * All four carry a maximum, and the maximum is what Canvas stores: for a range rubric each
+ * rating's points value is the top of its band, and the bottom is inferred from the next rating
+ * down. So "4 to >3 pts" is simply 4 — and a rubric exported from Canvas round-trips back into it
+ * unchanged.
+ *
+ * Everything else is refused, and refusing generously is the point. ">90" and "<70" name one edge
+ * of an open band with no top to take. "1,000" could be one thousand or a decimal comma, and a
+ * cell that could mean two numbers is worth no guess at all. "N/A" and "varies" name nothing.
+ *
+ * The reason for the strictness: this replaced `parseFloat(x) || 0`, which read ">90" as NaN and
+ * handed back 0, so a criterion worth ninety points reached Canvas worth none — with no error,
+ * because Canvas accepts a zero happily, and nobody finds it until a grade is wrong. A refusal
+ * the user can see and act on is strictly better than a number that is quietly incorrect. That
+ * only holds if the accepted shapes are ones we are certain about, so the list stays closed.
+ *
+ * Returns null when there is no usable number, which is deliberately distinct from 0 — a rating
+ * genuinely worth 0 points is ordinary and must survive.
+ */
 export function parseRatingPoints(raw: string | undefined | null): number | null {
   const text = (raw ?? '').trim()
   if (!text) return null
 
-  // An open-ended band has no top to take. Checked before the digits, because "<70" does contain
-  // a number and taking it would silently cap the band at the wrong end.
-  if (/^[<>≤≥]/.test(text)) return null
+  const canvasRange = CANVAS_RANGE.exec(text)
+  if (canvasRange) return Number(canvasRange[1])
 
-  // Rubric points are never negative, so a hyphen or dash is always a range separator here and
-  // never a minus sign.
-  const numbers = text.match(/\d+(?:\.\d+)?/g)
-  if (!numbers) return null
+  const dashRange = DASH_RANGE.exec(text)
+  if (dashRange) return Math.max(Number(dashRange[1]), Number(dashRange[2]))
 
-  return Math.max(...numbers.map(Number))
+  const fixed = FIXED.exec(text)
+  if (fixed) return Number(fixed[1])
+
+  return null
 }
 
 /**

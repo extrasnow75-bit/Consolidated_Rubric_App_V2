@@ -318,11 +318,25 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
     setCsvPromptAnswer('no');
   };
 
-  /** A rubric that failed, was repaired, and went to Canvas on the second attempt. */
-  const handleRepairDeployed = (rubricName: string) => {
-    setRepairedNames((prev) => (prev.includes(rubricName) ? prev : [...prev, rubricName]));
+  /**
+   * A rubric that failed, was repaired, and went to Canvas on the second attempt.
+   *
+   * Matched on the result object itself, not on its name. A document can hold two rubrics with
+   * the same title — the eCampus demo set has several near-duplicates — and matching by name
+   * marked both of them succeeded when only one had been repaired, which is a false report about
+   * what is in someone's Canvas course.
+   *
+   * The repaired CSV replaces the rejected one, so the download offered afterwards is the file
+   * that actually deployed.
+   */
+  const handleRepairDeployed = (target: RubricResult, repairedCsv: string) => {
+    setRepairedNames((prev) => (prev.includes(target.name) ? prev : [...prev, target.name]));
     setResults((prev) =>
-      prev.map((r) => (r.name === rubricName ? { ...r, status: 'success', error: undefined } : r)),
+      prev.map((r) =>
+        r === target
+          ? { ...r, status: 'success', error: undefined, csvContent: repairedCsv }
+          : r,
+      ),
     );
   };
 
@@ -452,15 +466,19 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
                 */}
                 {group.diagnosis.repairable &&
                   group.items.map(
-                    (item) =>
+                    (item, idx) =>
                       item.csvContent && (
                         <CsvRepairPanel
-                          key={item.name}
+                          // Index too: two rubrics in one document can share a title, and a key
+                          // that collides makes React reuse one panel's state for the other.
+                          key={`${item.name}-${idx}`}
                           rubricName={item.name}
                           csvContent={item.csvContent}
                           canvasMessage={item.error ?? ''}
                           courseUrl={courseUrl}
-                          onDeployed={handleRepairDeployed}
+                          onDeployed={(_name, repairedCsv) =>
+                            handleRepairDeployed(item, repairedCsv)
+                          }
                           onLog={addLog}
                         />
                       ),
