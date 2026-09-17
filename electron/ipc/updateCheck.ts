@@ -12,11 +12,16 @@ import { app } from 'electron'
  */
 
 /**
- * Everything points at one constant so moving the repo (e.g. to the eCampus org) is a
- * one-line change. Note that installers already in the wild have the old address compiled
- * in; GitHub redirects transferred repositories, which is what would keep them working.
+ * Everything points at one constant so moving or renaming the repo (e.g. to the eCampus org) is
+ * a one-line change. Note that installers already in the wild have the old address compiled
+ * in; GitHub redirects renamed and transferred repositories, which is what keeps them working.
+ *
+ * That redirect only runs in one direction, so this constant must never lead the rename: the new
+ * address 404s until the repo actually carries it, and a build shipped in that window has an
+ * update check that reports a failure every time. Rename on GitHub first, then land the change
+ * here. (Renamed from Consolidated_Rubric_App_V2 in September 2026.)
  */
-const RELEASES_REPO = 'extrasnow75-bit/Consolidated_Rubric_App_V2'
+const RELEASES_REPO = 'extrasnow75-bit/Rubric-Creator-Desktop-App'
 
 export const RELEASES_PAGE = `https://github.com/${RELEASES_REPO}/releases/latest`
 const LATEST_API = `https://api.github.com/repos/${RELEASES_REPO}/releases/latest`
