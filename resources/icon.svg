@@ -1,14 +1,25 @@
 <!--
   Canvas Rubric Creator app icon.
 
-  A white rubric grid on a Boise State blue tile: a header row, three criterion rows, and a
-  narrower final column for points — the shape of the table the app produces, reduced until it
-  still reads at 16px in a taskbar.
+  A white rubric table above a white upload arrow, on a Boise State blue tile. It is deliberately
+  built to the same plan as Canvas Extractor Tools' icon — subject in the top half, action glyph
+  in the bottom, identical tile colour, corner radius, margins and arrow geometry. The two apps
+  are used by the same people on the same day, so the icons sit beside each other in a Dock or a
+  taskbar; near-matching would be worse than matching. The one difference between them is the
+  direction of the arrow, which is the point: the Extractor pulls down out of Canvas, this pushes
+  up into it.
 
-  Everything is an axis-aligned rectangle on purpose. At 16px, curves and letterforms turn to
-  mush, and the grid is the one thing about a rubric that survives being that small. It also
-  makes the icon trivial to rasterise exactly (see make-icon.py) with no font dependency and no
-  anti-aliasing guesswork on diagonals.
+  The table is drawn as filled cells with blue gutters rather than as white rules on blue, which
+  is what the previous version of this icon did. Rules lose at small sizes — the grid that
+  preceded this one put five hairlines into the eleven physical pixels a 16px taskbar entry has
+  to spend, and they merged into a smudge. Filled cells give the eye a mass instead of a lattice
+  and survive intact. The narrow fourth column is the points column, and it is what keeps the
+  shape reading as a rubric rather than as a generic spreadsheet.
+
+  Everything is an axis-aligned rounded rectangle except the arrowhead, which is an isoceles
+  triangle. No curves beyond the corner radii and no letterforms, both because they turn to mush
+  at 16px and because it makes the icon exactly rasterisable (see make-icon.py) with no font
+  dependency and no anti-aliasing guesswork on diagonals.
 
   This file is the design source of truth. The packaged icons are rasterised from these same
   numbers by make-icon.py — if you change the geometry here, mirror it there and re-run it.
@@ -17,26 +28,31 @@
   <title>Canvas Rubric Creator</title>
 
   <!-- Tile: Boise State blue -->
-  <rect width="64" height="64" rx="11" fill="#0033a0"/>
+  <rect width="64" height="64" rx="11" fill="#0033A0"/>
 
-  <!-- Grid: 4 columns x 4 rows inside a 44x36 area, inset 10 from the left, 14 from the top.
-       The header row is filled solid; the points column is narrower than the rating columns. -->
+  <!-- Table: a solid header bar over two rows of four cells, spanning x 9..55 with 2-unit
+       gutters. Column widths run 13 / 10 / 10 / 7 — the first is the criterion name, the middle
+       two are ratings, and the narrow last one is points. -->
   <g fill="#ffffff">
-    <!-- Header row, solid -->
-    <rect x="10" y="14" width="44" height="8"/>
+    <rect x="9"  y="9"    width="46" height="5" rx="0.8"/>
 
-    <!-- Row separators (1 unit tall), at the foot of each of the three criterion rows -->
-    <rect x="10" y="30" width="44" height="1.5"/>
-    <rect x="10" y="39" width="44" height="1.5"/>
-    <rect x="10" y="48.5" width="44" height="1.5"/>
+    <rect x="9"  y="16.5" width="13" height="6" rx="0.8"/>
+    <rect x="24" y="16.5" width="10" height="6" rx="0.8"/>
+    <rect x="36" y="16.5" width="10" height="6" rx="0.8"/>
+    <rect x="48" y="16.5" width="7"  height="6" rx="0.8"/>
 
-    <!-- Column separators (1.5 units wide), spanning the criterion rows only -->
-    <rect x="23" y="22" width="1.5" height="28"/>
-    <rect x="34" y="22" width="1.5" height="28"/>
-    <rect x="45" y="22" width="1.5" height="28"/>
+    <rect x="9"  y="25"   width="13" height="6" rx="0.8"/>
+    <rect x="24" y="25"   width="10" height="6" rx="0.8"/>
+    <rect x="36" y="25"   width="10" height="6" rx="0.8"/>
+    <rect x="48" y="25"   width="7"  height="6" rx="0.8"/>
+  </g>
 
-    <!-- Outer frame around the criterion rows, so the grid reads as a table rather than stripes -->
-    <rect x="10" y="22" width="1.5" height="28"/>
-    <rect x="52.5" y="22" width="1.5" height="28"/>
+  <!-- Upload arrow: head, shaft and the bar it lifts off. These are Canvas Extractor Tools'
+       download-arrow numbers mirrored about the arrow's own midline, so the two glyphs carry
+       identical visual weight and the baseline stays where it is in both icons. -->
+  <g fill="#ffffff">
+    <path d="M25.2 46.3h13.6L32 38.5z"/>
+    <rect x="29.6" y="45.2" width="4.8" height="8.2" rx="0.6"/>
+    <rect x="23" y="55" width="18" height="3.4" rx="1.5"/>
   </g>
 </svg>
