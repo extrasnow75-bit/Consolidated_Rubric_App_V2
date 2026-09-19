@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { AppMode } from '../types';
+import { ZoomControl } from './ZoomControl';
 import { HelpCircle, ChevronLeft, Camera, Lightbulb, RotateCcw } from 'lucide-react';
 import UpdateBanner from './UpdateBanner';
 
@@ -218,8 +219,13 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           {getRibbonContent()}
         </div>
 
-        {/* Right Side: Help & Return Button */}
+        {/* Right Side: Text size, Help & Return Button */}
         <div className="flex items-center gap-6 ml-auto">
+          {/* First in the group, as in Canvas Extractor Tools. Always present: it is the control
+              someone reaches for when they cannot read the screen, so it must not be behind a
+              conditional or inside the Help Center. */}
+          <ZoomControl />
+
           {state.hasDraftRubric !== null && (
             <button
               onClick={() => { clearSession(); setHasDraftRubric(null); }}

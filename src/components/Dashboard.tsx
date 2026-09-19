@@ -114,7 +114,32 @@ export const Dashboard: React.FC = () => {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedDocFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isPasteAreaFocused, setIsPasteAreaFocused] = useState(false);
+  /**
+   * Google Drive is where this team's documents actually live, so it opens on that tab.
+   *
+   * It stays on Local when nobody is signed in, because the Google tab signed out is a sign-in
+   * prompt rather than a way to choose a file — and the person most likely to be signed out is
+   * the one whose Google login is misbehaving, who needs the local path to still work.
+   *
+   * The initialiser cannot decide this on its own: isGoogleAuthenticated starts false and only
+   * becomes true when the sign-in status arrives from the main process, which is after the first
+   * render. Reading it here would pick Local every time, including for a signed-in user. The
+   * effect below switches once the answer actually lands — the same shape as the course URL
+   * prefill above, and for the same reason.
+   */
   const [docUploadTab, setDocUploadTab] = useState<'local' | 'google'>('local');
+
+  /** Guarded by a ref so choosing a tab by hand is never undone by the status arriving late. */
+  const docUploadTabTouched = useRef(false);
+  useEffect(() => {
+    if (docUploadTabTouched.current || !state.isGoogleAuthenticated) return;
+    setDocUploadTab('google');
+  }, [state.isGoogleAuthenticated]);
+
+  const chooseDocUploadTab = (tab: 'local' | 'google') => {
+    docUploadTabTouched.current = true;
+    setDocUploadTab(tab);
+  };
   const [driveUrl, setDriveUrl] = useState('');
   const [isFetchingDriveUrl, setIsFetchingDriveUrl] = useState(false);
   const [driveUrlError, setDriveUrlError] = useState<string | null>(null);
@@ -709,7 +734,7 @@ export const Dashboard: React.FC = () => {
                 {/* Tabs */}
                 <div className="flex border-b border-gray-200">
                   <button
-                    onClick={() => setDocUploadTab('local')}
+                    onClick={() => chooseDocUploadTab('local')}
                     className={`flex items-center gap-1.5 px-4 py-2.5 font-bold text-sm transition-all border-b-2 -mb-px ${
                       docUploadTab === 'local'
                         ? 'border-brand text-brand'
@@ -719,7 +744,7 @@ export const Dashboard: React.FC = () => {
                     <HardDrive className="w-4 h-4" /> From Local Drive
                   </button>
                   <button
-                    onClick={() => setDocUploadTab('google')}
+                    onClick={() => chooseDocUploadTab('google')}
                     className={`flex items-center gap-1.5 px-4 py-2.5 font-bold text-sm transition-all border-b-2 -mb-px ${
                       docUploadTab === 'google'
                         ? 'border-brand text-brand'
