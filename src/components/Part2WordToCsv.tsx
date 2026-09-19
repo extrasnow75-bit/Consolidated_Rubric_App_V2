@@ -5,7 +5,7 @@ import { useDrivePicker } from '../contexts/DrivePickerContext';
 import { AppMode, Attachment, RubricMeta, BatchItemStatus } from '../types';
 import {
   generateCsvForRubric,
-  generateAllCsvsFromDoc,
+  generateCsvsChunked,
   generateCsvFromRubricObject,
   discoverRubricTitles,
   type RubricDiscovery,
@@ -93,7 +93,6 @@ export const Part2WordToCsv: React.FC = () => {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [rubricOptions, setRubricOptions] = useState<RubricMeta[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Input mode (file upload vs Google Drive) ─────────────────────────
   const [inputMode, setInputMode] = useState<'from-phase1' | 'file' | 'google-drive'>(state.rubric ? 'from-phase1' : 'file');
@@ -365,80 +364,59 @@ export const Part2WordToCsv: React.FC = () => {
     // every rubric title before generation starts.
     setRubricResults(metas.map((m) => ({ rubric: m, status: 'pending' })));
 
-    // ── Pass 2: Generate each rubric CSV — strictly sequential ──────────
-    // One rubric fully completes before the next starts, staying within
-    // Gemini's 10 RPM limit.  Adaptive pacing: we record the call start
-    // time and only wait whatever remains of a 6 s minimum gap after the
-    // call finishes.  If the call itself took ≥ 6 s (common for large
-    // rubrics) no extra delay is added, keeping total time as short as
-    // possible while still protecting against rate-limit errors.
-    const MIN_GAP_MS = 6000; // 6 s → safe for 10 RPM
+    // ── Pass 2: Convert the rubrics ────────────────────────────────────
+    // The batching policy lives in generateCsvsChunked, which the analyze-and-deploy panel also
+    // goes through. It used to live here, as a per-rubric loop, and only here — so when the other
+    // screen learned to batch, this one did not, and every document however small paid for one
+    // call per rubric plus a six-second gap between each.
+    const MIN_GAP_MS = 6000; // 6 s → safe inside the per-minute request quota
     const csvResults = new Array<string | null>(metas.length).fill(null);
 
-    for (let idx = 0; idx < metas.length; idx++) {
-      if (controller.signal.aborted) break;
+    try {
+      await generateCsvsChunked(attachments[0], metas, {
+        signal: controller.signal,
+        gapMs: MIN_GAP_MS,
+        // Every rubric in a group is genuinely in flight at once, so all their cards spin
+        // together. Without this they would sit on 'pending' for the whole call.
+        onGroupStart: (indices) => {
+          setRubricResults((prev) => {
+            const next = [...prev];
+            for (const i of indices) next[i] = { rubric: metas[i], status: 'generating' };
+            return next;
+          });
+        },
+        onResult: ({ index, csv, error }) => {
+          const rubric = metas[index];
+          csvResults[index] = csv ?? null;
 
-      const rubric = metas[idx];
-      const callStart = Date.now();
+          if (csv === undefined) {
+            setRubricResults((prev) => {
+              const next = [...prev];
+              next[index] = { rubric, status: 'error', error };
+              return next;
+            });
+            return;
+          }
 
-      // Flip this card from 'pending' (clock) to 'generating' (spinner)
-      setRubricResults((prev) => {
-        const next = [...prev];
-        next[idx] = { rubric, status: 'generating' };
-        return next;
-      });
-
-      try {
-        const csv = await generateCsvForRubric(
-          rubric.name,
-          rubric.totalPoints,
-          rubric.scoringMethod,
-          attachments[0],
-          controller.signal,
-        );
-        csvResults[idx] = csv;
-        if (csv) {
           addBatchItem({
-            id: `p2-${Date.now()}-${idx}`,
+            id: `p2-${Date.now()}-${index}`,
             name: rubric.name,
             totalPoints: rubric.totalPoints,
             scoringMethod: rubric.scoringMethod,
             status: BatchItemStatus.COMPLETED,
             csvContent: csv,
           });
-        }
-        setRubricResults((prev) => {
-          const next = [...prev];
-          next[idx] = { rubric, status: 'done', csvContent: csv };
-          return next;
-        });
-      } catch (err: any) {
-        if (!controller.signal.aborted) {
           setRubricResults((prev) => {
             const next = [...prev];
-            next[idx] = { rubric, status: 'error', error: err.message };
+            next[index] = { rubric, status: 'done', csvContent: csv };
             return next;
           });
-        }
-      }
-
-      // Adaptive gap: only wait whatever time remains to reach MIN_GAP_MS
-      // since the call started.  If the call already took ≥ 6 s, skip.
-      // Always skip after the last rubric or if generation was stopped.
-      if (idx < metas.length - 1 && !controller.signal.aborted) {
-        const elapsed = Date.now() - callStart;
-        const remaining = MIN_GAP_MS - elapsed;
-        if (remaining > 0) {
-          await new Promise<void>((resolve) => {
-            // Listener removed on the normal path too: this gap runs once per rubric against
-            // one long-lived signal, so leaving them attached accumulates across the batch.
-            const onAbort = () => { clearTimeout(timer); cleanup(); resolve(); };
-            const cleanup = () => controller.signal.removeEventListener('abort', onAbort);
-            const timer = setTimeout(() => { cleanup(); resolve(); }, remaining);
-            controller.signal.addEventListener('abort', onAbort, { once: true });
-          });
-        }
-      }
+        },
+      });
+    } catch (err: any) {
+      // Only cancellation escapes generateCsvsChunked; a rubric that cannot be converted is
+      // reported through onResult and the rest of the document carries on.
+      if (!controller.signal.aborted) setError(friendlyError(err));
     }
 
     if (controller.signal.aborted) {
@@ -693,6 +671,21 @@ export const Part2WordToCsv: React.FC = () => {
   const totalCount = rubricResults.length;
   const completedCount = doneCount + errorCount;
 
+  /**
+   * What a screen reader is told when a conversion run ends.
+   *
+   * Converting a document of rubrics takes minutes and, until now, said nothing at all to anyone
+   * not watching the cards change. Empty while the run is in flight: the region is mounted for
+   * the whole run, because one that appears with text already in it is not reliably announced,
+   * and a per-rubric announcement on a twenty-rubric document would be unusable. The progress
+   * bar carries `aria-valuenow` for checking on demand.
+   */
+  const runAnnouncement =
+    isGeneratingAll || totalCount === 0 || completedCount < totalCount
+      ? ''
+      : `Finished. ${doneCount} of ${totalCount} rubrics converted` +
+        (errorCount > 0 ? `, ${errorCount} failed.` : '.');
+
   // Batch call: single Gemini request for the whole document (~60 s typical)
   // Use pre-scan count if available (8 s per rubric: 2 s throttle + ~6 s API),
   // otherwise fall back to a conservative 60 s flat estimate.
@@ -916,7 +909,6 @@ export const Part2WordToCsv: React.FC = () => {
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
-                    onClick={() => fileInputRef.current?.click()}
                     className={`relative w-full p-8 border-2 border-dashed rounded-3xl flex flex-col items-center justify-center gap-4 cursor-pointer transition-all ${
                       isDragging
                         ? 'bg-blue-50 border-blue-400'
@@ -930,13 +922,13 @@ export const Part2WordToCsv: React.FC = () => {
                       Drop file here or click to browse
                     </p>
                     <input
-                      ref={fileInputRef}
                       type="file"
                       accept=".pdf,.docx,.doc"
                       onChange={(e) => {
                         if (e.target.files?.[0]) handleFileSelect(e.target.files[0]);
                       }}
-                      className="hidden"
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      aria-label="Drop file here or click to browse"
                     />
                   </div>
                 ) : (
@@ -1178,6 +1170,10 @@ export const Part2WordToCsv: React.FC = () => {
                   </div>
                 )}
 
+                <span role="status" aria-live="polite" className="sr-only">
+                  {runAnnouncement}
+                </span>
+
                 {/* Progress summary + live ETA (shown while generating) */}
                 {isGeneratingAll && (
                   <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
@@ -1197,7 +1193,14 @@ export const Part2WordToCsv: React.FC = () => {
                     </div>
 
                     {/* Progress bar */}
-                    <div className="w-full bg-blue-200 rounded-full h-1.5">
+                    <div
+                      className="w-full bg-blue-200 rounded-full h-1.5"
+                      role="progressbar"
+                      aria-valuenow={progressPct}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label="Rubric conversion progress"
+                    >
                       <div
                         className="bg-brand h-1.5 rounded-full transition-all duration-700"
                         style={{ width: `${progressPct}%` }}
@@ -1219,7 +1222,7 @@ export const Part2WordToCsv: React.FC = () => {
                     <p className="text-xs text-blue-700">
                       {isDiscovering
                         ? 'Scanning document for rubric titles…'
-                        : 'Generating rubrics one at a time — each card updates as it finishes'}
+                        : 'Generating rubrics — each card updates as it finishes'}
                     </p>
                   </div>
                 )}

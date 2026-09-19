@@ -172,8 +172,10 @@ declare global {
           attachment: Attachment
           jobId?: string
         }): Promise<RubricDiscovery[]>
-        generateAllCsvsFromDoc(a: {
+        /** A named subset of the document's rubrics, in one call. Missing names are omitted. */
+        generateCsvsForRubrics(a: {
           attachment: Attachment
+          rubricNames: string[]
           jobId?: string
         }): Promise<BatchRubricResult[]>
       }

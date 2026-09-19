@@ -704,10 +704,10 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
                     handleFileUpload(e.target.files[0]);
                   }
                 }}
-                className="hidden"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 id="file-input"
+                aria-label="Drop an assignment description document here or click to browse"
               />
-              <label htmlFor="file-input" className="absolute inset-0 cursor-pointer" />
             </div>
 
             {/* Text Extraction Label */}
@@ -1219,10 +1219,10 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
               type="file"
               accept=".docx,.doc,.pdf,.txt"
               onChange={(e) => { if (e.target.files?.[0]) handleReplaceFileUpload(e.target.files[0]); }}
-              className="hidden"
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               id="replace-file-input"
+              aria-label="Drop your modified rubric file here or click to browse"
             />
-            <label htmlFor="replace-file-input" className="absolute inset-0 cursor-pointer" />
           </div>
 
           {/* Selected file chip */}

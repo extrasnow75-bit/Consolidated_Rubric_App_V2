@@ -161,7 +161,6 @@ export const Dashboard: React.FC = () => {
   const [driveUrlError, setDriveUrlError] = useState<string | null>(null);
   const [recentDocs, setRecentDocs] = useState<RecentDoc[]>(() => getRecentDocs());
   const [showRecentDocs, setShowRecentDocs] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const pasteAreaRef = useRef<HTMLDivElement>(null);
 
   // ── Analyze & Deploy ──
@@ -872,11 +871,24 @@ export const Dashboard: React.FC = () => {
                       onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                       onDragLeave={() => setIsDragging(false)}
                       onDrop={handleDrop}
-                      className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer ${
+                      className={`relative border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer ${
                         isDragging ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50/30'
                       }`}
-                      onClick={() => fileInputRef.current?.click()}
                     >
+                      {/* The input covers the zone rather than being hidden and clicked through a
+                          ref. `display:none` takes an element out of the tab order, so the only
+                          way to reach this was a mouse; an opacity-0 input over the same area is
+                          focusable, activates on Enter or Space, and still lets the drop handler
+                          above take the event (handleDrop preventDefaults, so the file never
+                          reaches the input's own default). */}
+                      <input
+                        type="file"
+                        accept=".docx,.doc,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,application/pdf"
+                        multiple
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        aria-label="Drop a Word (.docx) or PDF file here, or click to browse"
+                        onChange={handleFileInput}
+                      />
                       <FileText className="w-8 h-8 text-gray-600 mx-auto mb-2" />
                       <p className="text-sm font-bold text-gray-700">Drop a Word (.docx) or PDF file here, or click to browse</p>
                     </div>
@@ -1003,15 +1015,6 @@ export const Dashboard: React.FC = () => {
                     </div>
                   </>
                 )}
-
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".docx,.doc,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,application/pdf"
-                  multiple
-                  className="hidden"
-                  onChange={handleFileInput}
-                />
 
                 {/* Mounted only when there is something to say, but announced when it appears: a file
 

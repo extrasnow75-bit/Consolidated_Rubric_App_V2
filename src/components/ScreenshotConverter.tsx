@@ -98,7 +98,6 @@ export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
   // Ready for Canvas checkbox
   const [readyForCanvas, setReadyForCanvas] = useState(false);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const pasteAreaRef = useRef<HTMLDivElement>(null);
 
   // ── Deployment timer ───────────────────────────────────────────────────────────
@@ -535,7 +534,6 @@ export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
                       onDragOver={handleDragOver}
                       onDragLeave={handleDragLeave}
                       onDrop={handleDrop}
-                      onClick={() => fileInputRef.current?.click()}
                       className={`relative w-full p-8 border-2 border-dashed rounded-3xl flex flex-col items-center justify-center gap-4 cursor-pointer transition-all ${
                         isDragging
                           ? 'bg-blue-50 border-blue-400'
@@ -548,11 +546,11 @@ export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
                       </p>
                       <p className="text-xs text-gray-600 font-semibold">PNG, JPG, WebP supported</p>
                       <input
-                        ref={fileInputRef}
                         type="file"
                         accept="image/*"
                         onChange={(e) => { if (e.target.files?.[0]) handleImageSelect(e.target.files[0]); e.target.value = ''; }}
-                        className="hidden"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        aria-label="Drag and drop a screenshot here, or click to browse"
                       />
                     </div>
 
@@ -1060,10 +1058,10 @@ export const ScreenshotConverter: React.FC<ScreenshotConverterProps> = ({
               type="file"
               accept=".docx,.doc,.pdf,.txt"
               onChange={(e) => { if (e.target.files?.[0]) handleReplaceFileUpload(e.target.files[0]); }}
-              className="hidden"
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               id="replace-file-input-sc"
+              aria-label="Drop your modified rubric file here or click to browse"
             />
-            <label htmlFor="replace-file-input-sc" className="absolute inset-0 cursor-pointer" />
           </div>
 
           {replaceFileName && (

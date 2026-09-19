@@ -19,6 +19,7 @@ import {
   RubricMeta,
 } from '../types';
 import { ipcErrorMessage } from '../utils/ipcErrorMessage';
+import { alignByTitle, chunk } from '../utils/rubricBatching';
 
 // These mirror the declarations in electron/ipc/gemini.ts. Kept in step by hand: the two
 // processes compile separately, so there is no shared source to import from.
@@ -248,13 +249,160 @@ export const discoverRubricTitles = (
     window.api.gemini.discoverRubricTitles({ attachment, jobId }),
   );
 
-export const generateAllCsvsFromDoc = (
+/**
+ * How many rubrics `generateCsvsForRubrics` will take in one request.
+ *
+ * The model's output ceiling is 64k tokens, shared with its thinking tokens, and a batch
+ * extraction is all-or-nothing: one truncated response loses every rubric in it. A 26-rubric
+ * document proved that by failing with "Unterminated string in JSON at position 126176". Eight
+ * sits comfortably inside the ceiling.
+ *
+ * It lives here rather than in a component because it is a property of the call, not of any one
+ * screen, and both Part 2 and the Part 3 analyze-and-deploy panel have to agree on it.
+ */
+export const BATCH_RUBRIC_LIMIT = 8;
+
+/** A named subset of a document's rubrics, in one call. Names it cannot find are omitted. */
+export const generateCsvsForRubrics = (
   attachment: Attachment,
+  rubricNames: string[],
   signal?: AbortSignal,
 ): Promise<BatchRubricResult[]> =>
   withCancellation(signal, (jobId) =>
-    window.api.gemini.generateAllCsvsFromDoc({ attachment, jobId }),
+    window.api.gemini.generateCsvsForRubrics({ attachment, rubricNames, jobId }),
   );
+
+export interface ChunkedCsvOutcome {
+  /** Index into the `rubrics` array that was passed in, so a caller can update the right card. */
+  index: number;
+  name: string;
+  csv?: string;
+  error?: string;
+}
+
+/** Wait, but give up the moment the run is cancelled. */
+const delay = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener('abort', done, { once: true });
+  });
+
+/**
+ * Convert every rubric in a document, in groups.
+ *
+ * The one place the batching policy lives. Both screens that convert a document call this, which
+ * is the point: Part 2 and the analyze-and-deploy panel had separate copies of this loop, they
+ * drifted, and Part 2 spent a release never batching at all because the optimisation was only
+ * ever added to the other copy.
+ *
+ * Why groups. Every call carries the whole document, so the cost of converting a document is
+ * driven by how many calls are made, not by how many rubrics each one covers. The old code went
+ * straight from "one call" to "one call per rubric" at the batch limit, so a 26-rubric document
+ * sent that document 27 times and waited out 25 pacing gaps — about four minutes, most of it
+ * spent re-reading the same file. In groups of eight it is four calls and three gaps.
+ *
+ * Why eight and not everything. The model's output ceiling is shared with its thinking tokens and
+ * a batch is all-or-nothing: one truncated response loses every rubric in it. That is exactly how
+ * the 26-rubric document failed before, with "Unterminated string in JSON at position 126176".
+ * Eight is the proven-safe group, so a truncation now costs eight rubrics rather than all of them
+ * — and even those are re-fetched one at a time rather than lost.
+ *
+ * Failure is therefore always local. A group that throws, and any rubric inside a group that came
+ * back unrecognisable, falls to a single-rubric call for that rubric alone. A rubric that fails
+ * even then is reported through `onResult` with an error and the rest of the document carries on.
+ * Only cancellation stops everything, and it throws.
+ */
+export async function generateCsvsChunked(
+  attachment: Attachment,
+  rubrics: RubricDiscovery[],
+  options: {
+    signal?: AbortSignal;
+    /** Minimum spacing between calls, to stay inside the per-minute request quota. */
+    gapMs?: number;
+    /** Indices about to be worked on, for flipping their cards to a working state. */
+    onGroupStart?: (indices: number[]) => void;
+    onResult: (outcome: ChunkedCsvOutcome) => void;
+    /** Progress worth writing to a visible log. */
+    onNote?: (message: string) => void;
+  },
+): Promise<void> {
+  const { signal, gapMs = 6000, onGroupStart, onResult, onNote } = options;
+
+  const numbered = rubrics.map((r, index) => ({ ...r, index }));
+  const groups = chunk(numbered, BATCH_RUBRIC_LIMIT);
+
+  // Pacing is measured from the start of the previous call, so a call that already took longer
+  // than the gap adds no delay of its own. Zero means nothing has been called yet.
+  let lastCallStart = 0;
+  const pace = async () => {
+    if (lastCallStart === 0) return;
+    const since = Date.now() - lastCallStart;
+    if (since < gapMs) await delay(gapMs - since, signal);
+  };
+
+  const cancelled = () => {
+    if (signal?.aborted) throw new Error('Request cancelled');
+  };
+
+  if (groups.length > 1) {
+    onNote?.(
+      `Converting ${rubrics.length} rubrics in ${groups.length} groups of up to ` +
+        `${BATCH_RUBRIC_LIMIT}. Each group is independent — if one has trouble, only those ` +
+        'rubrics are retried.',
+    );
+  }
+
+  for (const group of groups) {
+    cancelled();
+    await pace();
+    cancelled();
+
+    onGroupStart?.(group.map((g) => g.index));
+    lastCallStart = Date.now();
+
+    let aligned: (BatchRubricResult | null)[];
+    try {
+      const extracted = await generateCsvsForRubrics(
+        attachment,
+        group.map((g) => g.name),
+        signal,
+      );
+      aligned = alignByTitle(group.map((g) => g.name), extracted);
+    } catch (err: any) {
+      cancelled();
+      onNote?.(`That group could not be converted together (${err.message}). Retrying one at a time.`);
+      aligned = group.map(() => null);
+    }
+
+    for (let i = 0; i < group.length; i++) {
+      const entry = group[i];
+      const hit = aligned[i];
+
+      if (hit) {
+        onResult({ index: entry.index, name: entry.name, csv: hit.csv });
+        continue;
+      }
+
+      // Whatever the group did not answer for, ask for on its own. Slower, and never ambiguous.
+      cancelled();
+      await pace();
+      cancelled();
+      lastCallStart = Date.now();
+      try {
+        const csv = await generateCsvForRubric(entry.name, '', entry.scoringMethod, attachment, signal);
+        onResult({ index: entry.index, name: entry.name, csv });
+      } catch (err: any) {
+        cancelled();
+        onResult({ index: entry.index, name: entry.name, error: err.message });
+      }
+    }
+  }
+}
 
 /**
  * Re-exported from its new home so existing imports keep working.

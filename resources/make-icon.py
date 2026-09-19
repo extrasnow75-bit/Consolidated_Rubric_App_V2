@@ -8,9 +8,9 @@ Uses only the Python standard library — no Pillow, no ImageMagick, no npm pack
 regenerating the icon never needs an install on a machine that is only building a release.
 
 The trade-off is that icon.svg's geometry is duplicated as the constants below: **if you edit
-icon.svg, mirror the change here and re-run this script.** The shapes are all axis-aligned
-rectangles, so the only place anti-aliasing matters is the tile's rounded corners; those are
-sampled at 4x4 per pixel.
+icon.svg, mirror the change here and re-run this script.** Every shape is an axis-aligned
+rounded rectangle except the arrowhead, which is an isoceles triangle, so all of them are exact
+point-in-shape tests and the whole icon is sampled at 4x4 per pixel.
 
 Windows shows the 16px and 32px entries in Explorer and the taskbar, and the 256px entry in the
 installer and large-icon views. macOS takes the .png, which must be at least 512x512.
@@ -27,18 +27,31 @@ TILE_RADIUS = 11.0
 BLUE = (0x00, 0x33, 0xA0)  # Boise State blue
 WHITE = (0xFF, 0xFF, 0xFF)
 
-# (x, y, width, height) in viewBox units — the same numbers as the <rect>s in icon.svg.
-WHITE_RECTS = [
-    (10, 14, 44, 8),        # header row, solid
-    (10, 30, 44, 1.5),      # row separators
-    (10, 39, 44, 1.5),
-    (10, 48.5, 44, 1.5),   # closes flush with the column separators at y=50
-    (23, 22, 1.5, 28),      # column separators
-    (34, 22, 1.5, 28),
-    (45, 22, 1.5, 28),
-    (10, 22, 1.5, 28),      # outer frame, left and right
-    (52.5, 22, 1.5, 28),
+# (x, y, width, height, corner radius) in viewBox units — the same numbers as the <rect>s in
+# icon.svg. The table is a solid header bar over two rows of four cells; the last column is
+# narrow because it is the points column.
+WHITE_RRECTS = [
+    (9, 9, 46, 5, 0.8),           # header bar
+    (9, 16.5, 13, 6, 0.8),        # row 1
+    (24, 16.5, 10, 6, 0.8),
+    (36, 16.5, 10, 6, 0.8),
+    (48, 16.5, 7, 6, 0.8),
+    (9, 25, 13, 6, 0.8),          # row 2
+    (24, 25, 10, 6, 0.8),
+    (36, 25, 10, 6, 0.8),
+    (48, 25, 7, 6, 0.8),
+    (29.6, 45.2, 4.8, 8.2, 0.6),  # arrow shaft
+    (23, 55, 18, 3.4, 1.5),       # the bar the arrow lifts off
 ]
+
+# The arrowhead, as its apex and base rather than as three points. An isoceles triangle is
+# cheaper and more exact to test by interpolating its half-width down from the apex than by ray
+# casting a polygon, and it cannot drift out of agreement with the <path> in icon.svg the way a
+# transcribed point list can.
+HEAD_APEX_Y, HEAD_BASE_Y = 38.5, 46.3
+HEAD_X0, HEAD_X1 = 25.2, 38.8
+HEAD_CX = (HEAD_X0 + HEAD_X1) / 2.0
+HEAD_HALF = (HEAD_X1 - HEAD_X0) / 2.0
 
 SAMPLES = 4  # 4x4 supersampling per pixel
 SIZES = [16, 32, 48, 256]
@@ -62,10 +75,24 @@ def inside_tile(x: float, y: float) -> bool:
     return (x - cx) ** 2 + (y - cy) ** 2 <= r * r
 
 
+def in_rrect(x: float, y: float, x0: float, y0: float, w: float, h: float, r: float) -> bool:
+    """Point-in-rounded-rectangle: outside the corner boxes it is a plain bounds check, and
+    inside one it is a distance test against that corner's centre."""
+    if not (x0 <= x <= x0 + w and y0 <= y <= y0 + h):
+        return False
+    qx = max(x0 + r - x, x - (x0 + w - r), 0.0)
+    qy = max(y0 + r - y, y - (y0 + h - r), 0.0)
+    return qx * qx + qy * qy <= r * r
+
+
 def inside_white(x: float, y: float) -> bool:
-    for rx, ry, rw, rh in WHITE_RECTS:
-        if rx <= x < rx + rw and ry <= y < ry + rh:
+    for rect in WHITE_RRECTS:
+        if in_rrect(x, y, *rect):
             return True
+    # Arrowhead: half-width grows linearly from nothing at the apex to HEAD_HALF at the base.
+    if HEAD_APEX_Y <= y <= HEAD_BASE_Y:
+        taper = (y - HEAD_APEX_Y) / (HEAD_BASE_Y - HEAD_APEX_Y)
+        return abs(x - HEAD_CX) <= HEAD_HALF * taper
     return False
 
 

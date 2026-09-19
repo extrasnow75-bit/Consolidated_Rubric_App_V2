@@ -188,8 +188,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('gemini:generateCsvForRubric', a),
     discoverRubricTitles: (a: unknown): Promise<unknown> =>
       ipcRenderer.invoke('gemini:discoverRubricTitles', a),
-    generateAllCsvsFromDoc: (a: unknown): Promise<unknown> =>
-      ipcRenderer.invoke('gemini:generateAllCsvsFromDoc', a),
+    generateCsvsForRubrics: (a: unknown): Promise<unknown> =>
+      ipcRenderer.invoke('gemini:generateCsvsForRubrics', a),
   },
   credentials: {
     /** False on a machine with no working keychain, where nothing can be stored safely. */
