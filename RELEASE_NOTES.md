@@ -1,51 +1,33 @@
-## What's new in v0.9.3
+## What's new in v0.9.4
 
-**This fixes the fault that made half the rubrics in a document fail.** If you tested v0.9.2 and
-saw rubrics rejected with *"Some ratings do not have a point value Canvas can use"*, this is the
-build that fixes it. Nothing was wrong with your documents.
+Two changes, both asked for after v0.9.3 deployed a ten-rubric document to Canvas without a
+single failure.
 
-### Rubrics whose wording contains commas now deploy
+### Text size buttons in the toolbar
 
-In v0.9.2, a ten-rubric document deployed five and failed five. Every failure named a point value
-Canvas could not read — and the values it quoted were words, not numbers: `spelling`,
-`introspection`, `academic`.
+**Text size** now sits in the white bar at the top of the window, with **−**, a percentage, and
+**+**. The percentage is also a button: click it to go back to 100%.
 
-The cause was punctuation. The app asked the AI to write the spreadsheet file itself, including
-the quoting rules that keep a comma inside a sentence from being read as the start of a new
-column. It did not follow them. So a rating reading *"errors in grammar, spelling, and
-punctuation"* became three columns instead of one, every value after it shifted one place along,
-and the word `spelling` ended up where the points belonged.
+The keyboard shortcuts have always worked — **Ctrl** and **+** or **−** (**Cmd** on a Mac), and
+**Ctrl/Cmd 0** to reset — but this app has no menu bar, so there was nothing on screen to
+discover them from. They were written down in the Help Center, which is not where you look when
+the text is too small to read.
 
-The rubrics that worked were simply the ones whose wording happened to contain no commas.
+Both routes do the same thing and the percentage keeps up with either, so the shortcuts still
+work exactly as before. Your setting is remembered between sessions.
 
-**The app now builds the spreadsheet itself.** The AI is asked only to read the rubric out of your
-document — which is what it is good at — and the file is assembled by the app, which gets the
-punctuation right every time. This is how rubrics created in Part 1 have always been handled, and
-they have never had this problem.
+These are the same controls, in the same place, as Canvas Extractor Tools.
 
-The same change also means a CSV you download is correct if you upload it to Canvas by hand: point
-ranges are written as the single number Canvas wants, rather than as the band they came from.
+### The document picker opens on Google Drive
 
-**What has not changed is what happens to a point value the app genuinely cannot read.** It still
-refuses the file and names the rating, and still offers the AI repair. It will not invent a number
-to make a rubric deploy — a wrong grade is worse than a clear refusal.
+**From Google Drive** is now the tab you land on, since that is where these documents live.
 
-### The course box now waits its turn
+If you are not signed in to Google it stays on **From Local Drive**, because the Google tab
+signed out is a sign-in prompt rather than a way to choose a file — and whoever is signed out is
+most likely the person whose Google login is playing up, who needs the local path to work. If you
+pick a tab yourself, it stays picked.
 
-The **Target Canvas Course** card used to appear at the same moment as the card above it, already
-filled in with the course you used last time and already showing a green tick. The card that still
-needed you to choose a document sat above it looking finished, and the deploy button stayed greyed
-out without saying which one was waiting.
-
-The course card now appears only after you have chosen a rubric document, so the two are in order.
-
-### Also in this build
-
-Releases have been rebuilt correctly since v0.9.1 — a fault in the build pipeline meant the v0.9.2
-page was published without its installers on the first attempt. That is fixed, and unrelated to
-anything in the app itself.
-
-### Known limits, unchanged from v0.9.2
+### Known limits, unchanged
 
 - **The AI's suggested fix can be plausible and wrong.** It is checked for whether Canvas will
   accept it, not for whether it is what you meant. Point values are listed separately because they
