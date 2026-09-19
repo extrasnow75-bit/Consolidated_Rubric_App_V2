@@ -1,32 +1,41 @@
-## What's new in v0.9.6
+## What's new in v0.9.7
 
-### Documents with a lot of rubrics now work
+### The app now tells you whether your Canvas token actually works
 
-A document holding 26 rubrics failed after four minutes with a message about JSON, and deployed
-nothing at all — not even the twenty-odd rubrics it had already converted before it stopped.
+The Canvas card used to say **"Token saved"** the moment you pasted one in. That only ever meant
+the text had been stored — nothing had tried it. A token that had been revoked, or mistyped, or
+belonged to a different Canvas site looked exactly the same as a working one, and you found out
+when a deploy failed, after the AI had already done its work.
 
-The app was asking the AI for every rubric in the document in one request, and a single reply has
-a size limit. A long document reaches it, the reply is cut off mid-sentence, and everything in it
-is lost together.
+It now says which of these is true:
 
-**The app now counts the rubrics first.** Up to eight, it works as before — one request, quick.
-Past eight, it converts each rubric on its own. That takes longer, and the timeline names each
-one as it finishes, but there is no shared limit to run into, and a rubric that does fail costs
-only itself: the rest of the document still deploys.
+- **Token checked — Canvas accepted it**
+- **Token saved — not checked yet**
+- **Canvas rejected this token**, with Canvas's own reason
 
-If you split a long document in half to get around this, you no longer need to.
+The check needs to know which Canvas site to ask, and only a course URL says that, so it cannot
+happen the instant you paste the token. It runs when the app starts, against the course you used
+last time, and again whenever a course is confirmed. If you are offline it stays at "not checked
+yet" rather than blaming a token that is probably fine.
 
-### The list of files now says what it is
+### Cancelling no longer throws away the work already done
 
-The list under the upload box is not a history of what you have picked. **Every file in it is
-deployed**, and since deploying only ever adds rubrics to a course, a file left there by mistake
-means duplicates you have to delete in Canvas by hand.
+Stopping a run part-way used to discard every CSV it had built — including rubrics that had
+already deployed successfully. On a twenty-rubric document, cancelling at eighteen lost all
+twenty, and the offer to download the CSVs never appeared because the run had not "finished".
 
-It now has a heading — **"Will be deployed — 2 documents"** — and when more than one file is
-queued the button counts them too: *"Analyze 2 Documents and Deploy To Canvas."* If that number
-is ever a surprise, you find out before Canvas does.
+Each CSV is now kept the moment it is made. Cancel whenever you like and the download offer is
+still there, with everything converted up to that point. The timeline also keeps the deploy
+results as they happen, so a cancelled run still shows what reached Canvas.
 
-The **×** beside a file removes it from the list, as before.
+The conversion is the slow, expensive part of a run. Losing it because the quick part was
+interrupted was the wrong way round.
+
+### Tidying underneath
+
+Three internal connections between the two halves of the app were unused and have been removed.
+Nothing changes on screen; there is simply less of the app able to talk to the part that holds
+your credentials, which is the part worth keeping small.
 
 ### Known limits, unchanged
 

@@ -81,6 +81,21 @@ export const Dashboard: React.FC = () => {
   const [showCanvasToken, setShowCanvasToken] = useState(false);
   const [canvasTokenError, setCanvasTokenError] = useState<string | null>(null);
 
+  /**
+   * Whether the saved token has actually been used against Canvas, as opposed to merely stored.
+   *
+   * "Token saved" was shown the moment a string reached the keychain, which says nothing about
+   * whether Canvas accepts it. A revoked or mistyped token looked exactly like a working one
+   * until a deploy failed — after conversion had already spent Gemini quota.
+   *
+   * Checking needs a Canvas host, which only a course URL supplies, so this cannot run when the
+   * token is first pasted. It runs at launch against the remembered course, and any successful
+   * course lookup counts as proof on its own: that call sends the token too.
+   */
+  const [tokenCheck, setTokenCheck] = useState<
+    { state: 'unchecked' | 'checking' | 'ok' | 'failed'; message?: string }
+  >({ state: 'unchecked' });
+
   // ── Course URL ──
   const [courseUrlInput, setCourseUrlInput] = useState(state.courseUrl || '');
 
@@ -204,6 +219,36 @@ export const Dashboard: React.FC = () => {
     if (allSetupComplete) setIsSetupOpen(false);
   }, [allSetupComplete]);
 
+  /**
+   * One check at launch, against the course used last time.
+   *
+   * Deliberately not tied to courseUrlInput: this is about the token, not the course, and it must
+   * not re-fire while someone types. A failure here is worth surfacing before any work begins —
+   * a dead token discovered at deploy time has already cost a conversion.
+   */
+  useEffect(() => {
+    if (!canvasTokenValid || !state.courseUrl) return;
+    let cancelled = false;
+    setTokenCheck({ state: 'checking' });
+    window.api.canvas
+      .verifyToken({ courseUrl: state.courseUrl })
+      .then((result) => {
+        if (cancelled) return;
+        setTokenCheck(
+          result.ok
+            ? { state: 'ok' }
+            : { state: 'failed', message: result.message ?? 'Canvas did not accept this token.' },
+        );
+      })
+      .catch(() => {
+        // Offline, or Canvas unreachable. Not evidence the token is bad, so say nothing rather
+        // than accusing a good token.
+        if (!cancelled) setTokenCheck({ state: 'unchecked' });
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvasTokenValid, state.courseUrl]);
+
   // ── Fetch course name when URL and token are both valid ──
   //
   // The lookup happens in the main process, which loads the token from the keychain itself. This
@@ -228,6 +273,8 @@ export const Dashboard: React.FC = () => {
           if (cancelled) return;
           if (result.ok && result.name) {
             setCourseName(result.name);
+            // This call carried the token, so a named course is proof it works.
+            setTokenCheck({ state: 'ok' });
           } else {
             // Main returns a specific reason — wrong host, no token, 404, unreachable.
             // Showing it is the difference between "the app is broken" and "fix the URL".
@@ -621,17 +668,55 @@ export const Dashboard: React.FC = () => {
                 <div className="flex items-center gap-2 mb-1">
                   <Key className="w-4 h-4 text-red-600 flex-shrink-0" />
                   <h3 className="font-black text-lg text-gray-900">Canvas API Token</h3>
-                  {canvasTokenValid && <Check className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
+                  {canvasTokenValid && tokenCheck.state === 'ok' && (
+                    <Check className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />
+                  )}
                 </div>
                 {canvasTokenValid ? (
                   <div>
+                    {/* Saved and working are different claims, and the app used to make only the
+                        stronger-sounding one. */}
                     <div className="flex items-center gap-2 mt-2 mb-1">
-                      <div className="w-2 h-2 bg-green-500 rounded-full" />
-                      <span className="text-sm font-bold text-green-700">Token saved</span>
+                      <div
+                        className={`w-2 h-2 rounded-full ${
+                          tokenCheck.state === 'ok'
+                            ? 'bg-green-500'
+                            : tokenCheck.state === 'failed'
+                            ? 'bg-red-500'
+                            : 'bg-gray-400'
+                        }`}
+                      />
+                      <span
+                        className={`text-sm font-bold ${
+                          tokenCheck.state === 'ok'
+                            ? 'text-green-700'
+                            : tokenCheck.state === 'failed'
+                            ? 'text-red-700'
+                            : 'text-gray-700'
+                        }`}
+                      >
+                        {tokenCheck.state === 'ok'
+                          ? 'Token checked — Canvas accepted it'
+                          : tokenCheck.state === 'checking'
+                          ? 'Checking this token with Canvas…'
+                          : tokenCheck.state === 'failed'
+                          ? 'Canvas rejected this token'
+                          : 'Token saved — not checked yet'}
+                      </span>
                     </div>
                     <p className="text-xs text-gray-600 font-mono mb-3">
                       In your keychain, ending …{state.canvasTokenStatus?.hint}
                     </p>
+                    {tokenCheck.state === 'failed' && (
+                      <p role="alert" className="text-sm font-bold text-red-700 mb-3">
+                        {tokenCheck.message}
+                      </p>
+                    )}
+                    {tokenCheck.state === 'unchecked' && (
+                      <p className="text-xs text-gray-600 mb-3">
+                        It is checked the first time a Canvas course is confirmed below.
+                      </p>
+                    )}
                     <button onClick={handleRemoveCanvasToken} className="w-full px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50 transition-all text-sm flex items-center justify-center gap-2">
                       <LogOut className="w-4 h-4" /> Remove Token
                     </button>
