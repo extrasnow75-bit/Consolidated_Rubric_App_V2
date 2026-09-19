@@ -6,16 +6,17 @@ import { useDialogFocus, useInertWhenHidden } from '../hooks/useDialogFocus';
 /**
  * The eCampus Help Center article for this app.
  *
- * PLACEHOLDER — replace with the real Confluence URL when it exists. Use the short /wiki/x/ form
- * rather than the long /wiki/spaces/…/pages/… one: the short link survives the page being renamed
- * or moved between spaces, which the long form does not.
+ * TEMPORARY — this points at the Google Doc draft, not the published Confluence page. When the
+ * article moves to Confluence, replace it with the short /wiki/x/ form rather than the long
+ * /wiki/spaces/…/pages/… one: the short link survives the page being renamed or moved between
+ * spaces, which the long form does not. Both hosts are already on the allowlist in
+ * electron/ipc/externalLinks.ts, so neither needs a change there.
  *
- * Its host is already on the allowlist in electron/ipc/externalLinks.ts, so the link will work as
- * soon as this constant is filled in. Setting it to null hides the card entirely, which is why
- * the placeholder is null rather than a dead link — an article link that 404s is worse than no
- * link at all.
+ * Setting this to null hides the card entirely, which is why the placeholder was null rather than
+ * a dead link — an article link that 404s is worse than no link at all.
  */
-const HELP_CENTER_ARTICLE_URL: string | null = null;
+const HELP_CENTER_ARTICLE_URL: string | null =
+  'https://docs.google.com/document/d/1zVFVvstKLI1o2tnLV4Uc5Jykcb_41V5AfhXXwHsbHsI/edit';
 
 interface HelpCenterProps {
   isOpen: boolean;
@@ -345,8 +346,8 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose }) => {
                 AI Models Used
               </p>
               <ul className="space-y-1 text-sm text-gray-600 ml-6">
-                <li><span className="font-semibold text-gray-700">Rubric generation:</span> gemini-2.5-flash</li>
-                <li><span className="font-semibold text-gray-700">CSV conversion:</span> gemini-2.5-flash-lite</li>
+                <li><span className="font-semibold text-gray-700">Rubrics, CSV and repairs:</span> gemini-3.5-flash-lite</li>
+                <li><span className="font-semibold text-gray-700">Reading a screenshot:</span> gemini-3.8-flash</li>
               </ul>
             </div>
           </section>

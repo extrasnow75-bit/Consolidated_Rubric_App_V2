@@ -33,19 +33,42 @@ let client: GoogleGenAI | null = null;
 let chatSession: Chat | null = null;
 
 /**
- * Primary model — used for all complex generation tasks (rubric CSV, chat, etc.).
- * gemini-2.5-flash is the only model confirmed READY via diagnostic (HTTP 200).
- * gemini-2.0-flash and gemini-2.0-flash-lite are both DISABLED (limit:0).
- * gemini-1.5-* models return 404 (deprecated from v1beta).
+ * Primary model — everything except reading a screenshot.
+ *
+ * Chosen for its free-tier quota, not its price. Every user of this app brings their own free key
+ * from AI Studio, and Google has cut the full Flash models to roughly 20 requests a day. This app
+ * spends 5–8 requests in an ordinary Part 1 session and N+1 on a document, so a full Flash model
+ * would hit a wall on the first afternoon and read, to the user, as the app being broken.
+ * Flash-Lite is ~1,500 a day, which nobody here will reach.
+ *
+ * It is also the right shape for the work: Google describes it as optimised for document parsing,
+ * it takes PDFs and images as well as text, and its 1M context / 64k output matches what the
+ * previous model gave, so the limits on how many rubrics fit in one response are unchanged.
+ *
+ * Every task it runs — CSV extraction, discovery, repair, rubric drafting — is either gated by a
+ * deterministic check afterwards (parseRatingPoints, the csvRepair gates) or reviewed by a human
+ * before it reaches Canvas, so a smaller model costs quality at worst, never correctness.
+ *
+ * Replaces gemini-2.5-flash, which Google shuts down on 16 October 2026 and which had already
+ * begun returning 404 to newly created API keys — a failure that would have hit every new user
+ * while continuing to work for everyone already set up.
  */
-const PRIMARY_MODEL = 'gemini-2.5-flash';
+const PRIMARY_MODEL = 'gemini-3.5-flash-lite';
 
 /**
- * Fast model — used for lightweight tasks (key validation, rubric discovery).
- * gemini-2.5-flash-lite has a higher daily quota (1,000 RPD vs 250 RPD on Flash),
- * preserving the primary model's quota for the heavy per-rubric generation calls.
+ * Vision model — reading a rubric out of a screenshot, and nothing else.
+ *
+ * This is the one task where model quality maps onto grade correctness. Misreading an "8" as a
+ * "3" produces a perfectly valid number, so neither the closed grammar in parseRatingPoints nor
+ * the repair gates can catch it; only the person checking the draft can. Everywhere else a weak
+ * answer produces a visible refusal, which is why the cheaper model is safe there and not here.
+ *
+ * The trade-off to know about: the full Flash tier is ~20 requests a day free, so heavy
+ * screenshot use in one day will hit a quota wall and back off. That is a visible failure rather
+ * than a wrong grade, which is the way round this codebase prefers. If it proves annoying in
+ * practice, pointing this at PRIMARY_MODEL is a one-line change.
  */
-const FAST_MODEL = 'gemini-2.5-flash-lite';
+const VISION_MODEL = 'gemini-3.8-flash';
 
 /**
  * The shape both rubric-extraction calls ask for.
@@ -232,7 +255,7 @@ export const validateGeminiApiKey = async (apiKey: string): Promise<boolean> => 
   try {
     const testClient = new GoogleGenAI({ apiKey });
     await testClient.models.generateContent({
-      model: FAST_MODEL,
+      model: PRIMARY_MODEL,
       contents: 'Say "ok"',
     });
     return true;
@@ -596,7 +619,9 @@ export async function generateRubricFromScreenshot(
   `;
 
     const response = await ai.models.generateContent({
-      model: PRIMARY_MODEL,
+      // The one call that uses the stronger model — see the note on VISION_MODEL. A misread digit
+      // here is a valid number, so nothing downstream can catch it.
+      model: VISION_MODEL,
       contents: { parts: [{ inlineData: imageData }, { text: textPrompt }] },
       config: {
         responseMimeType: "application/json",
