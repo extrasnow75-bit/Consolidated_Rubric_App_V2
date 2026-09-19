@@ -6,6 +6,7 @@ import { AppMode, Attachment, RubricMeta, BatchItemStatus } from '../types';
 import {
   generateCsvForRubric,
   generateAllCsvsFromDoc,
+  BATCH_RUBRIC_LIMIT,
   generateCsvFromRubricObject,
   discoverRubricTitles,
   type RubricDiscovery,
@@ -93,7 +94,6 @@ export const Part2WordToCsv: React.FC = () => {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [rubricOptions, setRubricOptions] = useState<RubricMeta[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Input mode (file upload vs Google Drive) ─────────────────────────
   const [inputMode, setInputMode] = useState<'from-phase1' | 'file' | 'google-drive'>(state.rubric ? 'from-phase1' : 'file');
@@ -375,6 +375,45 @@ export const Part2WordToCsv: React.FC = () => {
     const MIN_GAP_MS = 6000; // 6 s → safe for 10 RPM
     const csvResults = new Array<string | null>(metas.length).fill(null);
 
+    /**
+     * One request for the whole document, when the document is small enough to take one.
+     *
+     * The per-rubric loop below is the only route this screen ever had, so a routine three-rubric
+     * document made four Gemini calls and sat through two six-second gaps — where the Part 3
+     * panel, which already branches on BATCH_RUBRIC_LIMIT, would make two calls and wait for
+     * none. This closes that gap: the two screens now take the same route for the same document.
+     *
+     * Conservative on purpose. A batch that throws, or that comes back with a different number of
+     * rubrics than discovery found, leaves `batched` null and the loop runs exactly as before —
+     * so the fast path can only ever be taken when both passes agree about what is in the
+     * document. Cancellation still wins over both.
+     */
+    let batched: string[] | null = null;
+    if (metas.length <= BATCH_RUBRIC_LIMIT) {
+      try {
+        // One request covers every rubric, so every card is genuinely in flight. Without this
+        // they all sit on 'pending' and the bar reads 0% for the whole call, then jumps to 100%.
+        setRubricResults(metas.map((m) => ({ rubric: m, status: 'generating' })));
+        const extracted = await generateAllCsvsFromDoc(attachments[0], controller.signal);
+        if (controller.signal.aborted) { setIsGeneratingAll(false); abortRef.current = null; return; }
+
+        if (extracted.length === metas.length) {
+          // Prefer matching each card to the rubric that carries its title; fall back to document
+          // order, which both passes read the same way, if the titles do not line up one to one.
+          const norm = (t: string) => t.trim().toLowerCase();
+          const matched = metas.map((m) => extracted.find((r) => norm(r.title) === norm(m.name)));
+          const oneToOne =
+            matched.every(Boolean) &&
+            new Set(matched.map((r) => norm(r!.title))).size === metas.length;
+          batched = oneToOne ? matched.map((r) => r!.csv) : extracted.map((r) => r.csv);
+        }
+      } catch {
+        if (controller.signal.aborted) { setIsGeneratingAll(false); abortRef.current = null; return; }
+        // Anything else and the loop below does the work one rubric at a time, as it always has.
+        setRubricResults(metas.map((m) => ({ rubric: m, status: 'pending' })));
+      }
+    }
+
     for (let idx = 0; idx < metas.length; idx++) {
       if (controller.signal.aborted) break;
 
@@ -389,13 +428,15 @@ export const Part2WordToCsv: React.FC = () => {
       });
 
       try {
-        const csv = await generateCsvForRubric(
-          rubric.name,
-          rubric.totalPoints,
-          rubric.scoringMethod,
-          attachments[0],
-          controller.signal,
-        );
+        const csv = batched
+          ? batched[idx]
+          : await generateCsvForRubric(
+              rubric.name,
+              rubric.totalPoints,
+              rubric.scoringMethod,
+              attachments[0],
+              controller.signal,
+            );
         csvResults[idx] = csv;
         if (csv) {
           addBatchItem({
@@ -425,7 +466,7 @@ export const Part2WordToCsv: React.FC = () => {
       // Adaptive gap: only wait whatever time remains to reach MIN_GAP_MS
       // since the call started.  If the call already took ≥ 6 s, skip.
       // Always skip after the last rubric or if generation was stopped.
-      if (idx < metas.length - 1 && !controller.signal.aborted) {
+      if (!batched && idx < metas.length - 1 && !controller.signal.aborted) {
         const elapsed = Date.now() - callStart;
         const remaining = MIN_GAP_MS - elapsed;
         if (remaining > 0) {
@@ -693,6 +734,21 @@ export const Part2WordToCsv: React.FC = () => {
   const totalCount = rubricResults.length;
   const completedCount = doneCount + errorCount;
 
+  /**
+   * What a screen reader is told when a conversion run ends.
+   *
+   * Converting a document of rubrics takes minutes and, until now, said nothing at all to anyone
+   * not watching the cards change. Empty while the run is in flight: the region is mounted for
+   * the whole run, because one that appears with text already in it is not reliably announced,
+   * and a per-rubric announcement on a twenty-rubric document would be unusable. The progress
+   * bar carries `aria-valuenow` for checking on demand.
+   */
+  const runAnnouncement =
+    isGeneratingAll || totalCount === 0 || completedCount < totalCount
+      ? ''
+      : `Finished. ${doneCount} of ${totalCount} rubrics converted` +
+        (errorCount > 0 ? `, ${errorCount} failed.` : '.');
+
   // Batch call: single Gemini request for the whole document (~60 s typical)
   // Use pre-scan count if available (8 s per rubric: 2 s throttle + ~6 s API),
   // otherwise fall back to a conservative 60 s flat estimate.
@@ -916,7 +972,6 @@ export const Part2WordToCsv: React.FC = () => {
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
-                    onClick={() => fileInputRef.current?.click()}
                     className={`relative w-full p-8 border-2 border-dashed rounded-3xl flex flex-col items-center justify-center gap-4 cursor-pointer transition-all ${
                       isDragging
                         ? 'bg-blue-50 border-blue-400'
@@ -930,13 +985,13 @@ export const Part2WordToCsv: React.FC = () => {
                       Drop file here or click to browse
                     </p>
                     <input
-                      ref={fileInputRef}
                       type="file"
                       accept=".pdf,.docx,.doc"
                       onChange={(e) => {
                         if (e.target.files?.[0]) handleFileSelect(e.target.files[0]);
                       }}
-                      className="hidden"
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      aria-label="Drop file here or click to browse"
                     />
                   </div>
                 ) : (
@@ -1178,6 +1233,10 @@ export const Part2WordToCsv: React.FC = () => {
                   </div>
                 )}
 
+                <span role="status" aria-live="polite" className="sr-only">
+                  {runAnnouncement}
+                </span>
+
                 {/* Progress summary + live ETA (shown while generating) */}
                 {isGeneratingAll && (
                   <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
@@ -1197,7 +1256,14 @@ export const Part2WordToCsv: React.FC = () => {
                     </div>
 
                     {/* Progress bar */}
-                    <div className="w-full bg-blue-200 rounded-full h-1.5">
+                    <div
+                      className="w-full bg-blue-200 rounded-full h-1.5"
+                      role="progressbar"
+                      aria-valuenow={progressPct}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label="Rubric conversion progress"
+                    >
                       <div
                         className="bg-brand h-1.5 rounded-full transition-all duration-700"
                         style={{ width: `${progressPct}%` }}
@@ -1219,7 +1285,7 @@ export const Part2WordToCsv: React.FC = () => {
                     <p className="text-xs text-blue-700">
                       {isDiscovering
                         ? 'Scanning document for rubric titles…'
-                        : 'Generating rubrics one at a time — each card updates as it finishes'}
+                        : 'Generating rubrics — each card updates as it finishes'}
                     </p>
                   </div>
                 )}

@@ -4,6 +4,7 @@ import { RubricData, CanvasConfig } from '../types';
 import {
   generateCsvFromRubricObject,
   generateAllCsvsFromDoc,
+  BATCH_RUBRIC_LIMIT,
   generateCsvForRubric,
   discoverRubricTitles,
 } from '../services/geminiService';
@@ -33,7 +34,6 @@ const RETRY_DELAY_MS = 2000;
  * that fails costs only itself. Below it the single request is kept because it is one call rather
  * than N+1 and noticeably faster on the small documents that are the common case.
  */
-const BATCH_RUBRIC_LIMIT = 8;
 
 /**
  * Gap between per-rubric calls, matching Part 2, which has always converted this way.
@@ -454,6 +454,24 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
   const failCount = results.filter((r) => r.status === 'failed').length;
   const isRunning = runStatus === 'running';
 
+  /**
+   * What a screen reader is told when the run ends.
+   *
+   * Empty while the run is in flight, for two reasons. The live region is mounted for the whole
+   * run rather than appearing at the end — a region that arrives with text already inside it is
+   * not reliably announced — and an empty value means mounting it says nothing. And a rubric-by
+   * -rubric announcement would interrupt the user twenty-six times on a long document; the
+   * progress bar below carries `aria-valuenow`, so progress can be checked on demand instead of
+   * being pushed. This fires once, when there is something worth saying.
+   */
+  const runAnnouncement =
+    runStatus === 'running'
+      ? ''
+      : runStatus === 'cancelled'
+      ? `Stopped. ${successCount} of ${results.length} rubrics deployed, ${failCount} failed.`
+      : `Finished. ${successCount} of ${results.length} rubrics deployed` +
+        (failCount > 0 ? `, ${failCount} failed.` : '.');
+
   /** Distinct failure causes, each with the rubrics it accounts for, in the order they failed. */
   const failureGroups = React.useMemo(() => {
     const groups = new Map<string, { diagnosis: CanvasDiagnosis; items: RubricResult[] }>();
@@ -600,9 +618,20 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
         {renderSummaryHeader()}
 
+        <span role="status" aria-live="polite" className="sr-only">
+          {runAnnouncement}
+        </span>
+
         {/* Progress bar */}
         <div className="mt-4">
-          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div
+            className="h-2 bg-gray-100 rounded-full overflow-hidden"
+            role="progressbar"
+            aria-valuenow={Math.round(progress)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Conversion and deployment progress"
+          >
             <div
               className={`h-full rounded-full transition-all duration-300 ${
                 runStatus === 'complete' && failCount === 0
@@ -706,14 +735,18 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Log body */}
+        {/* Log body.
+            text-gray-400 rather than -600 for the secondary text. #4b5563 on this near-black
+            panel is 2.6:1 — the design system's warning that the light-background greys "do not
+            carry over" to dark ones, landing exactly as described. #9ca3af is 7.6:1, which keeps
+            timestamps visibly quieter than the messages beside them while still being readable. */}
         <div className="bg-[#0d0d1a] p-4 h-56 overflow-y-auto font-mono text-xs space-y-1">
           {logs.length === 0 ? (
-            <p className="text-gray-600 italic">No activity yet.</p>
+            <p className="text-gray-400 italic">No activity yet.</p>
           ) : (
             logs.map((entry, i) => (
               <div key={i} className="flex gap-2">
-                <span className="text-gray-600 flex-shrink-0">[{entry.timestamp}]</span>
+                <span className="text-gray-400 flex-shrink-0">[{entry.timestamp}]</span>
                 <span
                   className={
                     entry.type === 'success'

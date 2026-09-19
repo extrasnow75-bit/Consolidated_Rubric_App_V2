@@ -34,12 +34,36 @@ export function useDialogFocus<T extends HTMLElement = HTMLElement>(
      * was added to fix.
      */
     ref?: React.RefObject<T | null>;
+    /**
+     * Element to focus on open, instead of the first focusable one in the container.
+     *
+     * The Drive browser wants focus in its search box, because typing a filename is the fastest
+     * way to find something. Its first focusable element is the Close button in the header, so
+     * without this the hook would take focus away from where the dialog wants it and the two
+     * would race each other through their timers.
+     */
+    initialFocus?: React.RefObject<HTMLElement | null>;
   },
 ) {
   const ownRef = useRef<T | null>(null);
   const containerRef = options?.ref ?? ownRef;
   const restoreRef = useRef<HTMLElement | null>(null);
   const trapFocus = options?.trapFocus !== false;
+  const initialFocus = options?.initialFocus;
+
+  /**
+   * The close callback, held in a ref so the effect below does not depend on its identity.
+   *
+   * Callers pass an inline arrow — `onCancel={() => settle(null)}` in DrivePickerContext, for
+   * one — which is a new function on every render of the parent. If the effect depended on it,
+   * every such render would tear the effect down and set it up again, and teardown *restores
+   * focus*. The dialog would keep throwing focus back to the button that opened it while the
+   * user was still typing in it.
+   */
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!isOpen) return;
@@ -62,14 +86,14 @@ export function useDialogFocus<T extends HTMLElement = HTMLElement>(
     // A frame's delay: the dialog may still be mid-transition, and focusing an element that is
     // not yet laid out silently does nothing.
     const timer = window.setTimeout(() => {
-      const first = focusable()[0];
+      const first = initialFocus?.current ?? focusable()[0];
       (first ?? containerRef.current)?.focus();
     }, 50);
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (!trapFocus || e.key !== 'Tab') return;
@@ -99,7 +123,7 @@ export function useDialogFocus<T extends HTMLElement = HTMLElement>(
       document.removeEventListener('keydown', onKeyDown, true);
       restoreRef.current?.focus?.();
     };
-  }, [isOpen, onClose, trapFocus]);
+  }, [isOpen, trapFocus, initialFocus]);
 
   return containerRef;
 }

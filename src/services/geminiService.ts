@@ -248,6 +248,19 @@ export const discoverRubricTitles = (
     window.api.gemini.discoverRubricTitles({ attachment, jobId }),
   );
 
+/**
+ * How many rubrics `generateAllCsvsFromDoc` will take in one request.
+ *
+ * The model's output ceiling is 64k tokens, shared with its thinking tokens, and a batch
+ * extraction is all-or-nothing: one truncated response loses every rubric in it. A 26-rubric
+ * document proved that by failing with "Unterminated string in JSON at position 126176". Eight
+ * sits comfortably inside the ceiling.
+ *
+ * It lives here rather than in a component because it is a property of the call, not of any one
+ * screen, and both Part 2 and the Part 3 analyze-and-deploy panel have to agree on it.
+ */
+export const BATCH_RUBRIC_LIMIT = 8;
+
 export const generateAllCsvsFromDoc = (
   attachment: Attachment,
   signal?: AbortSignal,

@@ -915,6 +915,17 @@ export const Part3Upload: React.FC = () => {
               <ErrorDisplay error={state.error} />
             )}
 
+            {/* Mounted for the whole session, empty until there is a result.
+                A live region that appears with its text already inside is not reliably
+                announced, so this cannot live inside the block below — and an upload that takes
+                minutes previously finished in silence for anyone not watching the panel.
+                The deployment timeline deliberately stays outside the live region: announcing
+                every line of it, including each "Waiting 10 seconds before next upload", would
+                be unusable. */}
+            <span role="status" aria-live="polite" className="sr-only">
+              {uploadStatus?.message ?? ''}
+            </span>
+
             {uploadStatus && (
               <div
                 className={`p-4 border rounded-2xl ${

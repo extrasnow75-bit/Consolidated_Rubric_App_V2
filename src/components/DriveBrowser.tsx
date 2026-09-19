@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useDialogFocus } from '../hooks/useDialogFocus';
 import {
   X,
   Search,
@@ -141,21 +142,21 @@ export const DriveBrowser: React.FC<DriveBrowserProps> = ({
     setSearchInput('');
     setActiveSearch('');
     setSelected(null);
-    // Focus follows the dialog, both so a keyboard user lands inside it and because typing a
-    // filename is the fastest way to find something.
-    const t = setTimeout(() => searchRef.current?.focus(), 50);
-    return () => clearTimeout(t);
   }, [isOpen]);
 
-  // Escape closes, matching every other dialog the user has ever used.
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onCancel]);
+  /**
+   * Focus, Tab-trapping, Escape and focus-restore, from the hook every other dialog uses.
+   *
+   * This component used to hand-roll two of those four: it focused the search box and closed on
+   * Escape, but nothing held Tab inside it and nothing gave focus back on close. So Tab from the
+   * last row walked out into the page behind a backdrop that says `aria-modal="true"`, and
+   * picking a file dropped focus to <body> instead of returning it to the button that opened
+   * the picker.
+   *
+   * `initialFocus` keeps the one behaviour worth keeping: focus lands in the search box rather
+   * than on the Close button, because typing a filename is the fastest way to find something.
+   */
+  const panelRef = useDialogFocus<HTMLDivElement>(isOpen, onCancel, { initialFocus: searchRef });
 
   if (!isOpen) return null;
 
@@ -195,6 +196,7 @@ export const DriveBrowser: React.FC<DriveBrowserProps> = ({
       role="presentation"
     >
       <div
+        ref={panelRef}
         className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
