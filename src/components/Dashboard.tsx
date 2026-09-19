@@ -901,8 +901,17 @@ export const Dashboard: React.FC = () => {
           </SetupCard>
         )}
 
-        {/* ── Target Canvas Course — appears only when "Yes" is selected ── */}
-        {coreSetupComplete && hasDraftRubric === 'yes' && (
+        {/*
+          Target Canvas Course — appears only once a document has actually been chosen.
+
+          It used to appear as soon as "Yes" was selected, which put a bordered card with a
+          filled-in URL and a green tick directly beneath a card that still needed input. The
+          finished-looking one drew the eye, the unfinished one above it read as decoration, and
+          the deploy button stayed greyed out with no indication of which card was holding it up.
+          draftRubricValid is already "a document has been chosen" on this branch, so gating on
+          it makes the two cards strictly sequential: fill this one, then the next appears.
+        */}
+        {coreSetupComplete && hasDraftRubric === 'yes' && draftRubricValid && (
           <SetupCard isValid={courseVerified}>
             <div className="flex items-center gap-2 mb-1">
               <Link className="w-4 h-4 text-blue-600 flex-shrink-0" />

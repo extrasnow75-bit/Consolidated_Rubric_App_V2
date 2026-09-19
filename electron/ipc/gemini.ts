@@ -18,6 +18,7 @@
  */
 import { GoogleGenAI, Chat, Type } from '@google/genai'
 import { extractDocxText } from './docxText'
+import { buildRubricCsv, ExtractedCriterion } from './rubricCsv'
 import { getGeminiApiKey } from './credentials'
 import {
   GenerationSettings,
@@ -45,6 +46,38 @@ const PRIMARY_MODEL = 'gemini-2.5-flash';
  * preserving the primary model's quota for the heavy per-rubric generation calls.
  */
 const FAST_MODEL = 'gemini-2.5-flash-lite';
+
+/**
+ * The shape both rubric-extraction calls ask for.
+ *
+ * Points are a STRING, not a number, and that is deliberate. A numeric field forces the model to
+ * return some number for a cell it could not read, and an invented point value deploys cleanly
+ * and grades students wrongly — the exact failure this codebase has already fixed twice. As text,
+ * an unreadable value reaches buildRubricPayload, which refuses the file and names the rating.
+ */
+const CRITERIA_SCHEMA = {
+  type: Type.ARRAY,
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      name:        { type: Type.STRING },
+      description: { type: Type.STRING },
+      ratings: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            name:        { type: Type.STRING },
+            description: { type: Type.STRING },
+            points:      { type: Type.STRING },
+          },
+          required: ['name', 'description', 'points'],
+        },
+      },
+    },
+    required: ['name', 'description', 'ratings'],
+  },
+} as const
 
 /** MIME type for Word documents */
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -955,27 +988,19 @@ export async function generateCsvForRubric(
     if (signal?.aborted) throw new Error('Request cancelled');
     const ai = getClient();
 
-    const scoringDetail =
+    const pointsRule =
       scoringMethod === 'ranges'
-        ? 'Set "Criteria Enable Range" to true. For Rating Points, use only the maximum single point value per rating level (e.g., "10", "8", "4", "0"). Do NOT use range strings like "10-8" — Canvas computes range boundaries automatically from adjacent rating values. Source rubrics write a band several ways and every one of them means the same thing: take the HIGHEST number in the cell. "4 to >3 pts" (the wording Canvas itself uses, where ">3" just restates the rating below) is 4. "4-3.5 points" is 4. "40–50 pts" is 50. "2.4-0 points" is 2.4. Never carry the "to", the ">" or the dash into Rating Points. Any of those forms also means the rubric uses ranges, so set "Criteria Enable Range" to true for that criterion.'
-        : 'Set "Criteria Enable Range" to false. Use fixed single point values (e.g., "10", "8").';
+        ? 'This rubric uses point ranges. Give each rating its HIGHEST value only, as a plain number. A cell reading "4 to >3 pts" (the wording Canvas itself uses, where ">3" just restates the rating below) is 4. "4-3.5 points" is 4. "40–50 pts" is 50. "2.4-0 points" is 2.4. Never carry the "to", the ">" or the dash into points.'
+        : 'This rubric uses single fixed point values. Give each rating its number, e.g. "10", "8".';
 
-    const prompt = `Extract the rubric named "${rubricName}" from this document and convert it to a Canvas-compatible CSV.
+    const prompt = `Extract the rubric named "${rubricName}" from this document.
 
-SPECIFICATIONS:
-- Rubric name: "${rubricName}"
 - Total points: ${totalPoints || 'as detected in the document'}
-- Scoring: ${scoringDetail}
-
-REQUIRED HEADER ROW (copy verbatim on line 1):
-Rubric Name,Criteria Name,Criteria Description,Criteria Enable Range,Rating Name,Rating Description,Rating Points,Rating Name,Rating Description,Rating Points,Rating Name,Rating Description,Rating Points,Rating Name,Rating Description,Rating Points
-
-DATA RULES:
-1. One row per criterion.
-2. "Rubric Name" column: populate ONLY on the first data row; leave blank on all subsequent rows.
-3. Ratings must be ordered HIGHEST to LOWEST points.
-4. Wrap any field containing a comma in double quotes.
-5. Return ONLY the raw CSV — no markdown fences, no prose, no extra blank lines before the header.`;
+- Points: ${pointsRule}
+- Order the ratings from HIGHEST points to LOWEST.
+- Copy each criterion and rating's wording from the document. Do not summarise or rewrite it.
+- If a rating's points cannot be determined from the document, return the cell's text as it
+  appears rather than guessing a number.`;
 
     const parts: any[] = [{ text: prompt }];
 
@@ -992,68 +1017,20 @@ DATA RULES:
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
         temperature: 0.1,
+        responseMimeType: 'application/json',
+        responseSchema: { type: Type.OBJECT, properties: { criteria: CRITERIA_SCHEMA }, required: ['criteria'] },
       },
     });
 
-    const text = response.text ?? '';
-    // Strip markdown code fences if the model includes them despite instructions
-    const fenceMatch = text.match(/```(?:csv)?\n?([\s\S]*?)\n?```/);
-    const rawCsv = fenceMatch ? fenceMatch[1].trim() : text.trim();
-    // Gemini doesn't reliably write the correct Enable Range value, so force it
-    // programmatically based on the scoringMethod we already know.
-    return forceEnableRangeColumn(rawCsv, scoringMethod);
+    if (!response.text) throw new Error('No response from Gemini');
+    const parsed = JSON.parse(response.text.trim()) as { criteria: ExtractedCriterion[] };
+    if (!Array.isArray(parsed.criteria) || parsed.criteria.length === 0) {
+      throw new Error(`No criteria found for the rubric named “${rubricName}”.`);
+    }
+
+    // The CSV is assembled here rather than by the model — see electron/ipc/rubricCsv.ts for why.
+    return buildRubricCsv({ title: rubricName, criteria: parsed.criteria }, scoringMethod);
   }, signal);
-}
-
-/**
- * Programmatically override the "Criteria Enable Range" column in a
- * Gemini-generated CSV.  Gemini is instructed to set it, but the instruction
- * is not always followed, so we enforce the correct value here.
- *
- * Walks each data row with full quote-awareness so quoted fields containing
- * commas (e.g. long criterion descriptions) are handled correctly.
- */
-function forceEnableRangeColumn(csv: string, scoringMethod: 'ranges' | 'fixed'): string {
-  const targetValue = scoringMethod === 'ranges' ? 'TRUE' : 'FALSE';
-  const rows = csv.split(/\r?\n/);
-  if (rows.length < 2) return csv;
-
-  // Locate the column index from the header row (unquoted, no commas in names)
-  const headerCells = rows[0].split(',').map(h => h.toLowerCase().replace(/"/g, '').trim());
-  const colIdx = headerCells.findIndex(h => h.includes('enable range'));
-  if (colIdx === -1) return csv;
-
-  /**
-   * Replace the value at `fieldIndex` inside a single CSV line,
-   * skipping over any quoted fields that may contain commas.
-   */
-  const replaceField = (line: string, fieldIndex: number, value: string): string => {
-    let count = 0;
-    let inQuote = false;
-    let fieldStart = 0;
-
-    for (let i = 0; i <= line.length; i++) {
-      const ch = i < line.length ? line[i] : ','; // treat EOL as a delimiter
-      if (ch === '"') {
-        inQuote = !inQuote;
-      } else if (ch === ',' && !inQuote) {
-        if (count === fieldIndex) {
-          return line.slice(0, fieldStart) + value + line.slice(i);
-        }
-        count++;
-        fieldStart = i + 1;
-      }
-    }
-    // Last field
-    if (count === fieldIndex) {
-      return line.slice(0, fieldStart) + value;
-    }
-    return line;
-  };
-
-  return rows
-    .map((row, i) => (i === 0 || !row.trim() ? row : replaceField(row, colIdx, targetValue)))
-    .join('\n');
 }
 
 // ─── Phase 2: Rubric discovery (pass 1 of 2) ────────────────────────
@@ -1168,24 +1145,22 @@ export async function generateAllCsvsFromDoc(
     if (signal?.aborted) throw new Error('Request cancelled');
     const ai = getClient();
 
-    const prompt = `Extract ALL rubric tables from this document and convert each one to a Canvas-compatible CSV string.
+    const prompt = `Extract EVERY rubric in this document.
 
-REQUIRED CSV HEADER ROW (copy verbatim as the first line of every csv value):
-Rubric Name,Criteria Name,Criteria Description,Criteria Enable Range,Rating Name,Rating Description,Rating Points,Rating Name,Rating Description,Rating Points,Rating Name,Rating Description,Rating Points,Rating Name,Rating Description,Rating Points
+For each rubric return:
+- title: the rubric's name exactly as it appears in the document
+- usesRanges: true if that rubric's points are written as bands ("40–50 pts", "4 to >3 pts",
+  "10-8"), false if they are single fixed values ("10 pts", "8")
+- criteria: one entry per row of the rubric, each with its ratings ordered HIGHEST to LOWEST
 
-DATA RULES:
-1. One row per criterion.
-2. "Rubric Name" column: populate ONLY on the first data row of each CSV; leave blank on all subsequent rows.
-3. Ratings must be ordered HIGHEST to LOWEST points.
-4. Detect the scoring method from the source document for each rubric:
-   - If the rubric uses point ranges (e.g., "40–50 pts", "90-100"), set "Criteria Enable Range" to true and use only the maximum single point value per rating in the Rating Points column (e.g., "10", "8", "4", "0"). Do NOT use range strings like "10-8" — Canvas computes range boundaries automatically from adjacent rating values. Source rubrics write a band several ways and every one of them means the same thing: take the HIGHEST number in the cell. "4 to >3 pts" (the wording Canvas itself uses, where ">3" just restates the rating below) is 4. "4-3.5 points" is 4. "40–50 pts" is 50. "2.4-0 points" is 2.4. Never carry the "to", the ">" or the dash into Rating Points. Any of those forms also means the rubric uses ranges, so set "Criteria Enable Range" to true for that criterion.
-   - If the rubric uses single fixed values (e.g., "10 pts", "8"), set "Criteria Enable Range" to false and use plain numbers only (e.g., "10", "8").
-5. Wrap any field containing a comma in double quotes.
-6. No markdown fences, no prose — only raw CSV content in each csv field.
+Points rules:
+- Give each rating a single value. For a band, that is its HIGHEST number: "4 to >3 pts" (the
+  wording Canvas itself uses, where ">3" just restates the rating below) is 4. "4-3.5 points" is
+  4. "40–50 pts" is 50. "2.4-0 points" is 2.4. Never carry the "to", the ">" or the dash through.
+- If a rating's points cannot be determined from the document, return the cell's text as it
+  appears rather than guessing a number.
 
-Return a JSON object with a "rubrics" array. Each element must have:
-- "title": the rubric name exactly as it appears in the document
-- "csv": the complete CSV string including the header row`;
+Copy each criterion and rating's wording from the document. Do not summarise or rewrite it.`;
 
     const parts: any[] = [{ text: prompt }];
 
@@ -1211,10 +1186,11 @@ Return a JSON object with a "rubrics" array. Each element must have:
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  title: { type: Type.STRING },
-                  csv:   { type: Type.STRING },
+                  title:      { type: Type.STRING },
+                  usesRanges: { type: Type.BOOLEAN },
+                  criteria:   CRITERIA_SCHEMA,
                 },
-                required: ['title', 'csv'],
+                required: ['title', 'usesRanges', 'criteria'],
               },
             },
           },
@@ -1224,11 +1200,21 @@ Return a JSON object with a "rubrics" array. Each element must have:
     });
 
     if (!response.text) throw new Error('No response from Gemini batch call');
-    const parsed = JSON.parse(response.text.trim()) as { rubrics: BatchRubricResult[] };
+    const parsed = JSON.parse(response.text.trim()) as {
+      rubrics: Array<{ title: string; usesRanges: boolean; criteria: ExtractedCriterion[] }>;
+    };
     if (!Array.isArray(parsed.rubrics) || parsed.rubrics.length === 0) {
       throw new Error('No rubrics found in document — check that the file contains rubric tables');
     }
-    return parsed.rubrics;
+
+    // Each CSV is assembled here rather than by the model — see electron/ipc/rubricCsv.ts for why.
+    return parsed.rubrics.map((r) => ({
+      title: r.title,
+      csv: buildRubricCsv(
+        { title: r.title, criteria: r.criteria ?? [] },
+        r.usesRanges ? 'ranges' : 'fixed',
+      ),
+    }));
   }, signal);
 }
 
