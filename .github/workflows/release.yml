@@ -261,11 +261,19 @@ jobs:
           # Asked of GitHub rather than of the checkout: actions/checkout fetches no tags at
           # depth 1, so a local `git rev-parse` would report every tag missing, including the
           # real ones.
-          # $REPUBLISHING, not ${{ inputs.publish_tag }}. A `${{ }}` expansion is pasted into the
-          # script before the shell ever sees it, so a tag name containing shell metacharacters
-          # would run as code here — in a job holding MAIN_VITE_GOOGLE_CLIENT_SECRET. Through the
-          # environment the value stays data. Every other use of the tag in this file already
-          # goes through $TAG for the same reason.
+          # $REPUBLISHING, never the input interpolated straight into this script. A template
+          # expansion is pasted in before the shell ever sees it, so a tag name containing shell
+          # metacharacters would run as code here — in a job holding
+          # MAIN_VITE_GOOGLE_CLIENT_SECRET. Through the environment the value stays data. Every
+          # other use of the tag in this file already goes through $TAG for the same reason.
+          #
+          # This comment used to spell that syntax out literally, and doing so broke every
+          # release from v0.9.2 onward. GitHub scans a run: block for template expansions and
+          # does not care that the line is a shell comment; it found the empty one written here
+          # as an illustration, reported "An expression was expected", and refused the whole
+          # file. A rejected file has no jobs to fail, so the Actions page showed runs lasting
+          # -1s, and it created one on every push because it could not read the triggers either.
+          # Never write that two-brace syntax inside a run: block, comment or not.
           if [ -n "$REPUBLISHING" ] && \
              ! gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
             echo "::error::No tag named $TAG exists. Republishing only works on a tag that is already pushed."
