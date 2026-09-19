@@ -460,9 +460,9 @@ ipcMain.handle(
 )
 
 ipcMain.handle(
-  'gemini:generateAllCsvsFromDoc',
-  (_e, a: { attachment: Attachment; jobId?: string }) =>
-    withJob(a.jobId, (s) => gemini.generateAllCsvsFromDoc(a.attachment, s)),
+  'gemini:generateCsvsForRubrics',
+  (_e, a: { attachment: Attachment; rubricNames: string[]; jobId?: string }) =>
+    withJob(a.jobId, (s) => gemini.generateCsvsForRubrics(a.attachment, a.rubricNames, s)),
 )
 
 // ─── Rubric export ────────────────────────────────────────────────────────────

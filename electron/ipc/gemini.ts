@@ -17,6 +17,7 @@
  * here, no part of the visible app needs a socket.
  */
 import { GoogleGenAI, Chat, Type } from '@google/genai'
+import { createHash } from 'node:crypto'
 import { extractDocxText } from './docxText'
 import { buildRubricCsv, ExtractedCriterion } from './rubricCsv'
 import { getGeminiApiKey } from './credentials'
@@ -249,6 +250,38 @@ function isDocx(att: Attachment): boolean {
   );
 }
 
+/**
+ * The .docx text of the document currently being worked on.
+ *
+ * Every call that carries a document — discovery, each batch, each single rubric — used to run
+ * `extractDocxText` again on the identical bytes. A 26-rubric document therefore base64-decoded
+ * and fully XML-parsed the same file 27 times, in the main process, which is simultaneously
+ * serving every other IPC call the app makes. The parse is pure: same bytes, same text.
+ *
+ * One entry, because a run works through one document at a time and holding more would mean
+ * holding whole documents in memory for no reason. Keyed by a digest of the bytes rather than by
+ * filename, so two files that happen to share a name cannot be confused for each other.
+ */
+let docxTextCache: { key: string; text: string } | null = null;
+
+/**
+ * Build the Gemini part that carries the document.
+ *
+ * A .docx becomes extracted text (cached, above); anything else — PDF, image — goes across as
+ * inline data, which needs no parsing on this side.
+ */
+async function documentPart(attachment: Attachment, leadIn = 'Document content from'): Promise<any> {
+  if (!isDocx(attachment)) {
+    return { inlineData: { mimeType: attachment.mimeType, data: attachment.data } };
+  }
+
+  const key = createHash('sha256').update(attachment.data).digest('hex');
+  if (docxTextCache?.key !== key) {
+    docxTextCache = { key, text: await extractDocxText(attachment) };
+  }
+  return { text: `\n\n[${leadIn} "${attachment.name}"]:\n${docxTextCache.text}` };
+}
+
 // ─── API key validation ──────────────────────────────────────────────
 
 export const validateGeminiApiKey = async (apiKey: string): Promise<boolean> => {
@@ -348,12 +381,7 @@ export const sendMessageToGemini = async (
     if (text) parts.push({ text });
 
     for (const att of attachments) {
-      if (isDocx(att)) {
-        const extracted = await extractDocxText(att);
-        parts.push({ text: `\n\n[Document content extracted from "${att.name}"]:\n${extracted}` });
-      } else {
-        parts.push({ inlineData: { mimeType: att.mimeType, data: att.data } });
-      }
+      parts.push(await documentPart(att, 'Document content extracted from'));
     }
 
     const result = await chatSession.sendMessage({ message: parts });
@@ -384,12 +412,7 @@ export const extractRubricMetadata = async (
     ];
 
     for (const att of attachments) {
-      if (isDocx(att)) {
-        const extracted = await extractDocxText(att);
-        parts.push({ text: `\n\n[Document content extracted from "${att.name}"]:\n${extracted}` });
-      } else {
-        parts.push({ inlineData: { mimeType: att.mimeType, data: att.data } });
-      }
+      parts.push(await documentPart(att, 'Document content extracted from'));
     }
 
     const response = await ai.models.generateContent({
@@ -484,6 +507,33 @@ export async function validateAssignmentDescription(
 /**
  * Generate a rubric from an assignment description.
  */
+/**
+ * House style for rubric text the model writes itself.
+ *
+ * Generated descriptions ran long — several lines per cell, four cells per row — which makes a
+ * rubric that is slower to grade with and, in Canvas's fixed-width rating columns, one the
+ * student scrolls rather than reads. The brief is not "shorter" but "as short as it can be while
+ * still telling the two adjacent levels apart", so the rule carries a word budget *and* an
+ * explicit demand that the levels stay distinct: a model told only to be concise will happily
+ * compress four levels into the same sentence with the adjective swapped, which is shorter and
+ * useless.
+ *
+ * This applies only where the model is the author. Extraction — from a document, from a
+ * screenshot — copies the instructor's wording verbatim, because that rubric is already written
+ * and already approved, and quietly rewriting it changes what students are graded against.
+ */
+const RATING_BREVITY_RULE = `WRITING THE DESCRIPTIONS — be brief:
+    - One sentence per rating, 20 words maximum. Aim for 10 to 15.
+    - State the observable difference and stop: what the work has, lacks, or does inconsistently.
+    - Cut throat-clearing openers ("The student...", "This submission...", "Work at this level
+      demonstrates..."), hedges ("generally", "for the most part", "may at times"), and any
+      restatement of the criterion name — whoever is grading is already reading that row.
+    - Brevity must not cost distinctness. Each level has to be unmistakably different from the
+      ones directly above and below it. Vary the substance, not the adjective: never write one
+      sentence four times with "excellent / good / fair / poor" swapped in.
+    - Criterion descriptions follow the same rule: one short line, and none at all when the
+      criterion name already says it.`;
+
 export async function generateRubricFromDescription(
   assignmentDescription: string,
   settings: GenerationSettings,
@@ -521,7 +571,10 @@ export async function generateRubricFromDescription(
     }.
     - Ratings columns MUST BE: Exemplary, Proficient, Developing, and Unsatisfactory.
     - Break down the ${settings.totalPoints} points across logical categories/criteria.
-    - For each category, describe specific behaviors or qualities for each of the four ratings.
+    - For each category, describe specific observable behaviours or qualities for each of the
+      four ratings.
+
+    ${RATING_BREVITY_RULE}
 
     Format the output as a JSON object matching the RubricData structure.
   `;
@@ -786,6 +839,12 @@ export async function applyRubricChanges(
 
     Return the modified rubric in the same JSON structure.
     Only change point totals if the user explicitly requests a redistribution of points.
+
+    Anything you write or rewrite follows the house style below. Text the user did not ask you to
+    change stays exactly as it is, even where it is longer than this allows — shortening it would
+    be an edit they did not request.
+
+    ${RATING_BREVITY_RULE}
     `;
 
     const rubricSchema = {
@@ -1029,12 +1088,7 @@ export async function generateCsvForRubric(
 
     const parts: any[] = [{ text: prompt }];
 
-    if (isDocx(attachment)) {
-      const extracted = await extractDocxText(attachment);
-      parts.push({ text: `\n\n[Document content from "${attachment.name}"]:\n${extracted}` });
-    } else {
-      parts.push({ inlineData: { mimeType: attachment.mimeType, data: attachment.data } });
-    }
+    parts.push(await documentPart(attachment));
 
     const response = await ai.models.generateContent({
       model: PRIMARY_MODEL,
@@ -1093,12 +1147,7 @@ Do NOT generate CSV content — titles and scoring methods only.`;
 
     const parts: any[] = [{ text: prompt }];
 
-    if (isDocx(attachment)) {
-      const extracted = await extractDocxText(attachment);
-      parts.push({ text: `\n\n[Document content from "${attachment.name}"]:\n${extracted}` });
-    } else {
-      parts.push({ inlineData: { mimeType: attachment.mimeType, data: attachment.data } });
-    }
+    parts.push(await documentPart(attachment));
 
     const response = await ai.models.generateContent({
       model: PRIMARY_MODEL,
@@ -1160,25 +1209,14 @@ export interface BatchRubricResult {
  * to give the free-tier quota time to fully reset before re-attempting a
  * large, token-heavy request.
  */
-export async function generateAllCsvsFromDoc(
-  attachment: Attachment,
-  signal?: AbortSignal,
-): Promise<BatchRubricResult[]> {
-  await throttle(signal);
-
-  return retryWithBackoff(async () => {
-    if (signal?.aborted) throw new Error('Request cancelled');
-    const ai = getClient();
-
-    const prompt = `Extract EVERY rubric in this document.
-
-For each rubric return:
-- title: the rubric's name exactly as it appears in the document
-- usesRanges: true if that rubric's points are written as bands ("40–50 pts", "4 to >3 pts",
-  "10-8"), false if they are single fixed values ("10 pts", "8")
-- criteria: one entry per row of the rubric, each with its ratings ordered HIGHEST to LOWEST
-
-Points rules:
+/**
+ * The points grammar, and the instruction not to rewrite the instructor's words.
+ *
+ * Shared by both batch prompts so they cannot drift apart. The verbatim rule matters more than it
+ * looks: these rubrics are already written and already approved, and an extraction that "improves"
+ * a rating description silently changes what a student is graded against.
+ */
+const EXTRACTION_RULES = `Points rules:
 - Give each rating a single value. For a band, that is its HIGHEST number: "4 to >3 pts" (the
   wording Canvas itself uses, where ">3" just restates the rating below) is 4. "4-3.5 points" is
   4. "40–50 pts" is 50. "2.4-0 points" is 2.4. Never carry the "to", the ">" or the dash through.
@@ -1187,14 +1225,45 @@ Points rules:
 
 Copy each criterion and rating's wording from the document. Do not summarise or rewrite it.`;
 
-    const parts: any[] = [{ text: prompt }];
+const BATCH_RUBRICS_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    rubrics: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          title:      { type: Type.STRING },
+          usesRanges: { type: Type.BOOLEAN },
+          criteria:   CRITERIA_SCHEMA,
+        },
+        required: ['title', 'usesRanges', 'criteria'],
+      },
+    },
+  },
+  required: ['rubrics'],
+} as const;
 
-    if (isDocx(attachment)) {
-      const extracted = await extractDocxText(attachment);
-      parts.push({ text: `\n\n[Document content from "${attachment.name}"]:\n${extracted}` });
-    } else {
-      parts.push({ inlineData: { mimeType: attachment.mimeType, data: attachment.data } });
-    }
+/**
+ * Run one batch extraction and turn the result into CSVs.
+ *
+ * The body both batch calls share; only the prompt differs. The CSV is assembled here rather than
+ * by the model — see electron/ipc/rubricCsv.ts for the data loss that taught us to do it this way.
+ */
+async function runBatchExtraction(
+  prompt: string,
+  attachment: Attachment,
+  signal: AbortSignal | undefined,
+  emptyMessage: string,
+): Promise<BatchRubricResult[]> {
+  await throttle(signal);
+
+  return retryWithBackoff(async () => {
+    if (signal?.aborted) throw new Error('Request cancelled');
+    const ai = getClient();
+
+    const parts: any[] = [{ text: prompt }];
+    parts.push(await documentPart(attachment));
 
     const response = await ai.models.generateContent({
       model: PRIMARY_MODEL,
@@ -1203,24 +1272,7 @@ Copy each criterion and rating's wording from the document. Do not summarise or 
         systemInstruction: SYSTEM_INSTRUCTION,
         temperature: 0.4,
         responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            rubrics: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  title:      { type: Type.STRING },
-                  usesRanges: { type: Type.BOOLEAN },
-                  criteria:   CRITERIA_SCHEMA,
-                },
-                required: ['title', 'usesRanges', 'criteria'],
-              },
-            },
-          },
-          required: ['rubrics'],
-        },
+        responseSchema: BATCH_RUBRICS_SCHEMA,
       },
     });
 
@@ -1229,10 +1281,9 @@ Copy each criterion and rating's wording from the document. Do not summarise or 
       rubrics: Array<{ title: string; usesRanges: boolean; criteria: ExtractedCriterion[] }>;
     };
     if (!Array.isArray(parsed.rubrics) || parsed.rubrics.length === 0) {
-      throw new Error('No rubrics found in document — check that the file contains rubric tables');
+      throw new Error(emptyMessage);
     }
 
-    // Each CSV is assembled here rather than by the model — see electron/ipc/rubricCsv.ts for why.
     return parsed.rubrics.map((r) => ({
       title: r.title,
       csv: buildRubricCsv(
@@ -1241,6 +1292,52 @@ Copy each criterion and rating's wording from the document. Do not summarise or 
       ),
     }));
   }, signal);
+}
+
+/**
+ * Extract a named subset of a document's rubrics in one call.
+ *
+ * This is what makes a large document affordable. Above the batch limit the app used to fall all
+ * the way to one call per rubric, and because every call carries the whole document, a 26-rubric
+ * document sent that document 27 times and spent 25 six-second pacing gaps doing it. Asking for a
+ * named group instead means the same document takes four calls, not twenty-seven.
+ *
+ * Splitting by name rather than by slicing the document is deliberate: a slice can cut a rubric in
+ * half, and the model is being asked to find rubrics by title anyway — discovery has already
+ * established that those titles exist.
+ *
+ * Rubrics it cannot find are omitted rather than returned empty, so the caller can tell exactly
+ * which names went unanswered and retry just those.
+ */
+export async function generateCsvsForRubrics(
+  attachment: Attachment,
+  rubricNames: string[],
+  signal?: AbortSignal,
+): Promise<BatchRubricResult[]> {
+  if (rubricNames.length === 0) return [];
+
+  const list = rubricNames.map((n, i) => `${i + 1}. "${n}"`).join('\n');
+
+  return runBatchExtraction(
+    `Extract ONLY the rubrics named below from this document. Ignore every other rubric in it.
+
+Rubrics to extract:
+${list}
+
+For each one return:
+- title: the rubric's name exactly as it appears in the document
+- usesRanges: true if that rubric's points are written as bands ("40–50 pts", "4 to >3 pts",
+  "10-8"), false if they are single fixed values ("10 pts", "8")
+- criteria: one entry per row of the rubric, each with its ratings ordered HIGHEST to LOWEST
+
+Return them in the order listed above. If one of the named rubrics is not in the document, leave
+it out rather than inventing it.
+
+${EXTRACTION_RULES}`,
+    attachment,
+    signal,
+    `None of the named rubrics could be found in the document (${rubricNames.join(', ')})`,
+  );
 }
 
 // ─── Phase 1 → Phase 2 direct carry-forward ─────────────────────────

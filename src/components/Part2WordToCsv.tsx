@@ -5,8 +5,7 @@ import { useDrivePicker } from '../contexts/DrivePickerContext';
 import { AppMode, Attachment, RubricMeta, BatchItemStatus } from '../types';
 import {
   generateCsvForRubric,
-  generateAllCsvsFromDoc,
-  BATCH_RUBRIC_LIMIT,
+  generateCsvsChunked,
   generateCsvFromRubricObject,
   discoverRubricTitles,
   type RubricDiscovery,
@@ -365,121 +364,59 @@ export const Part2WordToCsv: React.FC = () => {
     // every rubric title before generation starts.
     setRubricResults(metas.map((m) => ({ rubric: m, status: 'pending' })));
 
-    // ── Pass 2: Generate each rubric CSV — strictly sequential ──────────
-    // One rubric fully completes before the next starts, staying within
-    // Gemini's 10 RPM limit.  Adaptive pacing: we record the call start
-    // time and only wait whatever remains of a 6 s minimum gap after the
-    // call finishes.  If the call itself took ≥ 6 s (common for large
-    // rubrics) no extra delay is added, keeping total time as short as
-    // possible while still protecting against rate-limit errors.
-    const MIN_GAP_MS = 6000; // 6 s → safe for 10 RPM
+    // ── Pass 2: Convert the rubrics ────────────────────────────────────
+    // The batching policy lives in generateCsvsChunked, which the analyze-and-deploy panel also
+    // goes through. It used to live here, as a per-rubric loop, and only here — so when the other
+    // screen learned to batch, this one did not, and every document however small paid for one
+    // call per rubric plus a six-second gap between each.
+    const MIN_GAP_MS = 6000; // 6 s → safe inside the per-minute request quota
     const csvResults = new Array<string | null>(metas.length).fill(null);
 
-    /**
-     * One request for the whole document, when the document is small enough to take one.
-     *
-     * The per-rubric loop below is the only route this screen ever had, so a routine three-rubric
-     * document made four Gemini calls and sat through two six-second gaps — where the Part 3
-     * panel, which already branches on BATCH_RUBRIC_LIMIT, would make two calls and wait for
-     * none. This closes that gap: the two screens now take the same route for the same document.
-     *
-     * Conservative on purpose. A batch that throws, or that comes back with a different number of
-     * rubrics than discovery found, leaves `batched` null and the loop runs exactly as before —
-     * so the fast path can only ever be taken when both passes agree about what is in the
-     * document. Cancellation still wins over both.
-     */
-    let batched: string[] | null = null;
-    if (metas.length <= BATCH_RUBRIC_LIMIT) {
-      try {
-        // One request covers every rubric, so every card is genuinely in flight. Without this
-        // they all sit on 'pending' and the bar reads 0% for the whole call, then jumps to 100%.
-        setRubricResults(metas.map((m) => ({ rubric: m, status: 'generating' })));
-        const extracted = await generateAllCsvsFromDoc(attachments[0], controller.signal);
-        if (controller.signal.aborted) { setIsGeneratingAll(false); abortRef.current = null; return; }
+    try {
+      await generateCsvsChunked(attachments[0], metas, {
+        signal: controller.signal,
+        gapMs: MIN_GAP_MS,
+        // Every rubric in a group is genuinely in flight at once, so all their cards spin
+        // together. Without this they would sit on 'pending' for the whole call.
+        onGroupStart: (indices) => {
+          setRubricResults((prev) => {
+            const next = [...prev];
+            for (const i of indices) next[i] = { rubric: metas[i], status: 'generating' };
+            return next;
+          });
+        },
+        onResult: ({ index, csv, error }) => {
+          const rubric = metas[index];
+          csvResults[index] = csv ?? null;
 
-        if (extracted.length === metas.length) {
-          // Prefer matching each card to the rubric that carries its title; fall back to document
-          // order, which both passes read the same way, if the titles do not line up one to one.
-          const norm = (t: string) => t.trim().toLowerCase();
-          const matched = metas.map((m) => extracted.find((r) => norm(r.title) === norm(m.name)));
-          const oneToOne =
-            matched.every(Boolean) &&
-            new Set(matched.map((r) => norm(r!.title))).size === metas.length;
-          batched = oneToOne ? matched.map((r) => r!.csv) : extracted.map((r) => r.csv);
-        }
-      } catch {
-        if (controller.signal.aborted) { setIsGeneratingAll(false); abortRef.current = null; return; }
-        // Anything else and the loop below does the work one rubric at a time, as it always has.
-        setRubricResults(metas.map((m) => ({ rubric: m, status: 'pending' })));
-      }
-    }
+          if (csv === undefined) {
+            setRubricResults((prev) => {
+              const next = [...prev];
+              next[index] = { rubric, status: 'error', error };
+              return next;
+            });
+            return;
+          }
 
-    for (let idx = 0; idx < metas.length; idx++) {
-      if (controller.signal.aborted) break;
-
-      const rubric = metas[idx];
-      const callStart = Date.now();
-
-      // Flip this card from 'pending' (clock) to 'generating' (spinner)
-      setRubricResults((prev) => {
-        const next = [...prev];
-        next[idx] = { rubric, status: 'generating' };
-        return next;
-      });
-
-      try {
-        const csv = batched
-          ? batched[idx]
-          : await generateCsvForRubric(
-              rubric.name,
-              rubric.totalPoints,
-              rubric.scoringMethod,
-              attachments[0],
-              controller.signal,
-            );
-        csvResults[idx] = csv;
-        if (csv) {
           addBatchItem({
-            id: `p2-${Date.now()}-${idx}`,
+            id: `p2-${Date.now()}-${index}`,
             name: rubric.name,
             totalPoints: rubric.totalPoints,
             scoringMethod: rubric.scoringMethod,
             status: BatchItemStatus.COMPLETED,
             csvContent: csv,
           });
-        }
-        setRubricResults((prev) => {
-          const next = [...prev];
-          next[idx] = { rubric, status: 'done', csvContent: csv };
-          return next;
-        });
-      } catch (err: any) {
-        if (!controller.signal.aborted) {
           setRubricResults((prev) => {
             const next = [...prev];
-            next[idx] = { rubric, status: 'error', error: err.message };
+            next[index] = { rubric, status: 'done', csvContent: csv };
             return next;
           });
-        }
-      }
-
-      // Adaptive gap: only wait whatever time remains to reach MIN_GAP_MS
-      // since the call started.  If the call already took ≥ 6 s, skip.
-      // Always skip after the last rubric or if generation was stopped.
-      if (!batched && idx < metas.length - 1 && !controller.signal.aborted) {
-        const elapsed = Date.now() - callStart;
-        const remaining = MIN_GAP_MS - elapsed;
-        if (remaining > 0) {
-          await new Promise<void>((resolve) => {
-            // Listener removed on the normal path too: this gap runs once per rubric against
-            // one long-lived signal, so leaving them attached accumulates across the batch.
-            const onAbort = () => { clearTimeout(timer); cleanup(); resolve(); };
-            const cleanup = () => controller.signal.removeEventListener('abort', onAbort);
-            const timer = setTimeout(() => { cleanup(); resolve(); }, remaining);
-            controller.signal.addEventListener('abort', onAbort, { once: true });
-          });
-        }
-      }
+        },
+      });
+    } catch (err: any) {
+      // Only cancellation escapes generateCsvsChunked; a rubric that cannot be converted is
+      // reported through onResult and the rest of the document carries on.
+      if (!controller.signal.aborted) setError(friendlyError(err));
     }
 
     if (controller.signal.aborted) {
