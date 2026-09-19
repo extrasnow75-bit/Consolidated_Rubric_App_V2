@@ -1,41 +1,76 @@
-## What's new in v0.9.7
+## What's new in v0.9.8
 
-### The app now tells you whether your Canvas token actually works
+### Large documents convert in about a quarter of the time
 
-The Canvas card used to say **"Token saved"** the moment you pasted one in. That only ever meant
-the text had been stored — nothing had tried it. A token that had been revoked, or mistyped, or
-belonged to a different Canvas site looked exactly the same as a working one, and you found out
-when a deploy failed, after the AI had already done its work.
+A document with more than eight rubrics used to be converted one rubric at a time, and every one
+of those requests carried the whole document with it. A twenty-six rubric document therefore sent
+that document twenty-seven times, with a six-second pause between each — roughly four minutes,
+most of it spent re-reading the same file.
 
-It now says which of these is true:
+Rubrics are now converted in groups of eight. The same document takes four requests instead of
+twenty-seven, and finishes in well under a minute.
 
-- **Token checked — Canvas accepted it**
-- **Token saved — not checked yet**
-- **Canvas rejected this token**, with Canvas's own reason
+Groups rather than one single request, because a request that tries to return every rubric at once
+can run past the AI's output limit and lose all of them — which is what used to happen on
+documents around this size. A group that has trouble now costs only the rubrics in it, and those
+are retried individually rather than lost. Documents of eight rubrics or fewer are unaffected;
+they were already a single request.
 
-The check needs to know which Canvas site to ask, and only a course URL says that, so it cannot
-happen the instant you paste the token. It runs when the app starts, against the course you used
-last time, and again whenever a course is confirmed. If you are offline it stays at "not checked
-yet" rather than blaming a token that is probably fine.
+Part 2 was never doing this grouping at all, even for small documents, so converting a three-rubric
+document there took four requests where it should have taken two. Both screens now work the same
+way.
 
-### Cancelling no longer throws away the work already done
+### Rubric descriptions are shorter
 
-Stopping a run part-way used to discard every CSV it had built — including rubrics that had
-already deployed successfully. On a twenty-rubric document, cancelling at eighteen lost all
-twenty, and the offer to download the CSVs never appeared because the run had not "finished".
+Generated rating descriptions had grown to several lines per box. With four boxes per row that
+makes a rubric slow to grade with, and in Canvas's fixed-width rating columns it is a rubric
+students scroll through rather than read.
 
-Each CSV is now kept the moment it is made. Cancel whenever you like and the download offer is
-still there, with everything converted up to that point. The timeline also keeps the deploy
-results as they happen, so a cancelled run still shows what reached Canvas.
+The AI is now asked to keep each description to one sentence — twenty words at most, ten to
+fifteen preferred — and to say what the work actually has, lacks or does inconsistently rather
+than opening with "The student…" and hedging.
 
-The conversion is the slow, expensive part of a run. Losing it because the quick part was
-interrupted was the wrong way round.
+Shorter does not mean vaguer: it is also told that each level must stay unmistakably different
+from the ones above and below it, because the easy way to be brief is to write the same sentence
+four times with the adjective swapped, and that helps nobody.
 
-### Tidying underneath
+**This applies only to rubrics the app writes for you.** A rubric it reads out of your document or
+a screenshot is copied word for word, as it always has been. Your wording is your wording, and
+shortening it would change what students are being graded against.
 
-Three internal connections between the two halves of the app were unused and have been removed.
-Nothing changes on screen; there is simply less of the app able to talk to the part that holds
-your credentials, which is the part worth keeping small.
+### Screen readers are told what is happening
+
+Converting and deploying can take minutes, and until now they happened in complete silence for
+anyone not watching the screen. A run would start, make progress, partly fail and finish without
+announcing any of it.
+
+Each of the three screens that runs a long job now announces the result when it finishes, and the
+progress bars report their percentage to assistive technology so progress can be checked at any
+point without waiting to be told.
+
+### The file pickers work without a mouse
+
+Five of the six "drop a file here, or click to browse" areas could not be reached with the
+keyboard at all — Tab skipped straight past them, so there was no way to load a document, a
+screenshot or a replacement rubric without pointing and clicking. All of them are now reachable by
+Tab and open with Enter or Space. Drag and drop is unchanged.
+
+### The Google Drive browser behaves like a proper dialog
+
+Tab used to walk out of the Drive picker into the page behind it, and closing the picker left the
+keyboard focus nowhere in particular. Tab now stays inside it, and closing it returns you to the
+button you opened it from.
+
+### A new app icon
+
+The icon is now a rubric table above an upload arrow, matching Canvas Extractor Tools, which the
+same people tend to have open at the same time. The two are deliberately near-identical apart from
+the arrow: the Extractor pulls rubrics down out of Canvas, this one pushes them up into it. It also
+reads properly at taskbar and Dock size, which the old one did not.
+
+### Also fixed
+
+- Timestamps in the deployment timeline were too dark to read against their background.
 
 ### Known limits, unchanged
 
