@@ -1,7 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CheckCircle, XCircle, Loader2, Download, Copy, Check, Trash2, ExternalLink } from 'lucide-react';
 import { RubricData, CanvasConfig } from '../types';
-import { generateCsvFromRubricObject, generateAllCsvsFromDoc } from '../services/geminiService';
+import {
+  generateCsvFromRubricObject,
+  generateAllCsvsFromDoc,
+  generateCsvForRubric,
+  discoverRubricTitles,
+} from '../services/geminiService';
 import JSZip from 'jszip';
 import { diagnoseCanvasError, CanvasDiagnosis } from '../utils/diagnoseCanvasError';
 import { CsvRepairPanel } from './CsvRepairPanel';
@@ -14,6 +19,27 @@ import { useCopyAction } from '../hooks/useCopyAction';
  * timeline does not think it has hung.
  */
 const RETRY_DELAY_MS = 2000;
+
+/**
+ * How many rubrics a document may hold before each one is converted on its own.
+ *
+ * The one-request route asks the model for every rubric in the document and needs all of them
+ * back in a single response, which is capped at 64k output tokens. A 26-rubric document reached
+ * that cap four minutes in, the JSON was cut off mid-string, and every rubric converted up to
+ * that point was discarded — one red line, nothing deployed. The cap is on total size, not on the
+ * count, so this threshold is a proxy: eight rubrics of any plausible length fit comfortably.
+ *
+ * Above it, each rubric becomes its own request. There is no shared ceiling then, and a rubric
+ * that fails costs only itself. Below it the single request is kept because it is one call rather
+ * than N+1 and noticeably faster on the small documents that are the common case.
+ */
+const BATCH_RUBRIC_LIMIT = 8;
+
+/**
+ * Gap between per-rubric calls, matching Part 2, which has always converted this way.
+ * Adaptive: only the remainder of the gap is waited out after a call returns.
+ */
+const RUBRIC_CALL_GAP_MS = 6000;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -144,16 +170,52 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
             if (signal.aborted) throw new Error('Cancelled');
             const file = uploadedFiles[i];
             addLog(`Analyzing "${file.name}"…`, 'info');
+            const attachment = { name: file.name, mimeType: file.mimeType, data: file.data };
             try {
-              const extracted = await generateAllCsvsFromDoc(
-                { name: file.name, mimeType: file.mimeType, data: file.data },
-                signal,
-              );
-              addLog(`Found ${extracted.length} rubric(s) in "${file.name}"`, 'success');
-              extracted.forEach((r) => {
-                pending.push({ name: r.title, csvContent: r.csv });
-                addLog(`CSV generated: "${r.title}"`, 'success');
-              });
+              // Count first. This is a cheap call — titles only, no CSV — and it decides which
+              // route the document takes as well as giving the user the list up front.
+              const discovered = await discoverRubricTitles(attachment, signal);
+              addLog(`Found ${discovered.length} rubric(s) in "${file.name}"`, 'success');
+
+              if (discovered.length <= BATCH_RUBRIC_LIMIT) {
+                const extracted = await generateAllCsvsFromDoc(attachment, signal);
+                extracted.forEach((r) => {
+                  pending.push({ name: r.title, csvContent: r.csv });
+                  addLog(`CSV generated: "${r.title}"`, 'success');
+                });
+              } else {
+                addLog(
+                  `Converting them one at a time — more than ${BATCH_RUBRIC_LIMIT} rubrics is too ` +
+                    'much for a single request. This takes longer but nothing is lost if one fails.',
+                  'info',
+                );
+                for (let r = 0; r < discovered.length; r++) {
+                  if (signal.aborted) throw new Error('Cancelled');
+                  const rubric = discovered[r];
+                  const callStart = Date.now();
+                  try {
+                    const csv = await generateCsvForRubric(
+                      rubric.name,
+                      '',
+                      rubric.scoringMethod,
+                      attachment,
+                      signal,
+                    );
+                    // Pushed as it arrives, so a later failure cannot discard the earlier work.
+                    pending.push({ name: rubric.name, csvContent: csv });
+                    addLog(`CSV generated: "${rubric.name}" (${r + 1} of ${discovered.length})`, 'success');
+                  } catch (err: any) {
+                    if (signal.aborted) throw err;
+                    // One rubric, one failure. The rest of the document still deploys.
+                    addLog(`Could not convert "${rubric.name}": ${err.message}`, 'error');
+                  }
+                  // Stay inside the per-minute request limit without adding needless delay.
+                  const waited = Date.now() - callStart;
+                  if (waited < RUBRIC_CALL_GAP_MS && r < discovered.length - 1) {
+                    await new Promise((resolve) => setTimeout(resolve, RUBRIC_CALL_GAP_MS - waited));
+                  }
+                }
+              }
             } catch (err: any) {
               if (signal.aborted) throw err;
               addLog(`Failed to analyze "${file.name}": ${err.message}`, 'error');
