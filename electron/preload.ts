@@ -50,6 +50,15 @@ contextBridge.exposeInMainWorld('api', {
      */
     copyText: (text: string): Promise<boolean> => ipcRenderer.invoke('clipboard:writeText', text),
     /** "Don't show this again" on the notice shown before the first local save. */
+    /**
+     * The first-time "where did my file go?" notice for Save to this computer.
+     *
+     * Deliberately still unused. The settings field, handler and these two channels exist; the
+     * panel itself was never written, and it is worth building only if someone actually asks what
+     * that button does. Left in place rather than deleted because the setting is persisted, so
+     * removing it would mean re-adding the storage later. Every other unused channel was removed
+     * in v0.9.7 — this pair is the exception, on purpose.
+     */
     getHideLocalSaveNotice: (): Promise<boolean> =>
       ipcRenderer.invoke('app:getHideLocalSaveNotice'),
     setHideLocalSaveNotice: (hide: boolean): Promise<void> =>
@@ -130,8 +139,6 @@ contextBridge.exposeInMainWorld('api', {
     ): Promise<
       { ok: true; fileId: string; name: string; mimeType: string } | { ok: false; message: string }
     > => ipcRenderer.invoke('drive:resolveUrl', url),
-    getFileMetadata: (fileId: string): Promise<{ name: string; mimeType: string }> =>
-      ipcRenderer.invoke('drive:getFileMetadata', fileId),
     getDocText: (fileId: string): Promise<string> => ipcRenderer.invoke('drive:getDocText', fileId),
     getSheetCsv: (fileId: string): Promise<string> =>
       ipcRenderer.invoke('drive:getSheetCsv', fileId),
@@ -151,8 +158,6 @@ contextBridge.exposeInMainWorld('api', {
     }): Promise<{ fileId: string; webViewLink: string }> =>
       ipcRenderer.invoke('drive:upload', args),
     /** Takes a file id, not a URL: main builds the address, so this cannot open anything else. */
-    openInBrowser: (fileId: string): Promise<void> =>
-      ipcRenderer.invoke('drive:openInBrowser', fileId),
   },
   gemini: {
     /** Stops a running generation. The job id is chosen by the caller in geminiService.ts. */
@@ -188,7 +193,6 @@ contextBridge.exposeInMainWorld('api', {
   },
   credentials: {
     /** False on a machine with no working keychain, where nothing can be stored safely. */
-    keychainAvailable: (): Promise<boolean> => ipcRenderer.invoke('credentials:keychainAvailable'),
     /** Pass null to forget the stored token. Rejects if the keychain is unavailable. */
     setCanvasToken: (token: string | null): Promise<void> =>
       ipcRenderer.invoke('credentials:setCanvasToken', token),

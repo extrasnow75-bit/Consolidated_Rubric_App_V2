@@ -122,7 +122,3 @@ export function geminiKeyStatus(): CredentialStatus {
   return statusOf(readAll().geminiApiKey)
 }
 
-/** Whether storing anything is possible at all, so the UI can warn before the user types. */
-export function isKeychainAvailable(): boolean {
-  return safeStorage.isEncryptionAvailable()
-}

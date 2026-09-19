@@ -89,7 +89,6 @@ declare global {
           | { ok: true; fileId: string; name: string; mimeType: string }
           | { ok: false; message: string }
         >
-        getFileMetadata(fileId: string): Promise<{ name: string; mimeType: string }>
         getDocText(fileId: string): Promise<string>
         getSheetCsv(fileId: string): Promise<string>
         downloadBytes(fileId: string): Promise<Uint8Array>
@@ -105,7 +104,6 @@ declare global {
           folderId?: string
         }): Promise<{ fileId: string; webViewLink: string }>
         /** Takes a file id, not a URL: main builds the address. */
-        openInBrowser(fileId: string): Promise<void>
       }
       gemini: {
         /**
@@ -180,7 +178,6 @@ declare global {
         }): Promise<BatchRubricResult[]>
       }
       credentials: {
-        keychainAvailable(): Promise<boolean>
         /** Pass null to forget the stored token. Rejects if the keychain is unavailable. */
         setCanvasToken(token: string | null): Promise<void>
         /** Status only — there is no call that returns the token itself. */

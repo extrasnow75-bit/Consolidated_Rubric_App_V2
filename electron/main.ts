@@ -8,7 +8,6 @@ import {
   canvasTokenStatus,
   setGeminiApiKey,
   geminiKeyStatus,
-  isKeychainAvailable,
   type CredentialStatus,
 } from './ipc/credentials'
 import { pushRubric, verifyToken, getCourseName } from './ipc/canvas'
@@ -208,7 +207,6 @@ ipcMain.handle('app:resetZoom', (e) => {
 // Note the asymmetry, which is the point: `set` takes a secret, and the matching read returns a
 // status object. There is deliberately no `getCanvasToken` handler. See credentials.ts.
 
-ipcMain.handle('credentials:keychainAvailable', () => isKeychainAvailable())
 
 ipcMain.handle('credentials:setCanvasToken', (_e, token: string | null) => {
   setCanvasToken(token)
@@ -328,7 +326,6 @@ ipcMain.handle('drive:resolveUrl', async (_e, url: string) => {
   }
 })
 
-ipcMain.handle('drive:getFileMetadata', (_e, fileId: string) => getFileMetadata(fileId))
 ipcMain.handle('drive:getDocText', (_e, fileId: string) => getGoogleDocText(fileId))
 ipcMain.handle('drive:getSheetCsv', (_e, fileId: string) => getGoogleSheetCsv(fileId))
 ipcMain.handle('drive:downloadBytes', (_e, fileId: string) => downloadFileBytes(fileId))
@@ -351,17 +348,6 @@ ipcMain.handle(
   ) => uploadToDrive(args),
 )
 
-/**
- * Open a Drive file in the user's browser.
- *
- * Takes a file id rather than a URL, and builds the address from a constant here. Accepting a URL
- * would turn this into a general "open anything" call from the renderer, which is exactly what
- * the allowlist in externalLinks.ts exists to prevent.
- */
-ipcMain.handle('drive:openInBrowser', async (_e, fileId: string) => {
-  if (!/^[a-zA-Z0-9-_]+$/.test(fileId)) return
-  await openExternalSafely(`https://drive.google.com/open?id=${fileId}`)
-})
 
 // ─── Gemini ───────────────────────────────────────────────────────────────────
 //
