@@ -98,7 +98,7 @@ For a rubric that exists in Canvas but not in any document you can edit. Take a 
 
 ## Rubric document → Canvas *(answer: Yes)*
 
-Upload the rubric document — from your computer or from Google Drive — and give it the URL of the course you want to deploy to. The app confirms the course by name before it does anything, so a mistyped course number is caught before it becomes a rubric in somebody else's course.
+Upload the rubric document — a **Word (.docx) or PDF** file, from your computer or from Google Drive — and give it the URL of the course you want to deploy to. The app confirms the course by name before it does anything, so a mistyped course number is caught before it becomes a rubric in somebody else's course.
 
 Then **Analyze Draft Rubric(s) and Deploy To Canvas**. The app converts each rubric in the document into Canvas's CSV format and pushes it. A document with several rubrics in it is handled as several rubrics.
 
@@ -165,7 +165,7 @@ The app also has a straight-through route: **Part 1** creates the rubric, **Part
 | Google sign-in fails saying the app is not verified, and there is no **Advanced** link | Your Google account has not been added to the approved list. Contact the eCampus Center. |
 | A Word document will not convert | Make sure you are on the current version — this was broken in versions before 0.9.2 for every Word document. |
 | The Gemini key is rejected | Check for a stray space at either end. If it still fails, generate a new key in AI Studio. |
-| Text is too small to read | Use **Ctrl** and **+** or **−** (**Cmd** on a Mac). **Ctrl/Cmd 0** returns to normal. The setting is remembered. |
+| Text is too small to read | Use the **Text size** buttons at the top of the window — **−**, the percentage, and **+**. Clicking the percentage returns it to 100%. **Ctrl** and **+** or **−** (**Cmd** on a Mac) do the same, and **Ctrl/Cmd 0** resets. The setting is remembered. |
 | macOS says the app "is damaged and can't be opened" | The app is fine — Apple hasn't verified it, so your Mac refuses it by default. Run the Terminal line under **The Tool** above, then open it again. |
 | Something failed and you need help | Click **Copy Logs** in the Deployment Timeline header and paste the result into your message. It carries the version, the time, the course and the counts. |
 
@@ -321,7 +321,7 @@ To get it into Google Docs: **Drive → New → File upload**, upload the `.html
 
 `md2doc.py` exists because Google Docs' HTML importer is not a browser. It ignores stylesheets, so every style is inline; it sizes table columns from the first row without expanding spans, so every table gets a flat header row and an explicit `<colgroup>`; and it turns a paragraph border into a stray grey rule, which is why a blockquote is rendered as a one-cell table instead. Those three rules are the same ones `rubricExport.ts` follows in Canvas Extractor Tools, and each was learned by shipping a document that came out wrong.
 
-**When this article is published, put its URL in `HELP_CENTER_ARTICLE_URL` at the top of `HelpCenter.tsx`.** Until then the card in the app reads "coming soon," which is deliberate — a dead link is worse than no link. Use the short Confluence `/wiki/x/` form, which survives the page being renamed or moved; the long `/wiki/spaces/…/pages/…` form does not. Its host is already on the allowlist.
+**`HELP_CENTER_ARTICLE_URL` in `HelpCenter.tsx` currently points at the Google Doc draft of this article, not at Confluence.** When the Confluence page exists, swap it for the short `/wiki/x/` form, which survives the page being renamed or moved between spaces; the long `/wiki/spaces/…/pages/…` form does not. Both hosts are already on the allowlist in `externalLinks.ts`, so nothing else has to change. Setting the constant back to `null` hides the card, which is better than leaving a link that 404s.
 
 ## Secrets and the Google consent screen
 
@@ -357,9 +357,9 @@ Two things about the release page that are already settled, so nobody re-litigat
 
 ## Known gaps and open items
 
-* **Nobody has yet deployed a rubric to a real Canvas course with this build.** The Canvas path is covered by unit tests and the CSV format is pinned by a test that names Extractor Tools' own `ratingPointsLabel`, but the round trip against live Canvas is unverified. It is the first thing to test.
+* **The Canvas round trip is proven.** A ten-rubric Word document was converted and deployed to a live Canvas course in full on 18 September 2026 (v0.9.3). Everything before that release had only unit tests behind it.
 * **Builds are unsigned** on both platforms, hence the SmartScreen warning and the `xattr` line. Removing those needs a paid Apple Developer identity and a Windows code-signing certificate.
-* **`HELP_CENTER_ARTICLE_URL` is still null.** See above.
+* **`HELP_CENTER_ARTICLE_URL` points at the Google Doc draft**, not the published Confluence page. See above.
 * **The Firebase project from the web version** (`updated-rubric-creator`) can be deleted once this app is in use — nothing in the desktop app touches it.
 * **An Internal OAuth client** through a Boise State Workspace Cloud project would remove the test-user list and the weekly re-sign-in. That is the upgrade path if the approved list becomes a burden.
 * **Transfer to the eCampus GitHub org** — remember the Actions secret.

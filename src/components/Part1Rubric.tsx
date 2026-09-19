@@ -7,7 +7,7 @@ import { SegmentedChoice } from './SegmentedChoice';
 import { Loader2, Download, FileText, CheckCircle, ArrowRight, RotateCw, Home, X, Clock, ChevronDown, ChevronUp, Link, Check } from 'lucide-react';
 import ErrorDisplay from './ErrorDisplay';
 import mammoth from 'mammoth';
-import { pdfjsLib } from '../utils/pdfWorker';
+import { extractPdfText } from '../utils/pdfText';
 import { getRecentDocs, saveRecentDoc, RecentDoc } from '../utils/recentDocs';
 
 interface Part1RubricProps {
@@ -176,17 +176,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
       } else if (name.endsWith('.pdf')) {
         // Extract plain text from PDF using pdfjs-dist
         const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        const pageTexts: string[] = [];
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          const pageText = content.items
-            .map((item: any) => item.str)
-            .join(' ');
-          pageTexts.push(pageText);
-        }
-        setAssignmentDescription(pageTexts.join('\n\n'));
+        setAssignmentDescription(await extractPdfText(arrayBuffer, file.name));
 
       } else {
         // Plain text fallback (.txt and others)
@@ -251,14 +241,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
         text = extracted.value;
       } else if (meta.mimeType === 'application/pdf') {
         const arrayBuffer = await downloadDriveFile(fileId);
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        const pageTexts: string[] = [];
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          pageTexts.push(content.items.map((item: any) => item.str).join(' '));
-        }
-        text = pageTexts.join('\n\n');
+        text = await extractPdfText(arrayBuffer, meta.name);
       } else if (meta.mimeType === 'text/plain') {
         const arrayBuffer = await downloadDriveFile(fileId);
         text = new TextDecoder().decode(arrayBuffer);
@@ -311,14 +294,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
       } else if (result.mimeType === 'application/pdf') {
         // PDF — download raw bytes and parse with pdfjs
         const arrayBuffer = await downloadDriveFile(result.fileId);
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        const pageTexts: string[] = [];
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          pageTexts.push(content.items.map((item: any) => item.str).join(' '));
-        }
-        text = pageTexts.join('\n\n');
+        text = await extractPdfText(arrayBuffer, result.name);
 
       } else if (result.mimeType === 'text/plain') {
         // Plain text — download and decode
@@ -509,14 +485,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
         text = result.value;
       } else if (name.endsWith('.pdf')) {
         const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        const pages: string[] = [];
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          pages.push(content.items.map((item: any) => item.str).join(' '));
-        }
-        text = pages.join('\n\n');
+        text = await extractPdfText(arrayBuffer, file.name);
       } else {
         text = await file.text();
       }
@@ -588,14 +557,7 @@ export const Part1Rubric: React.FC<Part1RubricProps> = ({ onAnalyzeDeploy, canAn
           text = extracted.value;
         } else if (mt === 'application/pdf') {
           const ab = await downloadDriveFile(doc.fileId);
-          const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
-          const pages: string[] = [];
-          for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const content = await page.getTextContent();
-            pages.push(content.items.map((item: any) => item.str).join(' '));
-          }
-          text = pages.join('\n\n');
+          text = await extractPdfText(ab, doc.name);
         } else if (mt === 'text/plain') {
           const ab = await downloadDriveFile(doc.fileId);
           text = new TextDecoder().decode(ab);

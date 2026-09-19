@@ -113,6 +113,7 @@ export const Dashboard: React.FC = () => {
   const [hasDraftRubric, setHasDraftRubricLocal] = useState<'' | 'yes' | 'no'>('');
   const [uploadedFiles, setUploadedFiles] = useState<UploadedDocFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [docFileError, setDocFileError] = useState<string | null>(null);
   const [isPasteAreaFocused, setIsPasteAreaFocused] = useState(false);
   /**
    * Google Drive is where this team's documents actually live, so it opens on that tab.
@@ -335,14 +336,36 @@ export const Dashboard: React.FC = () => {
       reader.readAsDataURL(file);
     });
 
+  /**
+   * Accept the same formats the Drive tab beside this one already advertises.
+   *
+   * PDFs used to be dropped here: the file picker filtered them out and a dragged PDF hit the
+   * `return` below, which added nothing and said nothing. The card next to it promised "Google
+   * Docs, Word (.docx), and PDF files stored in Drive", and Part 2 has always taken local PDFs —
+   * so the same file worked from Drive and silently did nothing from the desktop. Nothing in the
+   * main process needed changing: a non-.docx attachment goes to the model as inline data, which
+   * is how the Drive route has been sending PDFs all along.
+   */
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const arr = Array.from(files);
-    const docs = arr.filter((f) =>
+    const isSupported = (f: File) =>
       f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
       f.type === 'application/msword' ||
-      f.name.endsWith('.docx') ||
-      f.name.endsWith('.doc'),
+      f.type === 'application/pdf' ||
+      f.name.toLowerCase().endsWith('.docx') ||
+      f.name.toLowerCase().endsWith('.doc') ||
+      f.name.toLowerCase().endsWith('.pdf');
+
+    const docs = arr.filter(isSupported);
+    const rejected = arr.filter((f) => !isSupported(f));
+
+    // Say what was refused. Returning quietly is what made a dropped PDF look like a broken app.
+    setDocFileError(
+      rejected.length === 0
+        ? null
+        : `${rejected.map((f) => f.name).join(', ')} — this box takes Word (.docx) or PDF files.`,
     );
+
     if (docs.length === 0) return;
     const converted = await Promise.all(
       docs.map(async (f) => ({
@@ -350,7 +373,9 @@ export const Dashboard: React.FC = () => {
         data: await readFileAsBase64(f),
         mimeType:
           f.type ||
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          (f.name.toLowerCase().endsWith('.pdf')
+            ? 'application/pdf'
+            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
       })),
     );
     setUploadedFiles((prev) => {
@@ -768,7 +793,7 @@ export const Dashboard: React.FC = () => {
                       onClick={() => fileInputRef.current?.click()}
                     >
                       <FileText className="w-8 h-8 text-gray-600 mx-auto mb-2" />
-                      <p className="text-sm font-bold text-gray-700">Drop a .docx or .doc file here or click to browse</p>
+                      <p className="text-sm font-bold text-gray-700">Drop a Word (.docx) or PDF file here, or click to browse</p>
                     </div>
                   </>
                 )}
@@ -897,11 +922,26 @@ export const Dashboard: React.FC = () => {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
+                  accept=".docx,.doc,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,application/pdf"
                   multiple
                   className="hidden"
                   onChange={handleFileInput}
                 />
+
+                {/* Mounted only when there is something to say, but announced when it appears: a file
+
+                    silently refused is what made a dropped PDF look like a broken app. */}
+
+                {docFileError && (
+
+                  <p role="alert" className="mt-3 text-sm font-bold text-red-700">
+
+                    {docFileError}
+
+                  </p>
+
+                )}
+
 
                 {uploadedFiles.length > 0 && (
                   <div className="space-y-1">
