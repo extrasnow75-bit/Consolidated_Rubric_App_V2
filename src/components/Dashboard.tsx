@@ -945,6 +945,18 @@ export const Dashboard: React.FC = () => {
 
                 {uploadedFiles.length > 0 && (
                   <div className="space-y-1">
+                    {/*
+                      This list is a queue, not a history. Every file in it is analysed and every
+                      rubric found in it is deployed. It sits below the inputs and just beneath a
+                      section called "Recent Documents", so without a heading it reads as a record
+                      of what has been picked rather than a statement of what is about to happen —
+                      and a file left here by mistake means duplicate rubrics in the course, since
+                      deploying only ever adds and never replaces.
+                    */}
+                    <p className="text-xs font-black text-gray-700 uppercase tracking-widest mb-2">
+                      Will be deployed — {uploadedFiles.length}{' '}
+                      {uploadedFiles.length === 1 ? 'document' : 'documents'}
+                    </p>
                     {uploadedFiles.map((f, i) => (
                       <div key={i} className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm">
                         <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
@@ -1052,7 +1064,9 @@ export const Dashboard: React.FC = () => {
                 : 'bg-gray-200 text-gray-600 cursor-not-allowed shadow-none'
             }`}
           >
-            Analyze Draft Rubric(s) and Deploy To Canvas
+            {uploadedFiles.length > 1
+              ? `Analyze ${uploadedFiles.length} Documents and Deploy To Canvas`
+              : 'Analyze Draft Rubric(s) and Deploy To Canvas'}
           </button>
           {!allRequiredValid && (
             <p className="text-center text-sm text-gray-600 mt-2">

@@ -1,52 +1,32 @@
-## What's new in v0.9.5
+## What's new in v0.9.6
 
-**Install this one.** It replaces the AI model the app runs on, ahead of Google switching the old
-one off on 16 October. Versions up to v0.9.4 will stop working on that date, and may stop sooner
-for anyone creating a new Gemini API key.
+### Documents with a lot of rubrics now work
 
-### The AI model has changed
+A document holding 26 rubrics failed after four minutes with a message about JSON, and deployed
+nothing at all — not even the twenty-odd rubrics it had already converted before it stopped.
 
-The app now uses **gemini-3.5-flash-lite** for reading rubrics, building CSV files and suggesting
-repairs, and **gemini-3.8-flash** for reading a rubric out of a screenshot.
+The app was asking the AI for every rubric in the document in one request, and a single reply has
+a size limit. A long document reaches it, the reply is cut off mid-sentence, and everything in it
+is lost together.
 
-Two reasons, and the deadline is the smaller one.
+**The app now counts the rubrics first.** Up to eight, it works as before — one request, quick.
+Past eight, it converts each rubric on its own. That takes longer, and the timeline names each
+one as it finishes, but there is no shared limit to run into, and a rubric that does fail costs
+only itself: the rest of the document still deploys.
 
-**The old model is being switched off.** Google retires gemini-2.5-flash on 16 October 2026, and
-it has already begun refusing newly created API keys. That would have looked like the app being
-broken for anyone setting it up for the first time, while continuing to work for everyone already
-running it.
+If you split a long document in half to get around this, you no longer need to.
 
-**The new model also has a far bigger free allowance** — roughly 1,500 requests a day rather than
-the 20 a day the full Flash models have been cut to. An ordinary session uses five to ten, and a
-document with twenty rubrics uses twenty-one, so the old allowance would have run out on the first
-afternoon.
+### The list of files now says what it is
 
-Screenshots keep the stronger model on purpose. It is the only place where misreading a digit
-produces a number that looks perfectly valid, so nothing downstream can catch it — everywhere
-else, a bad answer produces a refusal you can see.
+The list under the upload box is not a history of what you have picked. **Every file in it is
+deployed**, and since deploying only ever adds rubrics to a course, a file left there by mistake
+means duplicates you have to delete in Canvas by hand.
 
-### PDFs work everywhere now
+It now has a heading — **"Will be deployed — 2 documents"** — and when more than one file is
+queued the button counts them too: *"Analyze 2 Documents and Deploy To Canvas."* If that number
+is ever a surprise, you find out before Canvas does.
 
-**You can upload a PDF full of rubrics from your computer.** Before, that box took Word files
-only: the file chooser hid PDFs, and a dragged PDF was discarded without a word — no error, no
-file added, nothing. The card beside it offered PDFs from Google Drive, and Part 2 accepted them
-from your computer, so the same file worked or silently did not depending on where it came from.
-
-It also tells you now when it refuses a file, instead of appearing not to have noticed.
-
-**A PDF that no text can be read from now says so.** A scan, or a photograph of a page, is a
-picture of words rather than words, and it cannot be read without OCR, which the app does not do.
-It used to leave the box empty with no explanation. It now names the file and suggests pasting the
-text in instead. That was true in five separate places and is fixed in all of them.
-
-For rubric documents this matters less than you might expect: a scanned rubric sent to the AI is
-read as an image, so it can still work. It is only the assignment-description box in Part 1 that
-needs real text.
-
-### The Help Center links to the article
-
-**Help Center → Resources & Training** now has a link to the Canvas Rubric Creator article. It
-points at the working draft for now and will move to the eCampus Help Center once published.
+The **×** beside a file removes it from the list, as before.
 
 ### Known limits, unchanged
 
