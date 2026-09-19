@@ -103,6 +103,18 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
   const { state: copyState, copy } = useCopyAction();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [results, setResults] = useState<RubricResult[]>([]);
+
+  /**
+   * Every CSV the run has produced, published as each one arrives.
+   *
+   * `results` only ever held finished deploy outcomes, and it was assigned once, after the deploy
+   * loop finished. Cancelling threw past that line, so a run stopped at rubric 18 of 20 discarded
+   * all twenty CSVs — including the ones that had already deployed — and the download offer, being
+   * gated on the run reaching 'complete', had nothing to show either. The expensive half of the
+   * work is the conversion; losing it because the cheap half was interrupted is the wrong way
+   * round.
+   */
+  const [convertedCsvs, setConvertedCsvs] = useState<{ name: string; csvContent: string }[]>([]);
   const [csvPromptAnswer, setCsvPromptAnswer] = useState<'yes' | 'no' | null>(null);
   /**
    * Rubrics that failed and then deployed from an AI repair.
@@ -162,6 +174,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
           addLog(`Converting "${phase1Rubric.title}" to CSV…`, 'info');
           const csv = generateCsvFromRubricObject(phase1Rubric, scoringMethod);
           pending.push({ name: phase1Rubric.title, csvContent: csv });
+          setConvertedCsvs((prev) => [...prev, { name: phase1Rubric.title, csvContent: csv }]);
           setProgress(30);
           addLog(`CSV generated: "${phase1Rubric.title}"`, 'success');
         } else if (uploadedFiles.length > 0) {
@@ -183,6 +196,10 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
                   pending.push({ name: r.title, csvContent: r.csv });
                   addLog(`CSV generated: "${r.title}"`, 'success');
                 });
+                setConvertedCsvs((prev) => [
+                  ...prev,
+                  ...extracted.map((r) => ({ name: r.title, csvContent: r.csv })),
+                ]);
               } else {
                 addLog(
                   `Converting them one at a time — more than ${BATCH_RUBRIC_LIMIT} rubrics is too ` +
@@ -203,6 +220,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
                     );
                     // Pushed as it arrives, so a later failure cannot discard the earlier work.
                     pending.push({ name: rubric.name, csvContent: csv });
+                    setConvertedCsvs((prev) => [...prev, { name: rubric.name, csvContent: csv }]);
                     addLog(`CSV generated: "${rubric.name}" (${r + 1} of ${discovered.length})`, 'success');
                   } catch (err: any) {
                     if (signal.aborted) throw err;
@@ -296,6 +314,9 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
             break;
           }
 
+          // Published each time round, so a cancelled deploy still shows what did reach Canvas.
+          setResults([...finalResults]);
+
           const deployPct = 40 + Math.round(((i + 1) / pending.length) * 60);
           setProgress(deployPct);
           const elapsed = Date.now() - startTimeRef.current;
@@ -303,7 +324,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
           setEstimatedMs(pct > 0 ? elapsed / pct : 0);
         }
 
-        setResults(finalResults);
+        setResults([...finalResults]);
         const successCount = finalResults.filter((r) => r.status === 'success').length;
         const failCount = finalResults.filter((r) => r.status === 'failed').length;
         addLog(
@@ -344,7 +365,9 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
   };
 
   const handleDownloadCsvs = async () => {
-    const withCsv = results.filter((r) => r.csvContent);
+    // From the converted list rather than from deploy results: a rubric that never reached Canvas
+    // still has a CSV worth keeping, and after a cancel it is the only record of the work.
+    const withCsv = convertedCsvs;
     if (withCsv.length === 0) return;
     // Saved through the native dialog: an anchor-click download does not work from a file://
     // page, and used to fail silently.
@@ -353,12 +376,12 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
         defaultName: `${withCsv[0].name.replace(/[^a-z0-9]/gi, '_')}.csv`,
         ext: 'csv',
         label: 'CSV file',
-        content: withCsv[0].csvContent!,
+        content: withCsv[0].csvContent,
       });
     } else {
       const zip = new JSZip();
       withCsv.forEach((r) => {
-        zip.file(`${r.name.replace(/[^a-z0-9]/gi, '_')}.csv`, r.csvContent!);
+        zip.file(`${r.name.replace(/[^a-z0-9]/gi, '_')}.csv`, r.csvContent);
       });
       // uint8array rather than blob: the bytes have to cross IPC, and a Blob does not.
       const bytes = (await zip.generateAsync({ type: 'uint8array' })) as Uint8Array;
@@ -614,7 +637,7 @@ export const AnalyzeDeploySection: React.FC<Props> = ({
         </div>
 
         {/* CSV download prompt — shown after completion if CSVs are available */}
-        {runStatus === 'complete' && results.some((r) => r.csvContent) && csvPromptAnswer === null && (
+        {runStatus !== 'running' && convertedCsvs.length > 0 && csvPromptAnswer === null && (
           <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap items-center gap-3">
             <span className="text-sm font-bold text-gray-700">
               Would you like CSV versions of each rubric?
